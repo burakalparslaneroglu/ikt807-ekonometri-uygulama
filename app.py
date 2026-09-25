@@ -7,6 +7,7 @@ from pathlib import Path
 import streamlit as st
 
 from core.app_config import APP_CONFIG
+from core.codegen.base import LANGUAGES
 from core.session_utils import synchronize_active_topic
 from core.topic_registry import get_topic, list_topics
 from core.ui_preferences import (
@@ -86,6 +87,17 @@ def main() -> None:
             key="topic_selector",
             label_visibility="collapsed",
         )
+        st.divider()
+        st.markdown("#### Kod dili")
+        st.segmented_control(
+            "Kod dili",
+            options=LANGUAGES,
+            default=LANGUAGES[0],
+            key="code_language",
+            label_visibility="collapsed",
+            width="stretch",
+        )
+        st.caption("Uygulama sekmelerindeki kodlar bu dilde gösterilir.")
         st.divider()
         st.markdown("#### Görünüm")
         selected_scale = st.selectbox(

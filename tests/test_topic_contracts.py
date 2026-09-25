@@ -51,11 +51,29 @@ def test_each_topic_module_exports_render() -> None:
         assert TOPIC_RENDERERS[key] is module.render
 
 
+# Uygulama + Sezgi yapısına geçmiş konular: kod üç dilde, tek tanımdan üretilir.
+MIGRATED_TOPICS = {"konu01"}
+
+
 def test_each_topic_exposes_code_downloads_in_all_four_sections() -> None:
     for key, module_name in TOPIC_MODULES.items():
+        if key in MIGRATED_TOPICS:
+            continue
         module = importlib.import_module(module_name)
         source = inspect.getsource(module)
         assert source.count("render_reproduction_code(TOPIC_KEY") == 4, key
+
+
+def test_migrated_topics_use_application_and_intuition_tabs() -> None:
+    from core.labs.registry import get_lab
+
+    for key in MIGRATED_TOPICS:
+        module = importlib.import_module(TOPIC_MODULES[key])
+        source = inspect.getsource(module)
+        assert get_lab(key) is not None, key
+        assert "render_lab(" in source and "render_experiments(" in source, key
+        assert "render_quiz(" in source and "render_question(" not in source, key
+        assert "render_reproduction_code(" not in source, key
 
 
 def test_unknown_topic_is_rejected() -> None:

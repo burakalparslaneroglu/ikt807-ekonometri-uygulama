@@ -4,51 +4,83 @@
 
 Uygulama üç katmandan oluşur:
 
-1. \`app.py\` ortak sayfa kabuğunu kurar ve seçili konuya yönlendirir.
-2. \`topics/\` Streamlit bileşenlerini ve öğrenciye gösterilen metni oluşturur.
-3. \`core/\` Streamlit'ten bağımsız metadata, veri doğrulama, sonuç sözleşmesi, state geçişi ve soru seçimini taşır.
+1. `app.py` ortak sayfa kabuğunu kurar ve seçili konuya yönlendirir.
+2. `topics/` Streamlit bileşenlerini ve öğrenciye gösterilen metni oluşturur.
+3. `core/` Streamlit'ten bağımsız metadata, veri doğrulama, sonuç sözleşmesi, state geçişi ve soru seçimini taşır.
 
-Ekonometrik hesaplama yalnız \`core/\` altında yer alır. Plotly figürü oluşturma ve Streamlit yerleşimi \`topics/\` katmanında kalır.
+Ekonometrik hesaplama yalnız `core/` altında yer alır. Plotly figürü oluşturma ve Streamlit yerleşimi `topics/` katmanında kalır.
 
 Konu 01-12 sayısal sahipliği:
 
-- \`core/ols.py\`: OLS, projeksiyon değişmezleri ve FWL.
-- \`core/inference.py\`: klasik, HC1, küme kovaryansı ve delta yöntemi.
-- \`core/diagnostics.py\`: kaldıraç, studentized artık ve Cook uzaklığı.
-- \`core/functional_forms.py\`: log, karesel ve etkileşim yorum dönüşümleri.
-- \`core/simulation.py\`: seed kontrollü ücret ve çıkarım DGP'si.
-- \`core/datasets.py\`: dışarıdan sağlanan hazırlanmış CPS CSV adaptörü.
-- \`core/causal.py\`: potansiyel sonuç, seçim ayrıştırması, içsellik limiti ve okul-kümeli deney DGP'si.
-- \`core/iv.py\`: koşullu Wald, ilk aşama, robust 2SLS ve zayıf araç Monte Carlo hesapları.
-- \`core/discrete.py\`: LPM, Logit, Probit ve ikili sonuç DGP sözleşmeleri.
-- \`core/marginal_effects.py\`: AME, kukla sonlu farkı ve delta-yöntemi standart hataları.
-- \`core/limited_outcomes.py\`: Tobit MLE, koşullu beklentiler ve Heckman iki aşama.
-- \`core/quantile.py\`: check-loss, doğrusal program benchmark'ı ve robust kantil profilleri.
-- \`core/nonparametric.py\`: kernel ağırlıkları, yerel sabit/doğrusal tahmin ve spline seri yaklaşımı.
-- \`core/cross_validation.py\`: gözlem veya küme bazlı dış-kat bandwidth seçimi.
-- \`core/partialling.py\`: kısmen doğrusal model için örneklem-içi esnek artıklaştırma.
-- \`core/rdd.py\`: sharp/fuzzy yerel polinom RDD, etkin örneklem ve tasarım tanıları.
-- \`core/resampling.py\`: gözlem veya küme biriminde seed'li yeniden örnekleme indeksleri.
-- \`core/bootstrap.py\`: pairs/wild OLS bootstrap dağılımları ve güven aralıkları.
-- \`core/regularization.py\`: seyrek DGP, Ridge/Lasso katsayı yolları ve yanlılık-varyans eğrisi.
-- \`core/pipelines.py\`: kat-içi ölçeklemeli Lasso CV, 1-SE kuralı ve ayrılmış test karşılaştırması.
-- \`core/dml.py\`: double selection, gözlem/grup bazlı cross-fitting ve ortogonal hedef tahmini.
-- \`core/research_workflow.py\`: tahmin hedefinden yeniden üretilebilirliğe araştırma denetim aşamaları.
-- \`core/code_recipes.py\`: 48 laboratuvar bölümü için bağımsız Python betiği ve Colab not defteri üretimi.
+- `core/ols.py`: OLS, projeksiyon değişmezleri ve FWL.
+- `core/inference.py`: klasik, HC1, küme kovaryansı ve delta yöntemi.
+- `core/diagnostics.py`: kaldıraç, studentized artık ve Cook uzaklığı.
+- `core/functional_forms.py`: log, karesel ve etkileşim yorum dönüşümleri.
+- `core/simulation.py`: seed kontrollü ücret ve çıkarım DGP'si.
+- `core/datasets.py`: dışarıdan sağlanan hazırlanmış CPS CSV adaptörü.
+- `core/causal.py`: potansiyel sonuç, seçim ayrıştırması, içsellik limiti ve okul-kümeli deney DGP'si.
+- `core/iv.py`: koşullu Wald, ilk aşama, robust 2SLS ve zayıf araç Monte Carlo hesapları.
+- `core/discrete.py`: LPM, Logit, Probit ve ikili sonuç DGP sözleşmeleri.
+- `core/marginal_effects.py`: AME, kukla sonlu farkı ve delta-yöntemi standart hataları.
+- `core/limited_outcomes.py`: Tobit MLE, koşullu beklentiler ve Heckman iki aşama.
+- `core/quantile.py`: check-loss, doğrusal program benchmark'ı ve robust kantil profilleri.
+- `core/nonparametric.py`: kernel ağırlıkları, yerel sabit/doğrusal tahmin ve spline seri yaklaşımı.
+- `core/cross_validation.py`: gözlem veya küme bazlı dış-kat bandwidth seçimi.
+- `core/partialling.py`: kısmen doğrusal model için örneklem-içi esnek artıklaştırma.
+- `core/rdd.py`: sharp/fuzzy yerel polinom RDD, etkin örneklem ve tasarım tanıları.
+- `core/resampling.py`: gözlem veya küme biriminde seed'li yeniden örnekleme indeksleri.
+- `core/bootstrap.py`: pairs/wild OLS bootstrap dağılımları ve güven aralıkları.
+- `core/regularization.py`: seyrek DGP, Ridge/Lasso katsayı yolları ve yanlılık-varyans eğrisi.
+- `core/pipelines.py`: kat-içi ölçeklemeli Lasso CV, 1-SE kuralı ve ayrılmış test karşılaştırması.
+- `core/dml.py`: double selection, gözlem/grup bazlı cross-fitting ve ortogonal hedef tahmini.
+- `core/research_workflow.py`: tahmin hedefinden yeniden üretilebilirliğe araştırma denetim aşamaları.
+- `core/code_recipes.py`: Sezgi sekmesindeki 48 bölüm için bağımsız Python betiği ve Colab not defteri üretimi.
+- `core/labs/spec.py`: ders notu laboratuvar şeması (işlemler, notlardaki sayılar, tekrarlanabilirlik sınıfı).
+- `core/labs/expr.py`: türetilmiş değişkenler ve katsayı dönüşümleri için küçük ifade dili; pandas'ta değerlendirilir ve üç dile çevrilir.
+- `core/labs/runner.py`: laboratuvarı pandas + statsmodels formül arayüzüyle çalıştırır ve notlarla karşılaştırır.
+- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1).
+- `core/labs/sezgi.py`: Sezgi deneylerinin şeması (soru, DGP, parametreler, ölçüler, yorum).
+- `core/labs/sezgi_konuNN.py`: konu deneyleri (şu an Konu 1'de üç deney).
+- `topics/sim_ui.py`: Sezgi sekmesinin ortak arayüzü.
+- `core/quiz/model.py`: "Kendini sına" soru türleri ve notlandırma kuralları.
+- `core/quiz/expression.py`: öğrencinin yazdığı formülü güvenli okuma (eval yok; izinli sözdizimi ağacı), LaTeX önizleme ve sayısal eşdeğerlik.
+- `core/quiz/konuNN.py`: konu soru setleri (şu an Konu 1, 25 soru).
+- `topics/quiz_ui.py`: "Kendini sına" sekmesinin arayüzü.
+- `core/codegen/`: Python, R ve Stata üreticileri.
+- `core/hansen_data.py`: Hansen veri arşivi indirme, arşivde dosya bulma, yüklenen dosyayı doğrulama.
+
+## Uygulama laboratuvarı akışı
+
+Bir konu laboratuvarı tek bir `LabSpec` tanımıdır ve dört çıktıyı birlikte besler:
+
+1. `topics/lab_ui.py` adımları, tabloları, grafikleri ve kodu gösterir.
+2. `core/labs/runner.py` hesabı yapar; her `Check` notlarda basılı bir sayıdır.
+3. `core/codegen/` aynı işlemleri Python, R ve Stata'ya çevirir.
+4. `tests/test_lab_konuNN.py` uygulamanın ve üretilen Python/R kodunun notlardaki sayıları ürettiğini doğrular.
+
+Yeni bir konu eklemek, yeni bir `LabSpec` yazmak ve gerekiyorsa üç üreticiye yeni işlem türünü öğretmek demektir. Bir sayı veya işlem yalnız tanımda değişir.
+
+## Sezgi deneyleri
+
+Bir Sezgi deneyi (`SimExperiment`), kaydırıcı değerlerinden işlem listesi üreten bir tanımdır. Simülasyon işlemleri (`NewSample`, `Draw`) Python'da `numpy.random.default_rng` ile uygulamayla aynı sırada çekiliş yapar; bu yüzden üretilen Python kodu uygulamadaki sayıların aynısını verir. R (`set.seed` + `rnorm`) ve Stata (`set seed` + `rnormal()`) aynı dağılımdan farklı çekiliş yapar; deneyler "yalnız dağılımda aynı" sınıfındadır.
+
+Grafikler katmanlardan kurulur (`MeanPoints`, `Scatter`, `Curve`, `ModelLine`, `ZeroLine`); katman renkleri `core/codegen/base.layer_styles` ile uygulamada ve üç dilde aynıdır.
+
+Konu 1 yeni yapıya taşındığı için `core/code_recipes.py` içindeki konu01 tarifleri arayüzde kullanılmaz; diğer konular taşınınca kaldırılacaktır.
 
 ## Registry akışı
 
-\`core/topic_registry.py\` 12 konu için tek başlık ve pedagojik metadata kaynağıdır. Sidebar seçenekleri, konu başlığı, araştırma sorusu, estimand, tanımlama odağı ve başlangıç soruları aynı kayıttan okunur.
+`core/topic_registry.py` 12 konu için tek başlık ve pedagojik metadata kaynağıdır. Sidebar seçenekleri, konu başlığı, araştırma sorusu, estimand, tanımlama odağı ve başlangıç soruları aynı kayıttan okunur.
 
-\`core/data_registry.py\` veri kaynağı, gözlem birimi, örneklem kısıtı, beklenen sütunlar, izinli konular, küme ve yeniden örnekleme birimi ile yeniden dağıtım durumunu tutar. \`core/datasets.py\` bu şemayı çalışma zamanında doğrular; lisans kapısı çözülene kadar gerçek veri depoya alınmaz.
+`core/data_registry.py` veri kaynağı, gözlem birimi, örneklem kısıtı, beklenen sütunlar, izinli konular, küme ve yeniden örnekleme birimi ile yeniden dağıtım durumunu tutar. `core/datasets.py` bu şemayı çalışma zamanında doğrular; lisans kapısı çözülene kadar gerçek veri depoya alınmaz.
 
 ## State akışı
 
-Konu değiştiğinde \`core/session_utils.py\` önceki konunun soru indeksini ve cevap görünürlüğünü sıfırlar. Metin ölçeği konu state'inden bağımsızdır. Yeni soru cevap görünürlüğünü kapatır.
+Konu değiştiğinde `core/session_utils.py` önceki konunun soru indeksini ve cevap görünürlüğünü sıfırlar. Metin ölçeği konu state'inden bağımsızdır. Yeni soru cevap görünürlüğünü kapatır.
 
 ## Sonuç sözleşmesi
 
-\`core/types.py\` içindeki \`ModelResult\`, \`EstimandMetadata\`, \`InferenceSpec\` ve \`TuningSpec\` daha sonraki yöntem dallarının ortak sözleşmesidir. Kovaryans, cluster, seed, bandwidth, lambda, fold ve optimizasyon ayarları örtük varsayılan olarak bırakılmaz.
+`core/types.py` içindeki `ModelResult`, `EstimandMetadata`, `InferenceSpec` ve `TuningSpec` daha sonraki yöntem dallarının ortak sözleşmesidir. Kovaryans, cluster, seed, bandwidth, lambda, fold ve optimizasyon ayarları örtük varsayılan olarak bırakılmaz.
 
 ## Test katmanları
 
@@ -66,8 +98,19 @@ Konu değiştiğinde \`core/session_utils.py\` önceki konunun soru indeksini ve
 
 ## Öğrenci kodu akışı
 
-Her konu sekmesi \`render_reproduction_code\` ile merkezi tarif kaydına bağlanır. Python çıktısı sabit rastgelelik tohumu, veri hazırlama, tahmin ve raporlama adımlarını içerir. Colab çıktısı aynı kodu ve açık paket kurulum hücresini taşır. Gerçek CPS/DDK dosyaları yalnız öğrenci tarafından sağlanır; yokluğunda kontrollü öğretim örneği kullanılır.
+Her konu sekmesi `render_reproduction_code` ile merkezi tarif kaydına bağlanır. Python çıktısı sabit rastgelelik tohumu, veri hazırlama, tahmin ve raporlama adımlarını içerir. Colab çıktısı aynı kodu ve açık paket kurulum hücresini taşır. Gerçek CPS/DDK dosyaları yalnız öğrenci tarafından sağlanır; yokluğunda kontrollü öğretim örneği kullanılır.
 
 ## Veri yayınlama kapısı
 
-Gerçek CSV/DTA dosyaları \`references_private/\` altında yerel tutulur. Açık lisans veya yazılı yeniden dağıtım izni doğrulanmadan \`data/\` altında public kopya oluşturulmaz.
+Gerçek CSV/DTA dosyaları `references_private/` altında yerel tutulur. Açık lisans veya yazılı yeniden dağıtım izni doğrulanmadan `data/` altında public kopya oluşturulmaz.
+
+## Kendini sına
+
+Her soru tek bir kavramı sınar (`concept` alanı); aynı sette iki soru aynı kavramı sınayamaz ve setin
+beyan ettiği bütün not bölümleri en az bir soruyla kapsanır. Bu iki kural testle denetlenir. Sorular
+notların bölüm sonu egzersizlerini tekrar etmez. Sayısal cevaplar notlardaki basılı değerlerden
+alınır ve gerçek veriyle test edilir.
+
+Denklem soruları için öğrenci girdisi Python sözdizimi ağacına çevrilir; yalnız sayılar, tanımlı
+semboller, `+ - * / ^` ve `exp/log/sqrt` kabul edilir. Eşdeğerlik, sembollerin rastgele değerlerinde
+sayısal karşılaştırmayla sınanır.

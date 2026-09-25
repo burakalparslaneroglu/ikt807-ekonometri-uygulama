@@ -33,33 +33,37 @@ def test_topic_switch_and_text_scale_are_independent() -> None:
 
 
 def test_question_answer_and_new_question_state() -> None:
+    """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
+
     app = _run_app()
-    app.button(key="konu01_toggle_answer").click().run()
+    app.radio(key="topic_selector").set_value("konu02").run()
+    app.button(key="konu02_toggle_answer").click().run()
     assert not app.exception
-    assert app.session_state["konu01_answer_visible"] is True
+    assert app.session_state["konu02_answer_visible"] is True
     assert len(app.success) == 1
 
-    app.button(key="konu01_new_question").click().run()
-    assert app.session_state["konu01_answer_visible"] is False
-    assert app.session_state["konu01_question_index"] == 1
+    app.button(key="konu02_new_question").click().run()
+    assert app.session_state["konu02_answer_visible"] is False
+    assert app.session_state["konu02_question_index"] == 1
     assert len(app.success) == 0
 
 
-def test_topic_01_mechanism_and_private_data_mode() -> None:
+def test_topic_01_intuition_experiments_are_interactive() -> None:
     app = _run_app()
     assert not app.exception
-    assert app.slider(key="konu01_nonlinear").value == 0.6
-    assert any(metric.label == "OLS eğitim katsayısı" for metric in app.metric)
+    assert app.segmented_control(key="konu01_sezgi_deney").value == 1
+    assert app.slider(key="konu01_sezgi1_gamma").value == 0.01
+    assert any(metric.label == "OLS eğimi β̂₁" for metric in app.metric)
 
-    app.slider(key="konu01_confounding").set_value(1.0).run()
+    app.slider(key="konu01_sezgi1_gamma").set_value(0.0).run()
     assert not app.exception
-    assert any("nedensel getiri" in item.value for item in app.warning)
+    target = next(metric for metric in app.metric if metric.label == "Hedef eğim β₁")
+    assert target.value == "0,0800"
 
-    app.segmented_control(key="konu01_data_source").set_value(
-        "Hazırlanmış CPS CSV"
-    ).run()
+    app.segmented_control(key="konu01_sezgi_deney").set_value(3).run()
     assert not app.exception
-    assert any("Lisansı doğrulanmamış CPS" in item.value for item in app.info)
+    assert app.slider(key="konu01_sezgi3_pi").value == 1.2
+    assert any(metric.label == "Nedensel etki (DGP)" for metric in app.metric)
 
 
 def test_topic_02_regression_labs_are_interactive() -> None:
