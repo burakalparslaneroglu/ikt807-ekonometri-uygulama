@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from core.labs.konu01 import KONU01_LAB
+from core.labs.konu02 import KONU02_LAB
 from core.labs.spec import LabSpec
 
 LABS: dict[str, LabSpec] = {
     KONU01_LAB.topic_key: KONU01_LAB,
+    KONU02_LAB.topic_key: KONU02_LAB,
 }
 
 

@@ -181,6 +181,19 @@ class Draw:
 
 
 @dataclass(frozen=True)
+class ClusterDraw:
+    """Küme düzeyinde rastgele şok: aynı kümedeki bütün gözlemler aynı değeri alır."""
+
+    frame: str
+    name: str
+    cluster: str
+    groups: int
+    first: float
+    second: float
+    comment: str
+
+
+@dataclass(frozen=True)
 class Predict:
     """Bir modelin uyum değerlerini veya artıklarını veri çerçevesine yazar."""
 
@@ -252,7 +265,49 @@ class Plot:
     title: str
 
 
+@dataclass(frozen=True)
+class StandardErrorTable:
+    """Aynı modeller için katsayı, klasik ve HC1 standart hata, R² yan yana."""
+
+    models: tuple[str, ...]
+    term: str
+    result: str
+
+
+@dataclass(frozen=True)
+class BreuschPagan:
+    """Breusch–Pagan (Koenker, n·R²) testi; regresörler modelin kendi regresörleridir."""
+
+    model: str
+    name: str
+
+
+@dataclass(frozen=True)
+class LinearCombination:
+    """Katsayıların doğrusal birleşimi a'β ve standart hatası √(a'Va)."""
+
+    name: str
+    model: str
+    weights: tuple[tuple[str, float], ...]
+    comment: str
+
+
+@dataclass(frozen=True)
+class DeltaMethod:
+    """Katsayıların doğrusal olmayan bir fonksiyonu g(β) ve delta yöntemiyle standart hatası."""
+
+    name: str
+    model: str
+    expr: Expr
+    comment: str
+
+
 Operation = Union[
+    ClusterDraw,
+    StandardErrorTable,
+    BreuschPagan,
+    LinearCombination,
+    DeltaMethod,
     NewSample,
     Draw,
     Predict,

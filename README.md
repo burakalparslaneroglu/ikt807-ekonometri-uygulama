@@ -11,7 +11,7 @@ Her konu iki sekmeden oluşur:
 
 - **Kendini sına:** haftanın kavramlarını sınayan soru seti. Dört tür: çoktan seçmeli, doğru–yanlış, boşluk doldurma ve denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; yanlış cevaplara göre tekrar edilecek bölümler listelenir. Denklem sorularında yazılan formül anında önizlenir ve doğru cevaba eşdeğerliği sayısal olarak sınanır (`100(exp(b)-1)` ile `100*exp(b)-100` aynı kabul edilir).
 
-Yeni yapı şu an **Konu 1** için hazırdır: Uygulama (Notlar §1.13, Adım 1–9, 39 sayısal kontrol), Sezgi (üç deney: koşullu ortalama ile OLS doğrusu, OLS artıklarının cebirsel özellikleri, OLS eğimi ile nedensel etki) ve Kendini sına (25 soru). Diğer konular ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
+Yeni yapı şu an **Konu 1 ve 2** için hazırdır. Konu 1: Uygulama (Notlar §1.13, 39 sayısal kontrol), Sezgi (koşullu ortalama ile OLS doğrusu; OLS artıklarının cebirsel özellikleri; OLS eğimi ile nedensel etki), Kendini sına (25 soru). Konu 2: Uygulama (Notlar §2.13, 19 sayısal kontrol: klasik ve HC1 standart hatalar, Breusch–Pagan, etkileşimde doğrusal birleşim, delta yöntemi), Sezgi (heteroskedastisite; FWL ve eksik değişken; kümelenmiş veri), Kendini sına (24 soru). Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
 
 ### Üç dilde aynı sayı sözleşmesi
 

@@ -16,6 +16,11 @@ import statsmodels.formula.api as smf
 from core.labs import expr as E
 from core.labs.spec import (
     OLS,
+    BreuschPagan,
+    ClusterDraw,
+    DeltaMethod,
+    LinearCombination,
+    StandardErrorTable,
     Check,
     CoefTarget,
     Curve,
@@ -159,8 +164,12 @@ def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
 
 def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) -> None:
     if isinstance(op, NewSample):
-        state.frames[op.frame] = pd.DataFrame(index=range(op.nobs))
+        state.frames[op.frame] = pd.DataFrame({"id": np.arange(1, op.nobs + 1)})
         state.rngs[op.frame] = np.random.default_rng(op.seed)
+    elif isinstance(op, ClusterDraw):
+        frame, rng = state.frames[op.frame], state.rngs[op.frame]
+        shocks = rng.normal(op.first, op.second, size=op.groups)
+        frame[op.name] = shocks[frame[op.cluster].astype(int).to_numpy() - 1]
     elif isinstance(op, Draw):
         frame, rng = state.frames[op.frame], state.rngs[op.frame]
         if op.distribution == "normal":
@@ -185,6 +194,44 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         )
     elif isinstance(op, Plot):
         state.plots[f"grafik:{op.title}"] = _plot_data(op, state)
+    elif isinstance(op, StandardErrorTable):
+        rows = []
+        for name in op.models:
+            result = state.models[name]
+            rows.append(
+                {
+                    "model": name,
+                    "katsayi": float(result.params[op.term]),
+                    "klasik_sh": float(result.bse[op.term]),
+                    "hc1_sh": float(result.HC1_se[op.term]),
+                    "r2": float(result.rsquared),
+                }
+            )
+        state.tables[op.result] = pd.DataFrame(rows).set_index("model")
+    elif isinstance(op, BreuschPagan):
+        from statsmodels.stats.diagnostic import het_breuschpagan
+
+        result = state.models[op.model]
+        lm, p_value, _, _ = het_breuschpagan(result.resid, result.model.exog)
+        state.scalars[f"{op.name}_lm"] = float(lm)
+        state.scalars[f"{op.name}_p"] = float(p_value)
+        state.scalars[f"{op.name}_df"] = float(result.model.exog.shape[1] - 1)
+    elif isinstance(op, LinearCombination):
+        result = state.models[op.model]
+        terms = [statsmodels_term(term) for term, _ in op.weights]
+        weights = np.array([weight for _, weight in op.weights], dtype=float)
+        covariance = result.cov_params().loc[terms, terms].to_numpy()
+        state.scalars[op.name] = float(weights @ result.params[terms].to_numpy())
+        state.scalars[f"{op.name}_se"] = float(np.sqrt(weights @ covariance @ weights))
+    elif isinstance(op, DeltaMethod):
+        result = state.models[op.model]
+        lookup = _coefficient(state)
+        coefs = E.coefficients(op.expr)
+        gradient = np.array([float(E.evaluate(E.derivative(op.expr, c), coefficient=lookup)) for c in coefs])
+        terms = [statsmodels_term(c.term) for c in coefs]
+        covariance = result.cov_params().loc[terms, terms].to_numpy()
+        state.scalars[op.name] = float(E.evaluate(op.expr, coefficient=lookup))
+        state.scalars[f"{op.name}_se"] = float(np.sqrt(gradient @ covariance @ gradient))
     elif isinstance(op, LoadHansen):
         if op.dataset not in sources:
             raise ValueError(f"'{op.dataset}' verisi yüklenmemiş.")
@@ -274,6 +321,8 @@ def evaluate_target(target, state: LabState) -> float:
             return float(result.params[term])
         if target.quantity == "se":
             return float(result.bse[term])
+        if target.quantity == "se_hc1":
+            return float(result.HC1_se[term])
         raise ValueError(f"Desteklenmeyen katsayı niceliği: {target.quantity}")
     if isinstance(target, ModelTarget):
         result = state.models[target.model]

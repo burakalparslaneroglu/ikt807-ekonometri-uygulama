@@ -242,3 +242,15 @@ def render_step(spec: LabSpec, number: int, language: str) -> str:
 
 def script_filename(spec: LabSpec, language: str) -> str:
     return f"ikt807_{spec.topic_key}_uygulama.{LANGUAGE_INFO[language].extension}"
+
+def categorical_comment(op, comment: str) -> str:
+    """Kategorik regresörler için doğru açıklama: doymuş model mi, kukla kontroller mi."""
+
+    if op.categorical and all(r in op.categorical for r in op.regressors):
+        return f"{comment} Doymuş model: {', '.join(op.categorical)} değişkeninin her değeri için ayrı bir kukla"
+    names = ", ".join(op.categorical)
+    return f"{comment} {names} kategorik: her düzey için bir kukla, ilk düzey referans"
+
+
+def continuous_terms(op) -> list[str]:
+    return [r for r in op.regressors if r not in op.categorical]

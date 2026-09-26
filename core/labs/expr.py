@@ -52,7 +52,7 @@ class Coef:
 Expr = Union[Var, Const, BinOp, Call, Coef]
 
 BINARY_OPS = ("+", "-", "*", "/", "^")
-FUNCTIONS = ("log", "exp", "sqrt", "maximum", "minimum", "round")
+FUNCTIONS = ("log", "exp", "sqrt", "maximum", "minimum", "round", "floor")
 _BINARY_FUNCTIONS = ("maximum", "minimum")
 _PRECEDENCE = {"+": 1, "-": 1, "*": 2, "/": 2, "^": 3}
 _ATOM = 4
@@ -108,6 +108,10 @@ def maximum(a, b) -> Call:
 
 def minimum(a, b) -> Call:
     return Call("minimum", (_wrap(a), _wrap(b)))
+
+
+def floor(a) -> Call:
+    return Call("floor", (_wrap(a),))
 
 
 def rounded(a) -> Call:
@@ -199,6 +203,8 @@ def evaluate(
             return np.sqrt(values[0])
         if expr.fn == "round":
             return np.rint(values[0])
+        if expr.fn == "floor":
+            return np.floor(values[0])
         if expr.fn == "minimum":
             return np.minimum(values[0], values[1])
         return np.maximum(values[0], values[1])
@@ -252,3 +258,88 @@ def render(expr: Expr, dialect: Dialect) -> str:
         right = f"({right})"
     symbol = dialect.power if expr.op == "^" else expr.op
     return f"{left} {symbol} {right}"
+
+
+# --- Sembolik türev (delta yöntemi için) --------------------------------------
+
+def _simplify(node: Expr) -> Expr:
+    if isinstance(node, BinOp):
+        left, right = _simplify(node.left), _simplify(node.right)
+        zero_l = isinstance(left, Const) and left.value == 0
+        zero_r = isinstance(right, Const) and right.value == 0
+        one_l = isinstance(left, Const) and left.value == 1
+        one_r = isinstance(right, Const) and right.value == 1
+        if node.op == "*":
+            if zero_l or zero_r:
+                return Const(0.0)
+            if one_l:
+                return right
+            if one_r:
+                return left
+        if node.op == "+":
+            if zero_l:
+                return right
+            if zero_r:
+                return left
+        if node.op == "-" and zero_r:
+            return left
+        if node.op == "/" and zero_l:
+            return Const(0.0)
+        if node.op == "/" and one_r:
+            return left
+        if isinstance(left, Const) and isinstance(right, Const):
+            return Const(float(evaluate(BinOp(node.op, left, right))))
+        return BinOp(node.op, left, right)
+    if isinstance(node, Call):
+        return Call(node.fn, tuple(_simplify(argument) for argument in node.args))
+    return node
+
+
+def derivative(node: Expr, target: Coef) -> Expr:
+    """``node``'un ``target`` katsayısına göre türevi (sadeleştirilmiş)."""
+
+    def d(item: Expr) -> Expr:
+        if isinstance(item, (Const, Var)):
+            return Const(0.0)
+        if isinstance(item, Coef):
+            return Const(1.0 if item == target else 0.0)
+        if isinstance(item, BinOp):
+            a, b = item.left, item.right
+            if item.op in ("+", "-"):
+                return BinOp(item.op, d(a), d(b))
+            if item.op == "*":
+                return BinOp("+", BinOp("*", d(a), b), BinOp("*", a, d(b)))
+            if item.op == "/":
+                return BinOp("/", BinOp("-", BinOp("*", d(a), b), BinOp("*", a, d(b))), BinOp("^", b, Const(2.0)))
+            if isinstance(b, Const):
+                return BinOp("*", BinOp("*", b, BinOp("^", a, Const(b.value - 1))), d(a))
+            raise ValueError("Delta yöntemi: üs sabit olmalıdır.")
+        if isinstance(item, Call):
+            a = item.args[0]
+            if item.fn == "exp":
+                return BinOp("*", item, d(a))
+            if item.fn == "log":
+                return BinOp("/", d(a), a)
+            if item.fn == "sqrt":
+                return BinOp("/", d(a), BinOp("*", Const(2.0), item))
+        raise ValueError(f"Delta yöntemi bu ifadeyi türevleyemez: {item}")
+
+    return _simplify(d(node))
+
+
+def coefficients(node: Expr) -> list[Coef]:
+    """İfadedeki katsayılar, ilk görülme sırasıyla."""
+
+    found: list[Coef] = []
+    if isinstance(node, Coef):
+        found.append(node)
+    elif isinstance(node, BinOp):
+        found += coefficients(node.left) + coefficients(node.right)
+    elif isinstance(node, Call):
+        for argument in node.args:
+            found += coefficients(argument)
+    unique: list[Coef] = []
+    for item in found:
+        if item not in unique:
+            unique.append(item)
+    return unique

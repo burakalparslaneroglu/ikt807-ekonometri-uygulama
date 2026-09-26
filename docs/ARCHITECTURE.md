@@ -38,13 +38,13 @@ Konu 01-12 sayısal sahipliği:
 - `core/labs/spec.py`: ders notu laboratuvar şeması (işlemler, notlardaki sayılar, tekrarlanabilirlik sınıfı).
 - `core/labs/expr.py`: türetilmiş değişkenler ve katsayı dönüşümleri için küçük ifade dili; pandas'ta değerlendirilir ve üç dile çevrilir.
 - `core/labs/runner.py`: laboratuvarı pandas + statsmodels formül arayüzüyle çalıştırır ve notlarla karşılaştırır.
-- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1).
+- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1 ve 2).
 - `core/labs/sezgi.py`: Sezgi deneylerinin şeması (soru, DGP, parametreler, ölçüler, yorum).
-- `core/labs/sezgi_konuNN.py`: konu deneyleri (şu an Konu 1'de üç deney).
+- `core/labs/sezgi_konuNN.py`: konu deneyleri (Konu 1 ve 2'de üçer deney).
 - `topics/sim_ui.py`: Sezgi sekmesinin ortak arayüzü.
 - `core/quiz/model.py`: "Kendini sına" soru türleri ve notlandırma kuralları.
 - `core/quiz/expression.py`: öğrencinin yazdığı formülü güvenli okuma (eval yok; izinli sözdizimi ağacı), LaTeX önizleme ve sayısal eşdeğerlik.
-- `core/quiz/konuNN.py`: konu soru setleri (şu an Konu 1, 25 soru).
+- `core/quiz/konuNN.py`: konu soru setleri (Konu 1: 25, Konu 2: 24 soru).
 - `topics/quiz_ui.py`: "Kendini sına" sekmesinin arayüzü.
 - `core/codegen/`: Python, R ve Stata üreticileri.
 - `core/hansen_data.py`: Hansen veri arşivi indirme, arşivde dosya bulma, yüklenen dosyayı doğrulama.
@@ -114,3 +114,10 @@ alınır ve gerçek veriyle test edilir.
 Denklem soruları için öğrenci girdisi Python sözdizimi ağacına çevrilir; yalnız sayılar, tanımlı
 semboller, `+ - * / ^` ve `exp/log/sqrt` kabul edilir. Eşdeğerlik, sembollerin rastgele değerlerinde
 sayısal karşılaştırmayla sınanır.
+
+## Ortak testler
+
+`tests/test_all_labs.py` ve `tests/test_all_quizzes.py` kayıtlı bütün laboratuvar ve soru setlerini
+kendiliğinden kapsar: adım numaralandırması, üç dilde kod üretimi, Stata kuralları, notlardaki sayıların
+uygulamada ve üretilen Python/R kodunda yeniden üretilmesi, soru setinde kavram tekilliği, bölüm kapsamı,
+cevap anahtarı dengesi. Yeni bir konu kayda eklendiğinde ayrıca test yazmadan bu sözleşmelere tabidir.

@@ -7,6 +7,7 @@ uygulamanın hesabı, üç dildeki kod ve notlarla karşılaştırma aynı kayna
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,10 @@ from core.hansen_data import (
 from core.labs.runner import LabRun, run_lab, statsmodels_term
 from core.labs.spec import (
     OLS,
+    BreuschPagan,
+    DeltaMethod,
+    LinearCombination,
+    StandardErrorTable,
     REPRO_DESCRIPTIONS,
     Describe,
     GroupMeanPlot,
@@ -218,11 +223,35 @@ def _group_table(spec: LabSpec, op: GroupSummary, table: pd.DataFrame) -> pd.Dat
     return shown
 
 
+def _term_label(spec: LabSpec, term: str) -> str:
+    if term == "Intercept":
+        return spec.label("(sabit)")
+    match = re.fullmatch(r"C\((\w+)\)\[T\.([^\]]+)\]", term)
+    if match:
+        level = match.group(2)
+        level = level[:-2] if level.endswith(".0") else level
+        return f"{spec.label(match.group(1))} = {level}"
+    return spec.label(term)
+
+
+def _ci_text(estimate: float, se: float, decimals: int = 4) -> str:
+    low, high = estimate - 1.96 * se, estimate + 1.96 * se
+    return f"SH {se:.{decimals}f} · %95 GA [{low:.{decimals}f}; {high:.{decimals}f}]".replace(".", ",")
+
+
+def _p_text(value: float) -> str:
+    if value >= 1e-4:
+        return f"{value:.4f}".replace(".", ",")
+    exponent = int(np.floor(np.log10(value)))
+    mantissa = value / 10**exponent
+    return f"{mantissa:.1f}×10^{exponent}".replace(".", ",")
+
+
 def _model_output(spec: LabSpec, result) -> pd.DataFrame:
     interval = result.conf_int()
     rows = []
     for term in result.params.index:
-        label = spec.label("(sabit)") if term == "Intercept" else spec.label(term)
+        label = _term_label(spec, term)
         rows.append(
             {
                 "Terim": label,
@@ -238,6 +267,14 @@ def _model_output(spec: LabSpec, result) -> pd.DataFrame:
 
 
 def _compact_model(spec: LabSpec, op: OLS, result) -> None:
+    if op.categorical or len(op.regressors) > 3:
+        shown = ", ".join(spec.label(r) for r in op.regressors)
+        nobs = f"{int(result.nobs):,}".replace(",", ".")
+        st.markdown(
+            f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {shown} · {len(result.params)} katsayı · "
+            f"N = {nobs} · R² = {result.rsquared:.4f}"
+        )
+        return
     parts = [f"{result.params['Intercept']:.4f}"]
     for name in op.regressors:
         value = float(result.params[name])
@@ -322,6 +359,26 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
                 width="stretch",
             )
             st.caption(f"N = {int(result.nobs):,} · R² = {result.rsquared:.4f}".replace(",", "."))
+    for op in step.operations:
+        if isinstance(op, StandardErrorTable):
+            table = state.tables[op.result].reset_index()
+            table["model"] = [spec.label(name) for name in table["model"]]
+            table.columns = ["Model", f"{spec.label(op.term)} katsayısı", "Klasik SH", "HC1 SH", "R²"]
+            st.markdown("**Aynı katsayı, iki belirsizlik ölçüsü**")
+            st.dataframe(table.style.format({c: "{:.4f}" for c in table.columns[1:]}), hide_index=True, width="stretch")
+        elif isinstance(op, BreuschPagan):
+            left, middle, right = st.columns(3)
+            left.metric("Breusch–Pagan LM", f"{state.scalars[f'{op.name}_lm']:.2f}".replace(".", ","))
+            middle.metric("Serbestlik derecesi", f"{state.scalars[f'{op.name}_df']:.0f}")
+            right.metric("p-değeri", _p_text(state.scalars[f"{op.name}_p"]))
+        elif isinstance(op, LinearCombination):
+            value, se = state.scalars[op.name], state.scalars[f"{op.name}_se"]
+            st.metric(op.comment, f"{value:.4f}".replace(".", ","))
+            st.caption(_ci_text(value, se) + " (HC1)")
+        elif isinstance(op, DeltaMethod):
+            value, se = state.scalars[op.name], state.scalars[f"{op.name}_se"]
+            st.metric(op.comment + " (%)", f"%{value:.2f}".replace(".", ","))
+            st.caption(_ci_text(value, se, 2) + " · delta yöntemi")
     scalars = [op for op in step.operations if isinstance(op, Scalar)]
     if scalars:
         columns = st.columns(len(scalars))

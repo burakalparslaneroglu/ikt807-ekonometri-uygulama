@@ -36,15 +36,15 @@ def test_question_answer_and_new_question_state() -> None:
     """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
 
     app = _run_app()
-    app.radio(key="topic_selector").set_value("konu02").run()
-    app.button(key="konu02_toggle_answer").click().run()
+    app.radio(key="topic_selector").set_value("konu03").run()
+    app.button(key="konu03_toggle_answer").click().run()
     assert not app.exception
-    assert app.session_state["konu02_answer_visible"] is True
+    assert app.session_state["konu03_answer_visible"] is True
     assert len(app.success) == 1
 
-    app.button(key="konu02_new_question").click().run()
-    assert app.session_state["konu02_answer_visible"] is False
-    assert app.session_state["konu02_question_index"] == 1
+    app.button(key="konu03_new_question").click().run()
+    assert app.session_state["konu03_answer_visible"] is False
+    assert app.session_state["konu03_question_index"] == 1
     assert len(app.success) == 0
 
 
@@ -66,28 +66,15 @@ def test_topic_01_intuition_experiments_are_interactive() -> None:
     assert any(metric.label == "Nedensel etki (DGP)" for metric in app.metric)
 
 
-def test_topic_02_regression_labs_are_interactive() -> None:
+def test_topic_02_has_three_tabs_and_interactive_experiments() -> None:
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu02").run()
     assert not app.exception
-    assert app.slider(key="konu02_heteroskedasticity").value == 1.0
-    assert any(metric.label == "Çoklu OLS" for metric in app.metric)
-
-    app.segmented_control(key="konu02_covariance").set_value("Küme").run()
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu02_lab_step").value == 1
+    app.segmented_control(key="konu02_sezgi_deney").set_value(2).run()
     assert not app.exception
-    assert app.segmented_control(key="konu02_covariance").value == "Küme"
-
-    app.selectbox(key="konu02_functional_form").set_value(
-        "Eğitim × kadın etkileşimi"
-    ).run()
-    assert any(
-        metric.label == "Kadınlar için eğitim eğimi" for metric in app.metric
-    )
-
-    app.toggle(key="konu02_add_influential").set_value(True).run()
-    assert not app.exception
-    assert any("en etkili gözlem" in item.value for item in app.warning)
-
+    assert any(metric.label == "FWL eğimi" for metric in app.metric)
 
 def test_topic_03_identification_labs_and_data_gate() -> None:
     app = _run_app()

@@ -16,3 +16,12 @@
 14. Ham teknik değişken adları öğrenci arayüzünde açıklamasız gösterilmez.
 15. Ön işleme ve tuning fold içinde yapılır; test verisi model seçimine sızmaz.
 16. Her branch sonunda pytest, compileall ve `git diff --check` çalıştırılır.
+
+## Konu şablonu
+
+17. Her konu üç sekmeden oluşur ve bu sıra korunur:
+    - **Uygulama:** ders notlarındaki uygulama laboratuvarının adımları birebir (`core/labs/konuNN.py`). Notlarda basılı her sayı bir `Check` olarak tanıma girer; uygulama ve üretilen Python/R kodu bu sayıları gerçek veriyle yeniden üretmelidir.
+    - **Sezgi:** DGP'si açıkça yazılmış kontrollü deneyler (`core/labs/sezgi_konuNN.py`). Her deney şu sırayı izler: soru → DGP ve parametreleri → neye bakıyoruz → sonuç → ne gördük → kod. Deneyler bilinen gerçeği (ör. gerçek koşullu ortalama) tahminle yan yana gösterir.
+    - **Kendini sına:** dört türde soru seti (`core/quiz/konuNN.py`): çoktan seçmeli, doğru–yanlış, boşluk doldurma, denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; kavram tekilliği ve bölüm kapsamı testle denetlenir. Sorular bölüm sonu egzersizlerini tekrar etmez.
+18. Python, R ve Stata kodu aynı tanımdan üretilir; elle yazılmış dile özgü şablon eklenmez. Her adım veya deney, üç dilde aynı sayının hangi anlamda beklendiğini (birebir / ayar sabitlenince / yalnız dağılımda) gösterir.
+19. Yeni yapıya taşınan konu `tests/test_topic_contracts.py` içindeki `MIGRATED_TOPICS` kümesine eklenir.

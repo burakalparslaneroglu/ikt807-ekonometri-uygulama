@@ -10,10 +10,15 @@ Bilinçli seçimler:
 
 from __future__ import annotations
 
-from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, layer_styles, scalar_model
+from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, categorical_comment, continuous_terms, layer_styles, scalar_model
 from core.labs import expr as E
 from core.labs.spec import (
     OLS,
+    BreuschPagan,
+    ClusterDraw,
+    DeltaMethod,
+    LinearCombination,
+    StandardErrorTable,
     Check,
     CoefTarget,
     Curve,
@@ -67,7 +72,7 @@ class StataGenerator(Generator):
         return E.Dialect(
             variable=lambda name: name,
             coefficient=lambda model, term: f"_b[{_term(term)}]",
-            functions={"log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min", "round": "round"},
+            functions={"log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min", "round": "round", "floor": "floor"},
             power="^",
         )
 
@@ -157,12 +162,63 @@ class StataGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
+        if isinstance(op, StandardErrorTable):
+            lines = ["* Aynı modeller HC1 ile: katsayılar değişmez, yalnız standart hatalar değişir"]
+            names: list[str] = []
+            for model in op.models:
+                settings = self.models[model]
+                regressors = " ".join(f"i.{r}" if r in settings.categorical else r for r in settings.regressors)
+                lines += [f"quietly regress {settings.outcome} {regressors}, vce(robust)", f"estimates store {model}_r"]
+                names += [model, f"{model}_r"]
+            lines.append(f"estimates table {' '.join(names)}, keep({op.term}) b(%9.4f) se(%9.4f) stats(r2)")
+            return lines
+        if isinstance(op, BreuschPagan):
+            return [
+                "* Breusch–Pagan (Koenker, n·R²): Python/R ile aynı olması için rhs ve iid seçenekleri",
+                f"quietly estimates restore {op.model}",
+                "estat hettest, rhs iid",
+                f"scalar {op.name}_lm = r(chi2)",
+                f"scalar {op.name}_p = r(p)",
+            ]
+        if isinstance(op, LinearCombination):
+            parts = []
+            for term, weight in op.weights:
+                name = _term(term)
+                piece = name if weight == 1 else f"{E.format_number(weight)}*{name}"
+                parts.append(piece if not parts else f"+ {piece}")
+            return [
+                f"* {op.comment}: a'β ve √(a'Va)",
+                f"quietly estimates restore {op.model}",
+                f"lincom {' '.join(parts)}",
+                f"scalar {op.name} = r(estimate)",
+                f"scalar {op.name}_se = r(se)",
+            ]
+        if isinstance(op, DeltaMethod):
+            return [
+                f"* {op.comment}; nlcom delta yöntemini kendisi uygular",
+                f"quietly estimates restore {op.model}",
+                f"nlcom ({op.name}: {E.render(op.expr, self.dialect())})",
+                "matrix nl_b = r(b)",
+                "matrix nl_V = r(V)",
+                f"scalar {op.name} = nl_b[1,1]",
+                f"scalar {op.name}_se = sqrt(nl_V[1,1])",
+            ]
         if isinstance(op, NewSample):
             return [
                 "* Sabit tohum: do-dosyası her çalıştırmada aynı veriyi üretir",
                 "clear",
                 f"set obs {op.nobs}",
                 f"set seed {op.seed}",
+                "generate long id = _n",
+            ]
+        if isinstance(op, ClusterDraw):
+            a, b = E.format_number(op.first), E.format_number(op.second)
+            return [
+                f"* {op.comment} (her küme için bir çekiliş)",
+                f"sort {op.cluster} id",
+                f"by {op.cluster}: generate double {op.name} = rnormal({a}, {b}) if _n == 1",
+                f"by {op.cluster}: replace {op.name} = {op.name}[1]",
+                "sort id",
             ]
         if isinstance(op, Draw):
             a, b = E.format_number(op.first), E.format_number(op.second)
@@ -213,7 +269,10 @@ class StataGenerator(Generator):
                 f"estimates store {op.name}",
             ]
             if op.categorical:
-                lines.insert(0, "* Doymuş model: eğitimin her değeri için ayrı bir kukla")
+                lines.insert(0, categorical_comment(op, "*"))
+                shown = continuous_terms(op)
+                if shown:
+                    lines.append(f"estimates table {op.name}, keep({' '.join(shown)}) b(%9.4f)")
             else:
                 lines.append(f"estimates table {op.name}, b(%9.4f)")
             return lines
@@ -333,9 +392,10 @@ class StataGenerator(Generator):
                 value_expr = _RESULT[target.stat]
                 restored = None
             elif isinstance(target, CoefTarget):
-                if restored != target.model:
-                    lines.append(f"quietly estimates restore {target.model}")
-                    restored = target.model
+                stored = f"{target.model}_r" if target.quantity == "se_hc1" else target.model
+                if restored != stored:
+                    lines.append(f"quietly estimates restore {stored}")
+                    restored = stored
                 prefix = "_b" if target.quantity == "coef" else "_se"
                 value_expr = f"{prefix}[{_term(target.term)}]"
             elif isinstance(target, ModelTarget):

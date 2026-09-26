@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, layer_styles
+from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, categorical_comment, continuous_terms, layer_styles
 from core.labs import expr as E
 from core.labs.spec import (
     OLS,
+    BreuschPagan,
+    ClusterDraw,
+    DeltaMethod,
+    LinearCombination,
+    StandardErrorTable,
     Check,
     CoefTarget,
     Curve,
@@ -64,7 +69,7 @@ class PythonGenerator(Generator):
         return E.Dialect(
             variable=lambda name: f'{frame}["{name}"]',
             coefficient=lambda model, term: f'{model}.params["{_term(term)}"]',
-            functions={"log": "np.log", "exp": "np.exp", "sqrt": "np.sqrt", "maximum": "np.maximum", "minimum": "np.minimum", "round": "np.rint"},
+            functions={"log": "np.log", "exp": "np.exp", "sqrt": "np.sqrt", "maximum": "np.maximum", "minimum": "np.minimum", "round": "np.rint", "floor": "np.floor"},
             power="**",
         )
 
@@ -81,6 +86,8 @@ class PythonGenerator(Generator):
             lines.append("import statsmodels.formula.api as smf")
         if any(isinstance(op, RegressionTable) for op in operations):
             lines.append("from statsmodels.iolib.summary2 import summary_col")
+        if any(isinstance(op, BreuschPagan) for op in operations):
+            lines.append("from statsmodels.stats.diagnostic import het_breuschpagan")
         lines.append("")
         return lines
 
@@ -131,11 +138,61 @@ class PythonGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
+        if isinstance(op, StandardErrorTable):
+            models = ", ".join(op.models)
+            names = ", ".join(f'"{m}"' for m in op.models)
+            t = op.term
+            return [
+                "# Aynı katsayı, iki farklı belirsizlik ölçüsü: klasik ve HC1 standart hata",
+                f"{op.result} = pd.DataFrame({{",
+                f'    "katsayı": [m.params["{t}"] for m in ({models})],',
+                f'    "klasik SH": [m.bse["{t}"] for m in ({models})],',
+                f'    "HC1 SH": [m.HC1_se["{t}"] for m in ({models})],',
+                f'    "R2": [m.rsquared for m in ({models})],',
+                f"}}, index=[{names}])",
+                f"print({op.result}.round(4))",
+            ]
+        if isinstance(op, BreuschPagan):
+            return [
+                "# Breusch–Pagan (Koenker, n·R²): artık kareleri modelin bütün regresörleriyle",
+                f"{op.name}_lm, {op.name}_p, _, _ = het_breuschpagan({op.model}.resid, {op.model}.model.exog)",
+                f'print(f"LM = {{{op.name}_lm:.2f}}, p = {{{op.name}_p:.2e}}")',
+            ]
+        if isinstance(op, LinearCombination):
+            weights = ", ".join(f'"{_term(t)}": {E.format_number(w)}' for t, w in op.weights)
+            return [
+                f"# {op.comment}: a'β ve √(a'Va)",
+                f"a = pd.Series({{{weights}}}, dtype=float)",
+                f"{op.name} = float(a @ {op.model}.params[a.index])",
+                f"{op.name}_se = float(np.sqrt(a @ {op.model}.cov_params().loc[a.index, a.index] @ a))",
+                f'print(f"{op.comment}: {{{op.name}:.4f}} (SH {{{op.name}_se:.4f}})")',
+            ]
+        if isinstance(op, DeltaMethod):
+            dialect = self.dialect("")
+            coefs = E.coefficients(op.expr)
+            gradient = ", ".join(E.render(E.derivative(op.expr, c), dialect) for c in coefs)
+            terms = ", ".join(f'"{_term(c.term)}"' for c in coefs)
+            return [
+                f"# {op.comment}",
+                f"{op.name} = {E.render(op.expr, dialect)}",
+                "# Delta yöntemi: SH = √(g'(β)' V g'(β))",
+                f"turev = np.array([{gradient}])",
+                f"V = {op.model}.cov_params().loc[[{terms}], [{terms}]].to_numpy()",
+                f"{op.name}_se = float(np.sqrt(turev @ V @ turev))",
+                f'print(f"{op.comment}: {{{op.name}:.2f}} (delta SH {{{op.name}_se:.3f}})")',
+            ]
         if isinstance(op, NewSample):
             return [
                 "# Sabit tohum: betik her çalıştırmada aynı veriyi üretir",
                 f"rng = np.random.default_rng({op.seed})",
-                f"{op.frame} = pd.DataFrame(index=range({op.nobs}))",
+                f'{op.frame} = pd.DataFrame({{"id": np.arange(1, {op.nobs} + 1)}})',
+            ]
+        if isinstance(op, ClusterDraw):
+            a, b = E.format_number(op.first), E.format_number(op.second)
+            return [
+                f"# {op.comment} (her küme için bir çekiliş)",
+                f"kume_soku = rng.normal({a}, {b}, size={op.groups})",
+                f'{op.frame}["{op.name}"] = kume_soku[{op.frame}["{op.cluster}"].astype(int) - 1]',
             ]
         if isinstance(op, Draw):
             a, b = E.format_number(op.first), E.format_number(op.second)
@@ -187,7 +244,11 @@ class PythonGenerator(Generator):
                 fit = f'.fit(cov_type="cluster", cov_kwds={{"groups": {op.frame}["{op.cluster}"]}})'
             lines = [f'{op.name} = smf.ols("{formula}", data={op.frame}){fit}']
             if op.categorical:
-                lines.insert(0, "# Doymuş model: eğitimin her değeri için ayrı bir kukla")
+                lines.insert(0, categorical_comment(op, "#"))
+                shown = continuous_terms(op)
+                if shown:
+                    names = ", ".join(f'"{t}"' for t in shown)
+                    lines.append(f"print({op.name}.params[[{names}]].round(4))")
             else:
                 lines.append(f"print({op.name}.params.round(4))")
             return lines
@@ -309,7 +370,7 @@ class PythonGenerator(Generator):
                 )
             return f"{series}.{_STAT[target.stat]}()"
         if isinstance(target, CoefTarget):
-            attribute = "params" if target.quantity == "coef" else "bse"
+            attribute = {"coef": "params", "se": "bse", "se_hc1": "HC1_se"}[target.quantity]
             return f'{target.model}.{attribute}["{_term(target.term)}"]'
         if isinstance(target, ModelTarget):
             return f"{target.model}.rsquared" if target.quantity == "r2" else f"{target.model}.nobs"

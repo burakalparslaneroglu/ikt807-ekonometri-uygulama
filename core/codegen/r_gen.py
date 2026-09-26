@@ -6,10 +6,15 @@ Varsayılan yığın temel R'dır. Dayanıklı çıkarım gereken konularda ``sa
 
 from __future__ import annotations
 
-from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, layer_styles
+from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, categorical_comment, continuous_terms, layer_styles
 from core.labs import expr as E
 from core.labs.spec import (
     OLS,
+    BreuschPagan,
+    ClusterDraw,
+    DeltaMethod,
+    LinearCombination,
+    StandardErrorTable,
     Check,
     CoefTarget,
     Curve,
@@ -53,7 +58,7 @@ class RGenerator(Generator):
         return E.Dialect(
             variable=lambda name: f"{frame}${name}",
             coefficient=lambda model, term: f'coef({model})[["{_term(term)}"]]',
-            functions={"log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin", "round": "round"},
+            functions={"log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin", "round": "round", "floor": "floor"},
             power="^",
         )
 
@@ -69,7 +74,11 @@ class RGenerator(Generator):
         return f'sandwich::vcovCL({symbol}, cluster = ~{settings.cluster}, type = "HC1")'
 
     def _needs_sandwich(self, operations) -> bool:
-        return any(isinstance(op, OLS) and op.vcov != "classic" for op in operations)
+        return any(
+            (isinstance(op, OLS) and op.vcov != "classic")
+            or isinstance(op, (StandardErrorTable, BreuschPagan))
+            for op in operations
+        )
 
     # --- Başlık ve yardımcılar ------------------------------------------
     def imports(self, operations: tuple[Operation, ...]) -> list[str]:
@@ -122,11 +131,64 @@ class RGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
+        if isinstance(op, StandardErrorTable):
+            t = op.term
+            models = ", ".join(f"{m} = {m}" for m in op.models)
+            return [
+                "# Aynı katsayı, iki farklı belirsizlik ölçüsü: klasik ve HC1 standart hata",
+                f"modeller <- list({models})",
+                f"{op.result} <- t(sapply(modeller, function(m) c(",
+                f'  katsayi = coef(m)[["{t}"]],',
+                f'  klasik_sh = sqrt(diag(vcov(m)))[["{t}"]],',
+                f'  hc1_sh = sqrt(diag(vcovHC(m, type = "HC1")))[["{t}"]],',
+                "  r2 = summary(m)$r.squared",
+                ")))",
+                f"print(round({op.result}, 4))",
+            ]
+        if isinstance(op, BreuschPagan):
+            return [
+                "# Breusch–Pagan (Koenker, n·R²): bptest varsayılanı studentize = TRUE",
+                f"bp <- bptest({op.model})",
+                f"{op.name}_lm <- unname(bp$statistic)",
+                f"{op.name}_p <- bp$p.value",
+                f'cat(sprintf("LM = %.2f, p = %.2e\\n", {op.name}_lm, {op.name}_p))',
+            ]
+        if isinstance(op, LinearCombination):
+            weights = ", ".join(f"`{_term(t)}` = {E.format_number(w)}" for t, w in op.weights)
+            return [
+                f"# {op.comment}: a'β ve √(a'Va)",
+                f"a <- c({weights})",
+                f"{op.name} <- sum(a * coef({op.model})[names(a)])",
+                f"V <- {self.vcov(op.model)}[names(a), names(a), drop = FALSE]",
+                f"{op.name}_se <- sqrt(drop(t(a) %*% V %*% a))",
+                f'cat(sprintf("{op.comment}: %.4f (SH %.4f)\\n", {op.name}, {op.name}_se))',
+            ]
+        if isinstance(op, DeltaMethod):
+            dialect = self.dialect("")
+            coefs = E.coefficients(op.expr)
+            gradient = ", ".join(E.render(E.derivative(op.expr, c), dialect) for c in coefs)
+            terms = ", ".join(f'"{_term(c.term)}"' for c in coefs)
+            return [
+                f"# {op.comment}",
+                f"{op.name} <- {E.render(op.expr, dialect)}",
+                "# Delta yöntemi: SH = √(g'(β)' V g'(β))",
+                f"turev <- c({gradient})",
+                f"V <- {self.vcov(op.model)}[c({terms}), c({terms}), drop = FALSE]",
+                f"{op.name}_se <- sqrt(drop(t(turev) %*% V %*% turev))",
+                f'cat(sprintf("{op.comment}: %.2f (delta SH %.3f)\\n", {op.name}, {op.name}_se))',
+            ]
         if isinstance(op, NewSample):
             return [
                 "# Sabit tohum: betik her çalıştırmada aynı veriyi üretir",
                 f"set.seed({op.seed})",
                 f"{op.frame} <- data.frame(id = seq_len({op.nobs}))",
+            ]
+        if isinstance(op, ClusterDraw):
+            a, b = E.format_number(op.first), E.format_number(op.second)
+            return [
+                f"# {op.comment} (her küme için bir çekiliş)",
+                f"kume_soku <- rnorm({op.groups}, mean = {a}, sd = {b})",
+                f"{op.frame}${op.name} <- kume_soku[{op.frame}${op.cluster}]",
             ]
         if isinstance(op, Draw):
             a, b = E.format_number(op.first), E.format_number(op.second)
@@ -174,7 +236,13 @@ class RGenerator(Generator):
             formula = f"{op.outcome} ~ " + " + ".join(terms)
             lines = [f"{op.name} <- lm({formula}, data = {op.frame})"]
             if op.categorical:
-                lines.insert(0, "# Doymuş model: eğitimin her değeri için ayrı bir kukla")
+                lines.insert(0, categorical_comment(op, "#"))
+                shown = continuous_terms(op)
+                if shown and op.vcov == "classic":
+                    names = ", ".join(f'"{t}"' for t in shown)
+                    lines.append(f"print(round(coef({op.name})[c({names})], 4))")
+                elif shown:
+                    lines.append(f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({', '.join(repr(t).replace(chr(39), chr(34)) for t in shown)}), ])")
             elif op.vcov == "classic":
                 lines.append(f"print(round(coef({op.name}), 4))")
             else:
@@ -315,6 +383,8 @@ class RGenerator(Generator):
         if isinstance(target, CoefTarget):
             if target.quantity == "coef":
                 return f'coef({target.model})[["{_term(target.term)}"]]'
+            if target.quantity == "se_hc1":
+                return f'sqrt(diag(vcovHC({target.model}, type = "HC1")))[["{_term(target.term)}"]]'
             return f'sqrt(diag({self.vcov(target.model)}))[["{_term(target.term)}"]]'
         if isinstance(target, ModelTarget):
             if target.quantity == "r2":

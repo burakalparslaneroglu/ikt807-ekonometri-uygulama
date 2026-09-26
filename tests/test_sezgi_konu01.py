@@ -94,10 +94,14 @@ def test_every_experiment_renders_in_every_language() -> None:
 
 
 @pytest.mark.parametrize("experiment", KONU01_EXPERIMENTS, ids=lambda e: e.key)
-def test_generated_python_reproduces_the_app_exactly(experiment) -> None:
+def test_generated_python_reproduces_the_app_exactly(experiment, monkeypatch) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    # Test ortamında pencere yok: plt.show() yerine grafikler sessizce kapatılır.
+    monkeypatch.setattr(plt, "show", lambda *args, **kwargs: plt.close("all"))
     parameters = experiment.defaults()
     namespace: dict = {}
     exec(generator(experiment.spec(parameters), "Python").script(), namespace)
@@ -122,7 +126,9 @@ def test_generated_stata_is_well_formed(experiment) -> None:
     code = generator(experiment.spec(experiment.defaults()), "Stata").script()
     assert "version 14" in code and "set seed 807" in code and "set obs 2000" in code
     generates = re.findall(r"^generate\b.*$", code, flags=re.MULTILINE)
-    assert generates and all(line.startswith("generate double ") for line in generates)
+    # Hesaplanan her değer double; tek istisna tam sayı sıra numarası (long).
+    computed = [line for line in generates if line != "generate long id = _n"]
+    assert computed and all(line.startswith("generate double ") for line in computed)
     assert code.count("{") == code.count("}")
     lines = [line.strip() for line in code.splitlines()]
     assert lines.count("preserve") == lines.count("restore")
