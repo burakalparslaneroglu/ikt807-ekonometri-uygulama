@@ -15,11 +15,17 @@ from core.codegen.base import (
     profile_others,
 )
 from core.codegen import python_np as NP
+from core.codegen import python_rdd_boot as RB
 from core.labs import expr as E
-from core.labs.runner import CI_MULTIPLIER, coverage_key
+from core.labs.runner import CI_MULTIPLIER, coverage_key, uses_replicate_se
 from core.labs.spec import (
     IV,
     OLS,
+    RDD,
+    Bootstrap,
+    RDDCurve,
+    RDDTable,
+    VLine,
     BandwidthCV,
     BinMeans,
     CoefficientProfile,
@@ -76,7 +82,7 @@ from core.labs.spec import (
 
 _STAT = {"count": "count", "sum": "sum", "mean": "mean", "sd": "std", "median": "median", "min": "min", "max": "max"}
 _FUNCTIONS = {
-    "log": "np.log", "exp": "np.exp", "sqrt": "np.sqrt", "maximum": "np.maximum",
+    "log": "np.log", "exp": "np.exp", "sqrt": "np.sqrt", "abs": "np.abs", "maximum": "np.maximum",
     "minimum": "np.minimum", "round": "np.rint", "floor": "np.floor",
     "positive": "np.where({0} > 0, 1.0, 0.0)",
     "logistic": "expit", "normcdf": "stats.norm.cdf", "normpdf": "stats.norm.pdf",
@@ -326,11 +332,13 @@ class PythonGenerator(Generator):
         if standard:
             lines += sorted(standard) + [""]
         if any(isinstance(op, (GroupMeanPlot, ProjectionPlot, Plot, Histogram, AverageProfile, ProfileCurves,
-                               CoefficientProfile, BandwidthCV))
+                               CoefficientProfile, BandwidthCV, RDDTable))
                for op in ops):
             lines.append("import matplotlib.pyplot as plt")
         lines.append("import numpy as np")
         lines.append("import pandas as pd")
+        if any(isinstance(op, RDD) for op in ops):
+            lines.append("import statsmodels.api as sm")
         if any(isinstance(op, (OLS, BinaryChoice)) for op in ops):
             lines.append("import statsmodels.formula.api as smf")
         if any(isinstance(op, IV) for op in ops):
@@ -463,6 +471,12 @@ class PythonGenerator(Generator):
             names.append("cv")
         if any(isinstance(layer, BinMeans) for layer in layers):
             names.append("aralik")
+        if any(isinstance(op, RDD) for op in ops):
+            names.append("rdd")
+        if any(isinstance(layer, RDDCurve) for layer in layers):
+            names.append("rdd_egri")
+        if any(isinstance(op, Bootstrap) and any(uses_replicate_se(e) for _, e in op.collect) for op in ops):
+            names.append("hc1")
         return names
 
     def helper_code(self, name: str) -> list[str]:
@@ -474,6 +488,9 @@ class PythonGenerator(Generator):
             "yerel": NP.LOCAL_HELPER,
             "cv": NP.CV_HELPER,
             "aralik": NP.BINS_HELPER,
+            "rdd": RB.RDD_HELPER,
+            "rdd_egri": RB.CURVE_HELPER,
+            "hc1": RB.HC1_HELPER,
         }
         return texts[name] + ["", ""] if name in texts else []
 
@@ -488,6 +505,9 @@ class PythonGenerator(Generator):
         nonparametric = NP.operation(self, op)
         if nonparametric is not None:
             return nonparametric
+        resampling = RB.operation(self, op)
+        if resampling is not None:
+            return resampling
         limited = self._limited_operation(op)
         if limited is not None:
             return limited
@@ -980,10 +1000,14 @@ class PythonGenerator(Generator):
             functions=self.dialect(frame).functions,
             power="**",
         )
-        lines = [
-            "fig, ax = plt.subplots(figsize=(8, 5))",
-            f'izgara = np.linspace({frame}["{x}"].min(), {frame}["{x}"].max(), 200)',
-        ]
+        if op.x_range is None:
+            low, high = f'{frame}["{x}"].min()', f'{frame}["{x}"].max()'
+        else:
+            low, high = (E.format_number(value) for value in op.x_range)
+        lines = ["fig, ax = plt.subplots(figsize=(8, 5))"]
+        if any(isinstance(layer, (Curve, ModelLine, LocalCurve)) for layer in op.layers):
+            lines.append(f"izgara = np.linspace({low}, {high}, 200)")
+        curves = 0
         for layer, style in zip(op.layers, layer_styles(op.layers)):
             if isinstance(layer, MeanPoints):
                 name = f"ort_{layer.y}"
@@ -1031,6 +1055,27 @@ class PythonGenerator(Generator):
                     f'ax.scatter({name}["x"], {name}["y"], s=28, color="{style.color}", zorder=3,',
                     f'           label="{layer.label}")',
                 ]
+            elif isinstance(layer, RDDCurve):
+                curves += 1
+                name = f"egri_{curves}"
+                points = "" if layer.points == 120 else f", nokta={layer.points}"
+                lines += [
+                    "# Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve %95 bant",
+                    f'{name} = rdd_egrisi({frame}["{x}"], {frame}["{layer.y}"], {E.format_number(layer.cutoff)}, '
+                    f"{E.format_number(layer.bandwidth)}, {low}, {high}{points})",
+                    f'for taraf, parca in {name}.groupby("taraf", sort=False):',
+                    f'    ax.fill_between(parca["x"], parca["alt"], parca["ust"], color="{style.color}", alpha=0.18,',
+                    "                    linewidth=0)",
+                    f'    ax.plot(parca["x"], parca["tahmin"], color="{style.color}", linewidth=2,',
+                    f'            label="{layer.label}" if taraf == "sol" else None)',
+                ]
+            elif isinstance(layer, VLine):
+                lines.append(
+                    f'ax.axvline({E.format_number(layer.x)}, color="{style.color}", linestyle="-.", linewidth=1.5, '
+                    f'label="{layer.label}")'
+                )
+        if op.x_range is not None:
+            lines.append(f"ax.set_xlim({low}, {high})")
         lines += [
             f'ax.set_xlabel("{op.x_label}")',
             f'ax.set_ylabel("{op.y_label}")',

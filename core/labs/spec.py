@@ -296,12 +296,39 @@ class BinMeans:
     label: str
 
 
-Layer = Union[MeanPoints, Scatter, Curve, ModelLine, ZeroLine, LocalCurve, BinMeans]
+@dataclass(frozen=True)
+class RDDCurve:
+    """Grafik katmanı: eşiğin iki yanında ayrı yerel doğrusal tahmin ve noktasal %95 güven bandı.
+
+    Her değerlendirme noktası x₀ için yalnız o taraftaki gözlemlerle, birim varyanslı üçgen çekirdekle
+    (Hansen ölçeği: pencere ±h√6) ağırlıklı EKK'nin sabit terimi; SH o yerel regresyonun HC1 sandviçi.
+    Noktalar grafik aralığında, her tarafta ``points`` adet (eşik iki tarafta da dahil).
+    """
+
+    y: str
+    cutoff: float
+    bandwidth: float
+    label: str
+    points: int = 120
+
+
+@dataclass(frozen=True)
+class VLine:
+    """Grafik katmanı: dikey çizgi (ör. eşik)."""
+
+    x: float
+    label: str
+
+
+Layer = Union[MeanPoints, Scatter, Curve, ModelLine, ZeroLine, LocalCurve, BinMeans, RDDCurve, VLine]
 
 
 @dataclass(frozen=True)
 class Plot:
-    """Katmanlardan oluşan grafik; üç dilde aynı katmanlarla çizilir."""
+    """Katmanlardan oluşan grafik; üç dilde aynı katmanlarla çizilir.
+
+    ``x_range`` verilirse yatay eksen ve eğri ızgaraları bu aralıktadır; verilmezse verinin aralığı.
+    """
 
     frame: str
     x: str
@@ -309,6 +336,7 @@ class Plot:
     x_label: str
     y_label: str
     title: str
+    x_range: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -659,7 +687,86 @@ class Histogram:
     bins: int = 40
 
 
+# --- Regresyon süreksizliği ve bootstrap (Konu 9–10) --------------------------
+
+@dataclass(frozen=True)
+class RDD:
+    """Keskin RDD: eşikte yerel doğrusal sıçrama tahmini.
+
+    Pencere içindeki gözlemlerde Y'nin D = 1{X ≥ c}, R = X − c ve D·R (``DR``) üzerine çekirdek ağırlıklı
+    EKK'si; sıçrama D katsayısıdır. Çekirdek ``triangular`` veya ``rectangular``. ``scale="hansen"``:
+    h çekirdeğin standart sapmasıdır (Hansen'in birim varyanslı çekirdekleri; üçgende pencere ±h√6,
+    dikdörtgende ±h√3). ``scale="window"``: h pencerenin yarı genişliğidir. Standart hata ağırlıklı
+    regresyonun HC1 sandviçidir. Terimler: sabit, ``D``, ``R``, ``DR``.
+    """
+
+    name: str
+    frame: str
+    x: str
+    y: str
+    cutoff: float
+    bandwidth: float
+    kernel: str = "triangular"
+    scale: str = "hansen"
+
+
+@dataclass(frozen=True)
+class RDDTable:
+    """Bant genişliği duyarlılık tablosu ve grafiği.
+
+    ``rows`` (h, RDD modeli) çiftleridir. Sütunlar: ``n`` (pozitif ağırlık alan gözlem), ``tahmin`` (sıçrama),
+    ``sh`` (HC1), ``alt`` ve ``ust`` (normal yaklaşımla %95 güven aralığı, tahmin ± 1,96·SH).
+    """
+
+    rows: tuple[tuple[float, str], ...]
+    result: str
+    x_label: str
+    y_label: str
+    title: str
+
+
+BOOT = "bootstrap_tekrari"
+"""``Bootstrap.collect`` ifadelerinde o tekrarda yeniden tahmin edilen modelin adı."""
+
+
+@dataclass(frozen=True)
+class Bootstrap:
+    """Bir OLS modelini ``reps`` kez yeniden örneklenmiş veride yeniden tahmin eder (Notlar §10.5, §10.10, §10.14).
+
+    ``method``: ``pairs`` gözlem satırlarını yerine koyarak çeker; ``wild`` regresörleri sabit tutar ve
+    Y* = Xβ̂ + ê·ξ üretir (ξ Rademacher, ±1); ``cluster`` ``cluster`` değişkeninin kümelerini yerine koyarak
+    çeker. ``collect`` her tekrarda hesaplanan (sütun adı, ifade) çiftleridir: ``E.coef(BOOT, terim)`` ve
+    ``E.se(BOOT, terim)`` o tekrarın katsayısı ve HC1 standart hatasıdır; diğer model adları orijinal tahmini
+    gösterir. ``seed=None``: ``frame`` verisinin rastgele sayı üreteci kaldığı yerden devam eder (simülasyonda
+    veri çekilişlerinden sonra aynı üreteç). Skalerler: her sütun için ``{result}_{sütun}_se`` (tekrarlar
+    arası standart sapma, ddof = 1), ``_lo`` ve ``_hi`` (yüzde 2,5 ve 97,5 yüzdelikleri).
+    """
+
+    model: str
+    frame: str
+    reps: int
+    seed: int | None
+    collect: tuple[tuple[str, Expr], ...]
+    result: str
+    comment: str
+    method: str = "pairs"
+    cluster: str | None = None
+
+
+@dataclass(frozen=True)
+class ScalarTable:
+    """Skaler ifadelerden tek sütunlu (``deger``) özet tablo; ifadeler katsayı, SH ve skaler (``E.ref``) içerebilir."""
+
+    rows: tuple[tuple[str, Expr], ...]
+    result: str
+    decimals: int = 3
+
+
 Operation = Union[
+    RDD,
+    RDDTable,
+    Bootstrap,
+    ScalarTable,
     QuantileDifference,
     CoefficientProfile,
     LocalLinear,
@@ -750,12 +857,18 @@ Target = Union[StatTarget, CoefTarget, ModelTarget, ScalarTarget, TableTarget]
 
 @dataclass(frozen=True)
 class Check:
-    """Notlarda basılı bir sayı ve onu üreten hesap."""
+    """Notlarda basılı bir sayı ve onu üreten hesap.
+
+    ``mc_tolerance`` yalnız rastgele çekilişe dayanan değerlerde verilir: uygulama ve üretilen Python kodu
+    notlardaki çekilişin aynısını yapar ve ondalık toleransıyla denetlenir; R ve Stata farklı rastgele sayı
+    üreteci kullandığı için bu Monte Carlo toleransıyla denetlenir.
+    """
 
     label: str
     target: Target
     expected: float
     decimals: int = 4
+    mc_tolerance: float | None = None
 
     @property
     def tolerance(self) -> float:

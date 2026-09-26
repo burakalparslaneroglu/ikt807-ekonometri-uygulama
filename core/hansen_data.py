@@ -5,7 +5,7 @@ kullanıcının yüklediği dosyayı okur. Hansen'in sayfası 2026'da ``~bhansen
 ``~behansen`` adresine yönleniyor; önce güncel adres, sonra eski adres denenir.
 
 Dosya biçimleri: ``cps09mar`` başlıksız ``.txt`` olarak okunur (değişken adları
-açıklama belgesindeki sırayla). ``DDK2011``, ``Card1995`` ve ``CHJ2004`` Stata ``.dta``
+açıklama belgesindeki sırayla). ``DDK2011``, ``Card1995``, ``CHJ2004`` ve ``LM2007`` Stata ``.dta``
 olarak okunur: adlar dosyada kayıtlıdır ve üç dilde aynı olsun diye küçük harfe çevrilir.
 """
 
@@ -54,20 +54,26 @@ CHJ2004_CONTROLS = (
     "marriedf", "child1", "child7", "child15", "size", "bothwork", "notemployed",
 )
 CHJ2004_REQUIRED = ("tabroad", "tdomestic", "tinkind", "tgifts", "income", "transfers", *CHJ2004_CONTROLS)
+LM2007_REQUIRED = ("povrate60", "mort_age59_related_posths")
 
 DATASET_MEMBERS = {
     "cps09mar": "cps09mar.txt", "ddk2011": "DDK2011.dta", "card1995": "Card1995.dta", "chj2004": "CHJ2004.dta",
+    "lm2007": "LM2007.dta",
 }
 DATASET_COLUMNS = {"cps09mar": CPS09MAR_COLUMNS}
 """Başlıksız ``.txt`` dosyaları için değişken adları (açıklama belgesindeki sıra)."""
 DATASET_REQUIRED = {
     "cps09mar": CPS09MAR_REQUIRED, "ddk2011": DDK2011_REQUIRED, "card1995": CARD1995_REQUIRED,
-    "chj2004": CHJ2004_REQUIRED,
+    "chj2004": CHJ2004_REQUIRED, "lm2007": LM2007_REQUIRED,
 }
 DATASET_COMPLETE = {"cps09mar": CPS09MAR_REQUIRED, "chj2004": CHJ2004_REQUIRED}
 """Eksik değer içermemesi gereken sütunlar. DDK2011 ve Card1995'te eksik değerler olağandır;
 analiz örneklemi laboratuvar adımlarında açıkça kurulur."""
-DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613, "chj2004": 8684}
+DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613, "chj2004": 8684, "lm2007": 2783}
+DATASET_SAMPLE = {"lm2007": LM2007_REQUIRED}
+"""Tam örneklemi bu sütunlarda eksiksiz satır sayısıyla denetlenen veri setleri. Hansen'in LM2007.dta dosyası
+(LM2007_create.do) eşik değişkeni veya sonuç değişkeni eksik ilçeleri çıkarır: 2.783 ilçe. Kaynak
+headstart.dta ve ders notlarının öğretim CSV'si 2.810 satırdır; laboratuvar aynı 2.783 ilçeyi açıkça seçer."""
 
 
 class HansenDataError(RuntimeError):
@@ -177,7 +183,9 @@ def validate(dataset: str, frame: pd.DataFrame) -> bool:
     complete = DATASET_COMPLETE.get(dataset, ())
     if complete and frame[list(complete)].isna().any().any():
         raise HansenDataError("Gerekli sütunlarda eksik değer var.")
-    return len(frame) == DATASET_ROWS[dataset]
+    sample = DATASET_SAMPLE.get(dataset)
+    rows = int(frame[list(sample)].notna().all(axis=1).sum()) if sample else len(frame)
+    return rows == DATASET_ROWS[dataset]
 
 
 def load_from_archive(dataset: str, archive: bytes) -> LoadedData:

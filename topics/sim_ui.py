@@ -24,9 +24,13 @@ from core.labs.spec import (
     MeanPoints,
     ModelLine,
     Plot,
+    RDDCurve,
     ReproClass,
     Scatter,
+    ScalarTable,
+    VLine,
 )
+from core.labs.sezgi import plain
 from topics.lab_ui import CODE_LANGUAGE_KEY, render_bandwidth_cv
 from topics.regression_ui import show_figure, style_figure
 
@@ -69,13 +73,54 @@ def _render_sliders(experiment: SimExperiment) -> None:
             )
 
 
+def _rgba(rgb: str, alpha: float) -> str:
+    red, green, blue = rgb.split()
+    return f"rgba({red}, {green}, {blue}, {alpha})"
+
+
+def _rdd_band(figure: go.Figure, op: Plot, layer: RDDCurve, data: pd.DataFrame, style) -> None:
+    """Eşiğin iki yanında ayrı eğri ve noktasal %95 bant; iki taraf tek legend öğesi."""
+
+    for position, (_, part) in enumerate(data.groupby("taraf", sort=False)):
+        part = part.dropna(subset=["tahmin"])
+        x = part[op.x].to_numpy(dtype=float)
+        low, high = part["alt"].to_numpy(dtype=float), part["ust"].to_numpy(dtype=float)
+        figure.add_trace(
+            go.Scatter(
+                x=np.concatenate([x, x[::-1]]), y=np.concatenate([high, low[::-1]]), fill="toself",
+                fillcolor=_rgba(style.rgb, 0.18), line={"width": 0}, hoverinfo="skip", showlegend=False,
+                legendgroup=layer.label,
+            )
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=x, y=part["tahmin"], mode="lines", name=layer.label, legendgroup=layer.label,
+                showlegend=position == 0, line={"color": style.color, "width": 3},
+                customdata=np.column_stack([low, high]),
+                hovertemplate="x = %{x:.2f}<br>tahmin = %{y:.3f}<br>%95 bant [%{customdata[0]:.3f}; "
+                              "%{customdata[1]:.3f}]<extra></extra>",
+            )
+        )
+
+
 def layered_figure(op: Plot, layers: list[PlotLayerData]) -> go.Figure:
     """Katmanlı grafik (Sezgi deneyleri ve Uygulama adımları); üretilen kodla aynı katmanlar ve renkler."""
 
     figure = go.Figure()
+    vertical = False
     for item, style in zip(layers, layer_styles(op.layers)):
         layer, data = item.layer, item.data
-        if isinstance(layer, (MeanPoints, BinMeans)):
+        if isinstance(layer, RDDCurve):
+            _rdd_band(figure, op, layer, data, style)
+        elif isinstance(layer, VLine):
+            vertical = True
+            figure.add_trace(
+                go.Scatter(
+                    x=[layer.x, layer.x], y=[0, 1], mode="lines", name=layer.label, yaxis="y2",
+                    line={"color": style.color, "width": 2, "dash": "dashdot"}, hoverinfo="skip",
+                )
+            )
+        elif isinstance(layer, (MeanPoints, BinMeans)):
             hover = "x ortalaması = %{x:.2f}" if isinstance(layer, BinMeans) else "x = %{x}"
             figure.add_trace(
                 go.Scatter(
@@ -103,11 +148,19 @@ def layered_figure(op: Plot, layers: list[PlotLayerData]) -> go.Figure:
                     hovertemplate="x = %{x:.2f}<br>%{y:.4f}<extra>" + layer.label + "</extra>",
                 )
             )
+    if vertical:
+        figure.update_layout(yaxis2={"overlaying": "y", "range": [0, 1], "visible": False})
+    if op.x_range is not None:
+        figure.update_xaxes(range=list(op.x_range))
     style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
     return figure
 
 
 _REFERENCE_STYLES = (("#07373D", "dash"), ("#6B4C9A", "dot"))
+
+
+def histogram_figure(op: Histogram, data: pd.DataFrame) -> tuple[go.Figure, str]:
+    return _histogram(op, data)
 
 
 def _histogram(op: Histogram, data: pd.DataFrame) -> tuple[go.Figure, str]:
@@ -244,8 +297,15 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
     for column, metric in zip(columns, metrics):
         column.metric(metric.label, metric.value, help=metric.help)
 
+    summaries = {op.result: op.decimals for op in experiment.build(parameters) if isinstance(op, ScalarTable)}
     for name, title in experiment.tables:
         st.markdown(f"**{title}**")
+        if name in summaries:
+            table = state.tables[name]
+            shown = pd.DataFrame({"Büyüklük": table.index,
+                                  "Değer": [plain(value, summaries[name]) for value in table["deger"]]})
+            st.dataframe(shown, hide_index=True, width="stretch", height=35 * (len(shown) + 1) + 3)
+            continue
         table = _table(experiment, name, state.tables[name])
         st.dataframe(table.style.format(_format(table)), hide_index=True, width="stretch")
 

@@ -21,11 +21,20 @@ from scipy import stats
 from core.labs import expr as E
 from core.labs import limited as L
 from core.labs import quantreg as Q
+from core.labs import rdd as RD
+from core.labs import resample as RS
 from core.labs import smoothing as S
 from core.labs.spec import (
+    BOOT,
     IV,
     OLS,
+    RDD,
     VCOV_TYPES,
+    Bootstrap,
+    RDDCurve,
+    RDDTable,
+    ScalarTable,
+    VLine,
     BandwidthCV,
     BinMeans,
     CoefficientProfile,
@@ -303,8 +312,16 @@ def _standard_error(state: LabState):
     return lookup
 
 
+def _scalar(state: LabState):
+    def lookup(name: str) -> float:
+        return float(state.scalars[name])
+
+    return lookup
+
+
 def _evaluate_scalar(expression: E.Expr, state: LabState) -> float:
-    return float(E.evaluate(expression, coefficient=_coefficient(state), standard_error=_standard_error(state)))
+    return float(E.evaluate(expression, coefficient=_coefficient(state), standard_error=_standard_error(state),
+                            scalar=_scalar(state)))
 
 
 @dataclass
@@ -313,10 +330,19 @@ class PlotLayerData:
     data: pd.DataFrame
 
 
+def plot_range(op: Plot, frame: pd.DataFrame) -> tuple[float, float]:
+    """Grafiğin yatay aralığı: tanımda verildiyse o, yoksa verinin en küçük ve en büyük değeri."""
+
+    if op.x_range is not None:
+        return float(op.x_range[0]), float(op.x_range[1])
+    x = frame[op.x].astype(float)
+    return float(x.min()), float(x.max())
+
+
 def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
     frame = state.frames[op.frame]
-    x = frame[op.x].astype(float)
-    grid = pd.DataFrame({op.x: np.linspace(x.min(), x.max(), 200)})
+    low, high = plot_range(op, frame)
+    grid = pd.DataFrame({op.x: np.linspace(low, high, 200)})
     layers: list[PlotLayerData] = []
     for layer in op.layers:
         if isinstance(layer, MeanPoints):
@@ -339,6 +365,14 @@ def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
             complete = frame[[op.x, layer.y]].dropna()
             binned = S.binned_means(complete[op.x], complete[layer.y], layer.bins)
             data = pd.DataFrame({op.x: binned["x"], "ortalama": binned["y"], "n": binned["n"]})
+        elif isinstance(layer, RDDCurve):
+            curve = RD.rdd_curve(
+                frame[op.x], frame[layer.y], layer.cutoff, layer.bandwidth,
+                np.linspace(low, layer.cutoff, layer.points), np.linspace(layer.cutoff, high, layer.points),
+            )
+            data = curve.rename(columns={"x": op.x})
+        elif isinstance(layer, VLine):
+            data = pd.DataFrame({op.x: [float(layer.x)]})
         else:
             raise TypeError(f"Tanınmayan grafik katmanı: {type(layer).__name__}")
         layers.append(PlotLayerData(layer, data))
@@ -509,6 +543,69 @@ def _monte_carlo(op: MonteCarlo, state: LabState, sources: dict[str, pd.DataFram
         state.scalars[coverage_key(op.result, estimate)] = float(covered.mean())
 
 
+# --- Bootstrap -------------------------------------------------------------------
+
+def uses_replicate_se(expression: E.Expr) -> bool:
+    """İfade bootstrap tekrarının standart hatasını kullanıyor mu (percentile-t için tekrar başına HC1)?"""
+
+    if isinstance(expression, E.StdErr):
+        return expression.model == BOOT
+    if isinstance(expression, E.BinOp):
+        return uses_replicate_se(expression.left) or uses_replicate_se(expression.right)
+    if isinstance(expression, E.Call):
+        return any(uses_replicate_se(argument) for argument in expression.args)
+    return False
+
+
+def bootstrap_key(result: str, column: str, statistic: str) -> str:
+    """Bootstrap özet skalerinin adı (``se``, ``lo``, ``hi``); üç dilde aynı ad kullanılır."""
+
+    return f"{result}_{column}_{statistic}"
+
+
+def _bootstrap(op: Bootstrap, state: LabState) -> None:
+    model = state.models[op.model]
+    design = np.asarray(model.model.exog, dtype=float)
+    y = np.asarray(model.model.endog, dtype=float)
+    names = list(model.model.exog_names)
+    if op.method == "cluster":
+        if not op.cluster:
+            raise ValueError("Küme bootstrap'ı için küme değişkeni gerekir.")
+        clusters = state.frames[op.frame].loc[model.model.data.row_labels, op.cluster].to_numpy()
+    else:
+        clusters = None
+    if op.seed is None:
+        if op.frame not in state.rngs:
+            raise ValueError("Tohumsuz bootstrap, verisini üreten örneklemin üretecini kullanır.")
+        rng = state.rngs[op.frame]
+    else:
+        rng = np.random.default_rng(op.seed)
+    need_se = any(uses_replicate_se(expression) for _, expression in op.collect)
+    fitted = np.asarray(model.fittedvalues, dtype=float) if op.method == "wild" else None
+    original_coefficient, original_error, scalar = _coefficient(state), _standard_error(state), _scalar(state)
+    rows: list[list[float]] = []
+    for replicate in RS.replicates(design, y, names, op.reps, rng, op.method, clusters, need_se, fitted):
+        def coefficient(name: str, term: str, replicate=replicate) -> float:
+            if name == BOOT:
+                return float(replicate.params[statsmodels_term(term)])
+            return original_coefficient(name, term)
+
+        def standard_error(name: str, term: str, replicate=replicate) -> float:
+            if name == BOOT:
+                return float(replicate.bse[statsmodels_term(term)])
+            return original_error(name, term)
+
+        rows.append([
+            float(E.evaluate(expression, coefficient=coefficient, standard_error=standard_error, scalar=scalar))
+            for _, expression in op.collect
+        ])
+    table = pd.DataFrame(rows, columns=[name for name, _ in op.collect])
+    state.tables[op.result] = table
+    for column in table.columns:
+        for statistic, value in RS.summary(table[column]).items():
+            state.scalars[bootstrap_key(op.result, column, statistic)] = value
+
+
 # --- İşlemler -------------------------------------------------------------------
 
 def _compare(values: np.ndarray, operator: str, value: float) -> np.ndarray:
@@ -528,7 +625,21 @@ def _compare(values: np.ndarray, operator: str, value: float) -> np.ndarray:
 
 
 def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) -> None:
-    if isinstance(op, NewSample):
+    if isinstance(op, RDD):
+        frame = state.frames[op.frame]
+        state.models[op.name] = RD.rdd_fit(frame[op.x], frame[op.y], op.cutoff, op.bandwidth, op.kernel, op.scale)
+    elif isinstance(op, RDDTable):
+        table = RD.rdd_table({h: state.models[model] for h, model in op.rows})
+        state.tables[op.result] = table
+        state.plots[f"rdd_tablosu:{op.result}"] = table
+    elif isinstance(op, Bootstrap):
+        _bootstrap(op, state)
+    elif isinstance(op, ScalarTable):
+        state.tables[op.result] = pd.DataFrame(
+            {"deger": [_evaluate_scalar(expression, state) for _, expression in op.rows]},
+            index=pd.Index([label for label, _ in op.rows], name="nicelik"),
+        )
+    elif isinstance(op, NewSample):
         state.frames[op.frame] = pd.DataFrame({"id": np.arange(1, op.nobs + 1)})
         if op.seed is not None:
             state.rngs[op.frame] = np.random.default_rng(op.seed)

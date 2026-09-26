@@ -11,7 +11,7 @@ Yeni yapıdaki her konu üç sekmeden oluşur:
 
 - **Kendini sına:** haftanın kavramlarını sınayan soru seti. Dört tür: çoktan seçmeli, doğru–yanlış, boşluk doldurma ve denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; yanlış cevaplara göre tekrar edilecek bölümler listelenir. Denklem sorularında yazılan formül anında önizlenir ve doğru cevaba eşdeğerliği sayısal olarak sınanır (`100(exp(b)-1)` ile `100*exp(b)-100` aynı kabul edilir).
 
-Yeni yapı şu an **Konu 1–8** için hazırdır:
+Yeni yapı şu an **Konu 1–10** için hazırdır:
 
 | Konu | Uygulama (notlardaki sayılar) | Sezgi deneyleri | Kendini sına |
 |---|---|---|---|
@@ -23,6 +23,8 @@ Yeni yapı şu an **Konu 1–8** için hazırdır:
 | 6 | §6.16, CHJ2004, 44 kontrol: veri zinciri, spline'lı OLS/LAD/Tobit profilleri, Tobit'in üç hedefi ve model kontrolü | sansürleme (Tablo 6.2); Heckman iki aşama (Tablo 6.3); dışlama kısıtı olmadan Heckman (Monte Carlo) | 24 soru |
 | 7 | §7.16, CPS, 45 kontrol: beş kantilde kesin kantil regresyon, Hendricks–Koenker SH, OLS karşılaştırması, katsayı profili, kantiller arası fark testi | konum ve ölçek: kantil doğruları; kalın kuyruklu hata: OLS ve LAD (Monte Carlo); kuyruk kantillerinde belirsizlik (Monte Carlo) | 24 soru |
 | 8 | §8.13, DDK2011, 18 kontrol: doğrusal model, birini-dışarıda-bırak ve okul-kümeli CV ile bant genişliği, kübik polinom, kübik spline, yerel doğrusal tahminler | bant genişliği ve yanlılık–varyans; sınırda Nadaraya–Watson ve yerel doğrusal; kısmen doğrusal model: doğrusal kontrol ve Robinson (Monte Carlo) | 24 soru |
+| 9 | §9.15, LM2007, 37 kontrol: tasarım satırları, beş bant genişliğinde keskin RDD (birim varyanslı üçgen çekirdek, HC1), eşikteki iki limit, dikdörtgen çekirdek ve bant genişliği ölçeği, güven bantlı RDD grafiği | yerel doğrusal ve global polinom (Monte Carlo); bant genişliği, yanlılık ve kapsama (Monte Carlo); bulanık RDD: yerel Wald oranı ve zayıf ilk aşama (Monte Carlo) | 24 soru |
+| 10 | §10.17, CPS (50.742 gözlem), 6 kontrol: HC1 ve 1.000 tekrarlı pairs bootstrap (SH, percentile aralığı) | heteroskedastik regresyon: analitik, pairs ve wild bootstrap (Tablo 10.1); doğrusal olmayan dönüşüm: delta yöntemi ve percentile aralığı; kümeli veride yeniden örnekleme birimi | 24 soru |
 
 Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
 
@@ -31,8 +33,8 @@ Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod 
 | Sınıf | Yöntemler | Beklenti |
 |---|---|---|
 | Birebir aynı | OLS, HC1, Logit/Probit ve Tobit katsayıları, AME, kantil regresyon katsayıları (kesin çözüm tekse), yerel doğrusal tahmin ve CV ile seçilen bant genişliği | Ondalık düzeyinde eşit |
-| Ayar sabitlenince aynı | Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), Logit/Probit dayanıklı SH (gözlenen Hessian'lı sandviç: Python `HC0`, R `dayanikli_vcov()`, Stata `vce(robust)`; Stata ayrıca n/(n−1) ile çarpar), LAD (çözüm tek olmayabilir; eğriler aynı), kantil regresyon SH (Hendricks–Koenker: R `se = "nid"`; Python ve Stata'da kodda yazılı), Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
-| Yalnız dağılımda aynı | Bootstrap, çapraz doğrulama, DML bölmeleri | Diller farklı rastgele sayı üreteci kullanır |
+| Ayar sabitlenince aynı | Keskin RDD (çekirdek, bant genişliği ölçeği ve ağırlıklı EKK + HC1 kodda yazılı: Python `WLS(...).fit(cov_type="HC1")`, R `lm(weights = w)` + `vcovHC(type = "HC1")`, Stata `regress [aw = w], vce(robust)`; hazır RDD paketlerinin varsayılanları farklıdır), Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), Logit/Probit dayanıklı SH (gözlenen Hessian'lı sandviç: Python `HC0`, R `dayanikli_vcov()`, Stata `vce(robust)`; Stata ayrıca n/(n−1) ile çarpar), LAD (çözüm tek olmayabilir; eğriler aynı), kantil regresyon SH (Hendricks–Koenker: R `se = "nid"`; Python ve Stata'da kodda yazılı), Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
+| Yalnız dağılımda aynı | Bootstrap, çapraz doğrulama, DML bölmeleri | Diller farklı rastgele sayı üreteci kullanır; Python kodu uygulamanın çekilişini birebir yapar, R ve Stata betikleri bootstrap sayılarını Monte Carlo toleransıyla denetler |
 
 Her adım hangi sınıfta olduğunu arayüzde gösterir.
 
@@ -86,6 +88,7 @@ $env:IKT807_HANSEN_CPS09MAR_PATH = "C:\veri\cps09mar.txt"
 $env:IKT807_HANSEN_DDK2011_PATH = "C:\veri\DDK2011.dta"
 $env:IKT807_HANSEN_CARD1995_PATH = "C:\veri\Card1995.dta"
 $env:IKT807_HANSEN_CHJ2004_PATH = "C:\veri\CHJ2004.dta"
+$env:IKT807_HANSEN_LM2007_PATH = "C:\veri\LM2007.dta"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
@@ -98,11 +101,11 @@ Stata lisans gerektirdiği için otomatik test edilemez; do-dosyası sonunda ken
 Ders notlarındaki uygulamalar Hansen'in *Econometrics* veri arşivine dayanır. Gerçek veri dosyaları depoya eklenmez. Uygulama sekmesi veriyi iki yoldan alır:
 
 1. **Hansen'in sayfasından çalışma anında indirme.** Arşiv (`Econometrics Data.zip`) sunucuda bir kez indirilir ve önbelleğe alınır; bütün oturumlar aynı kopyayı kullanır. Hansen'in sayfası `~bhansen` → `~behansen` adresine yönlenmektedir; önce güncel, sonra eski adres denenir.
-2. **Dosya yükleme.** Hansen'in dosyası (`cps09mar.txt`, `DDK2011.dta`, `Card1995.dta`, `CHJ2004.dta`) yüklenebilir; cps09mar ve DDK2011 için ders notlarının öğretim CSV'si de kabul edilir (Card1995 ve CHJ2004 öğretim CSV'lerinde laboratuvarın türettiği ham değişkenler yoktur). Dosya yalnız oturumda tutulur.
+2. **Dosya yükleme.** Hansen'in dosyası (`cps09mar.txt`, `DDK2011.dta`, `Card1995.dta`, `CHJ2004.dta`, `LM2007.dta`) yüklenebilir; cps09mar, DDK2011 ve LM2007 için ders notlarının öğretim CSV'si de kabul edilir (Card1995 ve CHJ2004 öğretim CSV'lerinde laboratuvarın türettiği ham değişkenler yoktur). Dosya yalnız oturumda tutulur.
 
-`cps09mar` başlıksız `.txt` olarak okunur (değişken adları açıklama belgesindeki sırayla). DDK2011, Card1995 ve CHJ2004, değişken adlarını taşıyan `.dta` dosyalarından okunur; adlar üç dilde aynı olsun diye küçük harfe çevrilir. DDK2011 ve Card1995'te eksik değerler olağandır; analiz örneklemi laboratuvar adımlarında açıkça kurulur. CHJ2004, Hansen'in oluşturma dosyasının ham `urban.dta`'ya uygulanmış hâlidir (düzeltilmiş gelir, 8.684 hane).
+`cps09mar` başlıksız `.txt` olarak okunur (değişken adları açıklama belgesindeki sırayla). DDK2011, Card1995 ve CHJ2004, değişken adlarını taşıyan `.dta` dosyalarından okunur; adlar üç dilde aynı olsun diye küçük harfe çevrilir. DDK2011 ve Card1995'te eksik değerler olağandır; analiz örneklemi laboratuvar adımlarında açıkça kurulur. CHJ2004, Hansen'in oluşturma dosyasının ham `urban.dta`'ya uygulanmış hâlidir (düzeltilmiş gelir, 8.684 hane). LM2007, Hansen'in `LM2007_create.do` dosyasıyla Ludwig ve Miller (2007) verisinden oluşturulmuştur: eşik değişkeni (`povrate60`) ve sonucu (`mort_age59_related_posths`) eksik olmayan 2.783 ilçe.
 
-Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH`, `IKT807_HANSEN_CARD1995_PATH` ve `IKT807_HANSEN_CHJ2004_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
+Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH`, `IKT807_HANSEN_CARD1995_PATH`, `IKT807_HANSEN_CHJ2004_PATH` ve `IKT807_HANSEN_LM2007_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
 
 Her veri setinin kaynağı, gözlem birimi, örneklem kısıtı, değişken birimi, küme/yeniden örnekleme birimi ve yeniden dağıtım durumu `core/data_registry.py` içinde kayıtlıdır.
 

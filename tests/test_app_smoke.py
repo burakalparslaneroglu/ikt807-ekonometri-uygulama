@@ -36,16 +36,16 @@ def test_question_answer_and_new_question_state() -> None:
     """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
 
     app = _run_app()
-    app.radio(key="topic_selector").set_value("konu09").run()
+    app.radio(key="topic_selector").set_value("konu11").run()
     successes = len(app.success)
-    app.button(key="konu09_toggle_answer").click().run()
+    app.button(key="konu11_toggle_answer").click().run()
     assert not app.exception
-    assert app.session_state["konu09_answer_visible"] is True
+    assert app.session_state["konu11_answer_visible"] is True
     assert len(app.success) == successes + 1
 
-    app.button(key="konu09_new_question").click().run()
-    assert app.session_state["konu09_answer_visible"] is False
-    assert app.session_state["konu09_question_index"] == 1
+    app.button(key="konu11_new_question").click().run()
+    assert app.session_state["konu11_answer_visible"] is False
+    assert app.session_state["konu11_question_index"] == 1
     assert len(app.success) == successes
 
 
@@ -188,45 +188,48 @@ def test_topic_08_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
     assert any("Nadaraya–Watson" in item.value for item in app.info)
 
 
-def test_topic_09_rdd_direction_diagnostics_and_lm_gate() -> None:
+def test_topic_09_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
+    monkeypatch.delenv("IKT807_HANSEN_LM2007_PATH", raising=False)
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu09").run()
     assert not app.exception
-    assert app.slider(key="konu09_bandwidth").value == 4.0
-    assert any(metric.label == "RDD sıçraması" for metric in app.metric)
-    assert any(metric.label == "Eşik solu n" for metric in app.metric)
-    assert any(metric.label == "Yerel Wald oranı" for metric in app.metric)
-    assert any("LM2007 verisi lisans teyidi" in item.value for item in app.info)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu09_lab_step").value == 1
+    assert any("LM2007.dta" in item.value for item in app.markdown)
+    assert any(metric.label == "Global polinom: yanlılık" for metric in app.metric)
 
-    app.slider(key="konu09_manipulation").set_value(0.8).run()
+    app.slider(key="konu09_sezgi1_h").set_value(0.3).run()
     assert not app.exception
-    assert any("belirgin yığılma" in item.value for item in app.error)
+    assert any("yükselişe ulaşıyor" in item.value for item in app.info)
 
-    app.slider(key="konu09_first_stage_jump").set_value(0.10).run()
+    app.segmented_control(key="konu09_sezgi_deney").set_value(3).run()
     assert not app.exception
-    assert any("İlk aşama zayıf" in item.value for item in app.error)
+    assert any(metric.label == "Medyan ilk aşama F" for metric in app.metric)
+    app.slider(key="konu09_sezgi3_delta").set_value(0.1).run()
+    assert not app.exception
+    assert any("zayıf araç" in item.value for item in app.info)
 
 
-def test_topic_10_bootstrap_methods_units_and_cps_gate() -> None:
+def test_topic_10_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
+    # Veri yolu tanımlıysa laboratuvar açılışta 1.000 tekrarlı bootstrap yapar; bu test yalnız arayüzü sınar.
+    for name in ("IKT807_HANSEN_CPS09MAR_PATH", "IKT807_CPS_PATH"):
+        monkeypatch.delenv(name, raising=False)
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu10").run()
     assert not app.exception
-    assert app.select_slider(key="konu10_repetitions").value == 500
-    assert any(metric.label == "Bootstrap standart hata" for metric in app.metric)
-    assert any(metric.label == "SH Monte Carlo hatası" for metric in app.metric)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu10_lab_step").value == 1
+    assert any("cps09mar.txt" in item.value for item in app.markdown)
+    pairs = next(metric for metric in app.metric if metric.label == "Pairs bootstrap SH")
+    assert pairs.value == "0,077"
 
-    app.segmented_control(key="konu10_method").set_value("Wild").run()
+    app.slider(key="konu10_sezgi1_gamma").set_value(0.0).run()
     assert not app.exception
-    assert app.segmented_control(key="konu10_method").value == "Wild"
+    assert any("homoskedastik" in item.value for item in app.info)
 
-    app.segmented_control(key="konu10_resampling_unit").set_value("Küme").run()
+    app.segmented_control(key="konu10_sezgi_deney").set_value(3).run()
     assert not app.exception
-    assert any("örnekleme birimi gözlem değil kümedir" in item.value for item in app.info)
-
-    app.segmented_control(key="konu10_data_source").set_value(
-        "Hazırlanmış CPS CSV"
-    ).run()
-    assert any("CPS verisi lisans teyidi" in item.value for item in app.info)
+    assert any(metric.label == "Küme bootstrap SH" for metric in app.metric)
 
 
 def test_topic_11_regularization_cv_and_cps_gate() -> None:

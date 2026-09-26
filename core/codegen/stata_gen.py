@@ -16,6 +16,7 @@ Bilinçli seçimler:
 from __future__ import annotations
 
 from core.codegen import stata_np as SNP
+from core.codegen import stata_rdd_boot as SRB
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
     Generator,
@@ -34,8 +35,12 @@ from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    RDD,
     BinMeans,
+    Bootstrap,
     LocalCurve,
+    RDDCurve,
+    VLine,
     AverageProfile,
     BinaryChoice,
     KeepIf,
@@ -125,7 +130,7 @@ def _cell(table: str, column: str, row) -> str:
 
 
 _FUNCTIONS = {
-    "log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min",
+    "log": "ln", "exp": "exp", "sqrt": "sqrt", "abs": "abs", "maximum": "max", "minimum": "min",
     "round": "round", "floor": "floor", "positive": "({0} > 0)",
     "logistic": "invlogit", "normcdf": "normal", "normpdf": "normalden", "sin": "sin", "cos": "cos",
     **{name: f"({{0}} {symbol} {{1}})" for name, symbol in E.COMPARISONS.items()},
@@ -209,6 +214,7 @@ class StataGenerator(Generator):
             functions=_FUNCTIONS,
             power="^",
             standard_error=lambda model, term: f"_se[{_term(term)}]",
+            scalar=lambda name: f"scalar({name})",
         )
 
     def header(self) -> list[str]:
@@ -224,7 +230,29 @@ class StataGenerator(Generator):
     # --- Yardımcılar -----------------------------------------------------
     def helpers(self, operations: tuple[Operation, ...], *, with_checks: bool) -> list[str]:
         lines: list[str] = []
-        if with_checks:
+        if with_checks and self.mc_checks:
+            lines += [
+                "* Rastgele çekilişe dayanan değerlerde beşinci argüman Monte Carlo toleransıdır: Stata'nın",
+                "* rastgele sayı üreteci Python'dakinden farklıdır, aynı tohum aynı çekilişi vermez.",
+                "capture program drop kontrol_et",
+                "program define kontrol_et",
+                "    args deger beklenen ondalik etiket tolerans",
+                "    local ek \"\"",
+                "    if \"`tolerans'\" == \"\" {",
+                "        local tolerans = 0.5 * 10^(-`ondalik') + 1e-12",
+                "    }",
+                "    else {",
+                "        local ek \"; Monte Carlo toleransı ±`tolerans'\"",
+                "    }",
+                "    if abs(`deger' - `beklenen') > `tolerans' {",
+                "        display as error \"  HATA `etiket': \" %12.`ondalik'f `deger' \"  (notlar: `beklenen'`ek')\"",
+                "        exit 9",
+                "    }",
+                "    display as text \"  OK   `etiket': \" %12.`ondalik'f `deger' \"  (notlar: `beklenen'`ek')\"",
+                "end",
+                "",
+            ]
+        elif with_checks:
             lines += [
                 "capture program drop kontrol_et",
                 "program define kontrol_et",
@@ -243,10 +271,16 @@ class StataGenerator(Generator):
     def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
         ops = flatten(operations)
         layers = [layer for op in ops if isinstance(op, Plot) for layer in op.layers]
-        return SNP.helper_names(ops, layers)
+        names = SNP.helper_names(ops, layers)
+        if any(isinstance(op, RDD) for op in ops):
+            names.append("rdd")
+        if any(isinstance(layer, RDDCurve) for layer in layers):
+            names.append("rdd_egri")
+        return names
 
     def helper_code(self, name: str) -> list[str]:
-        return SNP.HELPERS[name] + [""] if name in SNP.HELPERS else []
+        texts = {**SNP.HELPERS, "rdd": SRB.RDD_HELPER, "rdd_egri": SRB.CURVE_HELPER}
+        return texts[name] + [""] if name in texts else []
 
     def _scalar_lines(self, name: str, expression: E.Expr) -> list[str]:
         """``scalar name = ifade``; ifade birden çok modelin katsayısını kullanabilir."""
@@ -283,6 +317,7 @@ class StataGenerator(Generator):
             functions=self.dialect().functions,
             power="^",
             standard_error=lambda model, term: f"scalar({_scalar_name('se', model, term)})",
+            scalar=lambda scalar: f"scalar({scalar})",
         )
         return lines + [f"scalar {name} = {E.render(expression, dialect)}"]
 
@@ -360,6 +395,8 @@ class StataGenerator(Generator):
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
         lines = SNP.operation(self, op, _command)
+        if lines is None:
+            lines = SRB.operation(self, op, _command)
         if lines is None:
             lines = self._limited_operation(op)
         if lines is None:
@@ -871,7 +908,15 @@ class StataGenerator(Generator):
         ]
         for column, _ in op.columns:
             lines.append(f"count if !inrange({column}, {lower}, {upper})")
+        if self._bootstrap_table(op.table):
+            # Bootstrap tekrarları geçici dosyadadır; veri çerçevesi grafikten sonra geri yüklenir.
+            lines = ["preserve", f"quietly use \"`{SRB.result_file(op.table)}'\", clear", *lines, "restore"]
         return lines
+
+    def _bootstrap_table(self, name: str) -> bool:
+        return any(
+            isinstance(op, Bootstrap) and op.result == name for step in self.spec.steps for op in flatten(step.operations)
+        )
 
     def _plot(self, op: Plot) -> list[str]:
         x = op.x
@@ -898,11 +943,55 @@ class StataGenerator(Generator):
                 f"local k_{owner}_{_term(term).replace('.', '_')} = _b[{_term(term)}]"
                 for owner, term in stored if owner == model
             ]
+        if op.x_range is None:
+            span, low, high = x, ".", "."
+        else:
+            low, high = (E.format_number(value) for value in op.x_range)
+            span = f"{low} {high}"
+        bands = [layer for layer in op.layers if isinstance(layer, RDDCurve)]
+        prefix: list[str] = []
+        if bands:
+            prefix = [
+                "* Eğri noktaları veri setinin sonuna eklenen satırlara yazılır; restore bu satırları geri alır.",
+                "preserve",
+                "local rdd_n0 = _N",
+                f"quietly set obs `=_N + {2 * max(layer.points for layer in bands)}'",
+            ]
         layers: list[str] = []
         legend: list[str] = []
         created: list[str] = []
+        options: list[str] = []
+        notes: list[str] = []
+        order = 0  # twoway içindeki grafik sırası; bir RDD eğrisi dört grafik (iki bant, iki doğru) çizer
         for index, (layer, style) in enumerate(zip(op.layers, layer_styles(op.layers)), start=1):
             color = f'"{style.rgb}"'
+            if isinstance(layer, RDDCurve):
+                name = f"egri{index}"
+                light = f'"{SRB.BAND_LIGHT.get(style.rgb, style.rgb)}"'
+                prefix += [
+                    "* Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve %95 bant",
+                    *_command(
+                        f'mata: rdd_egrisi("{x}", "{layer.y}", `rdd_n0\', {E.format_number(layer.cutoff)}, '
+                        f'{E.format_number(layer.bandwidth)}*sqrt(6), {low}, {high}, {layer.points}, "{name}")'
+                    ),
+                ]
+                for side in (0, 1):
+                    layers.append(
+                        f"(rarea {name}_alt {name}_ust {name}_x if {name}_sag == {side}, fcolor({light}) "
+                        f"lcolor({light}))"
+                    )
+                for side in (0, 1):
+                    layers.append(
+                        f"(line {name}_m {name}_x if {name}_sag == {side}, lcolor({color}) lwidth(medthick))"
+                    )
+                order += 4
+                legend.append(f'{order - 1} "{layer.label}"')
+                continue
+            if isinstance(layer, VLine):
+                options.append(f"xline({E.format_number(layer.x)}, lpattern(dash_dot) lcolor({color}))")
+                notes.append(f"kesik-noktalı dikey çizgi: {layer.label}")
+                continue
+            order += 1
             if isinstance(layer, MeanPoints):
                 mean, count, first = f"ort_{layer.y}", f"n_{layer.y}", f"ilk_{x}"
                 setup += [
@@ -917,7 +1006,7 @@ class StataGenerator(Generator):
             elif isinstance(layer, Curve):
                 pattern = " lpattern(dash)" if style.dashed else ""
                 layers.append(
-                    f"(function y = {E.render(layer.expr, grid)}, range({x}) lcolor({color}) lwidth(medthick){pattern})"
+                    f"(function y = {E.render(layer.expr, grid)}, range({span}) lcolor({color}) lwidth(medthick){pattern})"
                 )
             elif isinstance(layer, ModelLine):
                 a, b = f"a_{layer.model}", f"b_{layer.model}"
@@ -928,7 +1017,7 @@ class StataGenerator(Generator):
                 ]
                 pattern = " lpattern(dash)" if style.dashed else ""
                 layers.append(
-                    f"(function y = `{a}' + `{b}' * x, range({x}) lcolor({color}) lwidth(medthick){pattern})"
+                    f"(function y = `{a}' + `{b}' * x, range({span}) lcolor({color}) lwidth(medthick){pattern})"
                 )
             elif isinstance(layer, (LocalCurve, BinMeans)):
                 prepared, drawn, temporary = SNP.plot_layer(layer, index, x, color, style.dashed)
@@ -936,17 +1025,25 @@ class StataGenerator(Generator):
                 layers.append(drawn)
                 created += temporary
             else:  # ZeroLine
-                layers.append(f"(function y = 0, range({x}) lcolor({color}) lpattern(dot))")
-            legend.append(f'{index} "{layer.label}"')
+                layers.append(f"(function y = 0, range({span}) lcolor({color}) lpattern(dot))")
+            legend.append(f'{order} "{layer.label}"')
         body = " ///\n       ".join(layers)
-        lines = setup + [
+        if op.x_range is not None:
+            options.append(f"xscale(range({span}))")
+        if notes:
+            options.append(f'note("{"; ".join(notes)}")')
+        extra = [f"       {' '.join(options)} ///"] if options else []
+        lines = setup + prefix + [
             f"twoway {body}, ///",
+            *extra,
             f"       legend(order({' '.join(legend)}) cols(1) position(11) ring(0)) ///",
             f'       xtitle("{op.x_label}") ytitle("{op.y_label}") ///',
             f'       title("{op.title}", size(medium))',
         ]
         if created:
             lines += _command(f"drop {' '.join(created)}")
+        if bands:
+            lines.append("restore")
         return lines
 
     # --- Notlarla karşılaştırma -----------------------------------------
@@ -987,8 +1084,9 @@ class StataGenerator(Generator):
                 value_expr = f"scalar({_cell(target.table, target.column, target.row)})"
             else:
                 raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
+            tolerance = "" if check.mc_tolerance is None else f" {E.format_number(check.mc_tolerance)}"
             lines.append(
-                f'kontrol_et `={value_expr}\' {expected} {check.decimals} "{check.label}"'
+                f'kontrol_et `={value_expr}\' {expected} {check.decimals} "{check.label}"{tolerance}'
             )
         return lines
 

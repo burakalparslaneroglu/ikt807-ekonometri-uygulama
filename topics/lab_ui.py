@@ -32,10 +32,15 @@ from core.hansen_data import (
     load_from_upload,
     DATASET_MEMBERS,
 )
-from core.labs.runner import LabRun, run_lab, statsmodels_term
+from core.labs.runner import LabRun, bootstrap_key, run_lab, statsmodels_term
 from core.labs.spec import (
     IV,
     OLS,
+    RDD,
+    Bootstrap,
+    Histogram,
+    RDDTable,
+    ScalarTable,
     BandwidthCV,
     CoefficientProfile,
     LocalLinear,
@@ -71,9 +76,11 @@ from core.labs.spec import (
 from topics.regression_ui import show_figure, style_figure
 
 CODE_LANGUAGE_KEY = "code_language"
-TEACHING_CSV_DATASETS = ("cps09mar", "ddk2011")
+TEACHING_CSV_DATASETS = ("cps09mar", "ddk2011", "lm2007")
 """Öğretim CSV'si laboratuvarın bütün ham değişkenlerini taşıyan veri setleri (Card1995 ve CHJ2004'te türetilen
 değişkenlerin kaynakları eksiktir; bu veri setlerinde Hansen'in .dta dosyası gerekir)."""
+_KERNEL_LABELS = {"triangular": "üçgen", "rectangular": "dikdörtgen"}
+_METHOD_LABELS = {"pairs": "pairs (gözlem çiftleri)", "wild": "wild (Rademacher)", "cluster": "küme"}
 DATA_PATH_ENV = "IKT807_HANSEN_{dataset}_PATH"
 LEGACY_CPS_ENV = "IKT807_CPS_PATH"
 _STAT_LABELS = {
@@ -332,19 +339,18 @@ def _compact_iv(spec: LabSpec, op: IV, result) -> None:
 def _compact_model(spec: LabSpec, op: OLS, result) -> None:
     if op.categorical or len(op.regressors) > 3:
         shown = ", ".join(spec.label(r) for r in op.regressors)
-        nobs = f"{int(result.nobs):,}".replace(",", ".")
         st.markdown(
             f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {shown} · {len(result.params)} katsayı · "
-            f"N = {nobs} · R² = {result.rsquared:.4f}"
+            f"N = {_count(result.nobs)} · R² = {_number(result.rsquared)}"
         )
         return
-    parts = [f"{result.params['Intercept']:.4f}"]
+    parts = [_number(float(result.params["Intercept"]))]
     for name in op.regressors:
         value = float(result.params[name])
         sign = "−" if value < 0 else "+"
-        parts.append(f"{sign} {abs(value):.4f}·{spec.label(name).lower()}")
+        parts.append(f"{sign} {_number(abs(value))}·{spec.label(name).lower()}")
     st.markdown(f"**Tahmin edilen denklem:** {spec.label(op.outcome)} = " + " ".join(parts))
-    st.caption(f"N = {int(result.nobs):,} · R² = {result.rsquared:.4f}".replace(",", "."))
+    st.caption(f"N = {_count(result.nobs)} · R² = {_number(result.rsquared)}")
 
 
 def _group_plot(spec: LabSpec, op: GroupMeanPlot, data: pd.DataFrame) -> None:
@@ -402,7 +408,7 @@ def _show_model_title(spec: LabSpec, model: str) -> str:
 
 def _fit_caption(result) -> str:
     if hasattr(result, "rsquared"):
-        return f"N = {int(result.nobs):,} · R² = {result.rsquared:.4f}".replace(",", ".")
+        return f"N = {_count(result.nobs)} · R² = {_number(result.rsquared)}"
     if hasattr(result, "prsquared"):
         return (f"N = {int(result.nobs):,} · log-olabilirlik = {result.llf:.2f} · "
                 f"McFadden sözde R² = {result.prsquared:.4f}").replace(",", "X").replace(".", ",").replace("X", ".")
@@ -562,12 +568,80 @@ def render_bandwidth_cv(op: BandwidthCV, state, metrics: bool = True) -> None:
     show_figure(figure)
 
 
+def _rdd_compact(op: RDD, result) -> None:
+    scale = "pencere ±h" if op.scale == "window" else f"Hansen ölçeği, pencere ±{_number(result.window, 2)}"
+    st.markdown(
+        f"**Keskin RDD** ({_KERNEL_LABELS[op.kernel]} çekirdek, h = {_number(op.bandwidth, 0)}; {scale}): "
+        f"τ̂ = {_number(result.jump)} (HC1 SH {_number(float(result.bse['D']))}) · n = {_count(result.nobs)}"
+    )
+
+
+def _rdd_table(op: RDDTable, table: pd.DataFrame) -> None:
+    shown = pd.DataFrame(
+        {
+            "h": [_number(h, 0) for h in table.index],
+            "n_h": [_count(v) for v in table["n"]],
+            "τ̂": [_number(v, 2) for v in table["tahmin"]],
+            "SH (HC1)": [_number(v, 2) for v in table["sh"]],
+            "Alt %95": [_number(v, 2) for v in table["alt"]],
+            "Üst %95": [_number(v, 2) for v in table["ust"]],
+        }
+    )
+    st.markdown("**Bant genişliği duyarlılığı** (üçgen çekirdek, Hansen ölçeği; güven aralığı τ̂ ± 1,96·SH)")
+    st.dataframe(shown, hide_index=True, width="stretch")
+    h = table.index.to_numpy(dtype=float)
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=h, y=table["tahmin"], mode="markers", name="Tahmin ve %95 güven aralığı", showlegend=True,
+            marker={"size": 10, "color": _COLORS[0]},
+            error_y={"type": "data", "symmetric": False, "array": table["ust"] - table["tahmin"],
+                     "arrayminus": table["tahmin"] - table["alt"], "color": _COLORS[0], "thickness": 2, "width": 6},
+            customdata=table[["sh", "n"]],
+            hovertemplate="h = %{x:.0f}<br>τ̂ = %{y:.3f}<br>SH = %{customdata[0]:.3f}<br>n = %{customdata[1]:.0f}"
+                          "<extra></extra>",
+        )
+    )
+    figure.add_hline(y=0, line={"color": _COLORS[3], "width": 1, "dash": "dot"})
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
+    show_figure(figure)
+
+
+def _bootstrap(spec: LabSpec, op: Bootstrap, state) -> None:
+    st.markdown(
+        f"**Bootstrap:** {_METHOD_LABELS[op.method]}, B = {_count(op.reps)} tekrar"
+        + (f", tohum {op.seed}" if op.seed is not None else "")
+    )
+    for name, _ in op.collect:
+        se, low, high = (state.scalars[bootstrap_key(op.result, name, key)] for key in ("se", "lo", "hi"))
+        first, second, third = st.columns(3)
+        first.metric(f"Bootstrap SH ({spec.label(name)})" if len(op.collect) > 1 else "Bootstrap SH", _number(se, 5))
+        second.metric("Percentile %95 alt sınır", _number(low))
+        third.metric("Percentile %95 üst sınır", _number(high))
+
+
 def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     state = run.state
-    has_table = any(isinstance(op, (RegressionTable, EffectTable)) for op in step.operations)
+    has_table = any(isinstance(op, (RegressionTable, EffectTable, RDDTable)) for op in step.operations)
     has_plot = any(isinstance(op, Plot) for op in step.operations)
     for op in step.operations:
-        if isinstance(op, DropMissing):
+        if isinstance(op, RDD) and not has_table:
+            _rdd_compact(op, state.models[op.name])
+        elif isinstance(op, RDDTable):
+            _rdd_table(op, state.tables[op.result])
+        elif isinstance(op, Bootstrap):
+            _bootstrap(spec, op, state)
+        elif isinstance(op, Histogram):
+            from topics.sim_ui import histogram_figure
+
+            figure, caption = histogram_figure(op, state.plots[f"histogram:{op.title}"])
+            show_figure(figure)
+            st.caption(caption)
+        elif isinstance(op, ScalarTable):
+            table = state.tables[op.result]
+            shown = pd.DataFrame({"": table.index, "Değer": [_number(v, op.decimals) for v in table["deger"]]})
+            st.dataframe(shown, hide_index=True, width="stretch")
+        elif isinstance(op, DropMissing):
             before, after = state.samples[op]
             st.markdown(
                 f"**Analiz örneklemi:** N = {_count(after)} "

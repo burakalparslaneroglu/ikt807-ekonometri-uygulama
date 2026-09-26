@@ -142,7 +142,7 @@ DATASETS: tuple[DatasetMetadata, ...] = (
         title="LM2007 - Head Start RDD",
         source="Ludwig ve Miller (2007); Hansen Econometrics kaynak veri paketi.",
         observation_unit="İlçe veya coğrafi birim",
-        sample_definition="Running variable ve ölüm oranı sonucu bulunan 2.810 gözlem.",
+        sample_definition="Eşik değişkeni ve ölüm oranı sonucu eksik olmayan 2.783 ilçe (kaynak dosya 2.810 satır).",
         variables=(
             _variable("povrate60", "1960 yoksulluk oranı", "RDD eşik değişkeni.", "oran"),
             _variable(

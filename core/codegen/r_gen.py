@@ -20,11 +20,17 @@ from core.codegen.base import (
     table_row_text,
 )
 from core.codegen import r_np as RNP
+from core.codegen import r_rdd_boot as RRB
 from core.labs import expr as E
-from core.labs.runner import CI_MULTIPLIER, coverage_key
+from core.labs.runner import CI_MULTIPLIER, coverage_key, uses_replicate_se
 from core.labs.spec import (
     IV,
     OLS,
+    RDD,
+    Bootstrap,
+    RDDCurve,
+    RDDTable,
+    VLine,
     BandwidthCV,
     BinMeans,
     LocalCurve,
@@ -94,7 +100,7 @@ def _term(term: str) -> str:
 
 
 _FUNCTIONS = {
-    "log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin",
+    "log": "log", "exp": "exp", "sqrt": "sqrt", "abs": "abs", "maximum": "pmax", "minimum": "pmin",
     "round": "round", "floor": "floor", "positive": "as.numeric({0} > 0)",
     "logistic": "plogis", "normcdf": "pnorm", "normpdf": "dnorm", "sin": "sin", "cos": "cos",
     **{name: f"as.numeric({{0}} {symbol} {{1}})" for name, symbol in E.COMPARISONS.items()},
@@ -258,7 +264,7 @@ class RGenerator(Generator):
 
         symbol = name or model
         settings = self.models.get(model)
-        if isinstance(settings, IV):
+        if isinstance(settings, (IV, RDD)):
             return f'sandwich::vcovHC({symbol}, type = "HC1")'
         if isinstance(settings, BinaryChoice):
             return f"dayanikli_vcov({symbol})" if settings.vcov == "robust" else f"vcov({symbol})"
@@ -275,7 +281,7 @@ class RGenerator(Generator):
     def _needs_sandwich(self, operations) -> bool:
         return any(
             (isinstance(op, OLS) and op.vcov != "classic")
-            or isinstance(op, (StandardErrorTable, BreuschPagan, IV))
+            or isinstance(op, (StandardErrorTable, BreuschPagan, IV, RDD, RDDTable))
             for op in operations
         )
 
@@ -358,7 +364,22 @@ class RGenerator(Generator):
                     "}",
                     "",
                 ]
-        if with_checks:
+        if with_checks and self.mc_checks:
+            lines += [
+                "# Rastgele çekilişe dayanan değerlerde tolerans Monte Carlo toleransıdır: R'nin rastgele sayı üreteci",
+                "# Python'dakinden farklıdır, aynı tohum aynı çekilişi vermez.",
+                "kontrol_et <- function(etiket, deger, beklenen, ondalik = 4, tolerans = NULL) {",
+                "  mc <- !is.null(tolerans)",
+                "  if (!mc) tolerans <- 0.5 * 10^(-ondalik) + 1e-12",
+                "  durum <- if (abs(deger - beklenen) <= tolerans) \"OK  \" else \"HATA\"",
+                "  ek <- if (mc) sprintf(\"; Monte Carlo toleransı ±%s\", format(tolerans)) else \"\"",
+                "  cat(sprintf(\"  %s %s: %.*f  (notlar: %s%s)\\n\", durum, etiket, ondalik, deger,",
+                "              sprintf(\"%.*f\", ondalik, beklenen), ek))",
+                "  if (abs(deger - beklenen) > tolerans) stop(etiket, \" notlarla uyuşmuyor.\")",
+                "}",
+                "",
+            ]
+        elif with_checks:
             lines += [
                 "kontrol_et <- function(etiket, deger, beklenen, ondalik = 4) {",
                 "  tolerans <- 0.5 * 10^(-ondalik) + 1e-12",
@@ -389,6 +410,12 @@ class RGenerator(Generator):
             names.append("cv")
         if any(isinstance(layer, BinMeans) for layer in layers):
             names.append("aralik")
+        if any(isinstance(op, RDD) for op in ops):
+            names.append("rdd")
+        if any(isinstance(layer, RDDCurve) for layer in layers):
+            names.append("rdd_egri")
+        if any(isinstance(op, Bootstrap) and any(uses_replicate_se(e) for _, e in op.collect) for op in ops):
+            names.append("hc1")
         return names
 
     def helper_code(self, name: str) -> list[str]:
@@ -399,6 +426,9 @@ class RGenerator(Generator):
             "yerel": RNP.LOCAL_HELPER,
             "cv": RNP.CV_HELPER,
             "aralik": RNP.BINS_HELPER,
+            "rdd": RRB.RDD_HELPER,
+            "rdd_egri": RRB.CURVE_HELPER,
+            "hc1": RRB.HC1_HELPER,
         }
         return texts[name] + [""] if name in texts else []
 
@@ -413,6 +443,9 @@ class RGenerator(Generator):
         nonparametric = RNP.operation(self, op)
         if nonparametric is not None:
             return nonparametric
+        resampling = RRB.operation(self, op)
+        if resampling is not None:
+            return resampling
         limited = self._limited_operation(op)
         if limited is not None:
             return limited
@@ -928,7 +961,7 @@ class RGenerator(Generator):
             f"legend(\"topright\", legend = c({', '.join(labels)}),",
             f"       fill = c({', '.join(fills)}), border = NA,",
             f"       lty = c({', '.join(ltys)}), col = c({', '.join(colors)}), lwd = 2, bty = \"n\")",
-            f"print(sapply({op.table}[, c({_quoted(column for column, _ in op.columns)})],",
+            f"print(sapply({op.table}[, c({_quoted(column for column, _ in op.columns)}), drop = FALSE],",
             f"             function(x) sum(x < {lower} | x > {upper})))  # aralık dışında kalan değer sayısı",
         ]
         return lines
@@ -941,11 +974,19 @@ class RGenerator(Generator):
             functions=self.dialect(frame).functions,
             power="^",
         )
-        setup = [f"izgara <- seq(min({frame}${x}), max({frame}${x}), length.out = 200)"]
+        if op.x_range is None:
+            low, high = f"min({frame}${x})", f"max({frame}${x})"
+            x_limits = f"range({frame}${x})"
+        else:
+            low, high = (E.format_number(value) for value in op.x_range)
+            x_limits = f"c({low}, {high})"
+        uses_grid = any(isinstance(layer, (Curve, LocalCurve)) for layer in op.layers)
+        setup = [f"izgara <- seq({low}, {high}, length.out = 200)"] if uses_grid else []
         ranges: list[str] = []
         drawing: list[str] = []
         legend = {"label": [], "col": [], "pch": [], "lty": [], "lwd": []}
         curves = 0
+        bands = 0
         for layer, style in zip(op.layers, layer_styles(op.layers)):
             color = f'"{style.color}"'
             if isinstance(layer, MeanPoints):
@@ -1004,6 +1045,28 @@ class RGenerator(Generator):
                 ranges.append(f"{name}$y")
                 drawing.append(f"points({name}$x, {name}$y, pch = 16, col = {color})")
                 marks = ("16", "NA", "NA")
+            elif isinstance(layer, RDDCurve):
+                bands += 1
+                name = f"bant_egrisi_{bands}"
+                points = "" if layer.points == 120 else f", nokta = {layer.points}"
+                setup += [
+                    "# Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve %95 bant",
+                    f"{name} <- rdd_egrisi({frame}${x}, {frame}${layer.y}, {E.format_number(layer.cutoff)}, "
+                    f"{E.format_number(layer.bandwidth)}, {low}, {high}{points})",
+                ]
+                ranges += [f"{name}$alt", f"{name}$ust"]
+                drawing += [
+                    f"for (taraf in c(FALSE, TRUE)) {{",
+                    f"  parca <- {name}[{name}$sag == taraf & !is.na({name}$tahmin), ]",
+                    f"  polygon(c(parca$x, rev(parca$x)), c(parca$alt, rev(parca$ust)), col = adjustcolor({color}, 0.18),",
+                    "          border = NA)",
+                    f"  lines(parca$x, parca$tahmin, col = {color}, lwd = 2)",
+                    "}",
+                ]
+                marks = ("NA", "1", "2")
+            elif isinstance(layer, VLine):
+                drawing.append(f"abline(v = {E.format_number(layer.x)}, col = {color}, lty = 4, lwd = 1.5)")
+                marks = ("NA", "4", "1.5")
             else:  # ZeroLine
                 ranges.append("0")
                 drawing.append(f"abline(h = 0, col = {color}, lty = 3)")
@@ -1013,8 +1076,9 @@ class RGenerator(Generator):
             legend["pch"].append(marks[0])
             legend["lty"].append(marks[1])
             legend["lwd"].append(marks[2])
+        missing = ", na.rm = TRUE" if bands else ""
         lines = setup + [
-            f"plot(NA, xlim = range({frame}${x}), ylim = range(c({', '.join(ranges)})),",
+            f"plot(NA, xlim = {x_limits}, ylim = range(c({', '.join(ranges)}){missing}),",
             f'     xlab = "{op.x_label}", ylab = "{op.y_label}", main = "{op.title}")',
             *drawing,
             f'legend("topleft", legend = c({", ".join(legend["label"])}),',
@@ -1056,8 +1120,9 @@ class RGenerator(Generator):
         lines = ['cat("Notlarla karşılaştırma:\\n")']
         for check in checks:
             expected = f"{check.expected:.{check.decimals}f}"
+            tolerance = "" if check.mc_tolerance is None else f", tolerans = {E.format_number(check.mc_tolerance)}"
             lines.append(
-                f'kontrol_et("{check.label}", {self.target(check.target)}, {expected}, {check.decimals})'
+                f'kontrol_et("{check.label}", {self.target(check.target)}, {expected}, {check.decimals}{tolerance})'
             )
         return lines
 

@@ -8,8 +8,13 @@ from core.labs import expr as E
 from core.labs.spec import (
     IV,
     OLS,
+    RDD,
     BinMeans,
+    Bootstrap,
     LocalCurve,
+    RDDCurve,
+    ScalarTable,
+    VLine,
     AverageProfile,
     BinaryChoice,
     Check,
@@ -60,7 +65,7 @@ def layer_styles(layers) -> list[LayerStyle]:
     """
 
     styles: list[LayerStyle] = []
-    counts = {"lines": 0, "points": 0, "curves": 0}
+    counts = {"lines": 0, "points": 0, "curves": 0, "bands": 0}
     for layer in layers:
         if isinstance(layer, MeanPoints):
             color, rgb = _POINT_COLORS[counts["points"] % len(_POINT_COLORS)]
@@ -88,6 +93,12 @@ def layer_styles(layers) -> list[LayerStyle]:
             color, rgb = _POINT_COLORS[counts["points"] % len(_POINT_COLORS)]
             styles.append(LayerStyle(color, rgb))
             counts["points"] += 1
+        elif isinstance(layer, RDDCurve):
+            color, rgb = _POINT_COLORS[counts["bands"] % len(_POINT_COLORS)]
+            styles.append(LayerStyle(color, rgb))
+            counts["bands"] += 1
+        elif isinstance(layer, VLine):
+            styles.append(LayerStyle("#07373D", "7 55 61", dashed=True))
         else:
             raise TypeError(f"Tanınmayan grafik katmanı: {type(layer).__name__}")
     return styles
@@ -125,7 +136,7 @@ LANGUAGE_INFO = {
 }
 
 
-ESTIMATORS = (OLS, IV, BinaryChoice, Tobit, QuantileRegression)
+ESTIMATORS = (OLS, IV, BinaryChoice, Tobit, QuantileRegression, RDD)
 
 
 def model_settings(spec: LabSpec) -> dict[str, object]:
@@ -159,8 +170,10 @@ def expressions(operations) -> list[E.Expr]:
             found.extend(layer.expr for layer in op.layers if isinstance(layer, Curve))
         elif isinstance(op, ProfileCurves):
             found.extend(expression for _, expression in op.derived)
-        elif isinstance(op, MonteCarlo):
+        elif isinstance(op, (MonteCarlo, Bootstrap)):
             found.extend(expression for _, expression in op.collect)
+        elif isinstance(op, ScalarTable):
+            found.extend(expression for _, expression in op.rows)
     return found
 
 
@@ -248,6 +261,8 @@ class Generator:
         )
         self.quiet = False
         """Monte Carlo döngüsü içinde ekrana yazdırma satırları üretilmez."""
+        self.mc_checks = any(check.mc_tolerance is not None for step in spec.steps for check in step.checks)
+        """Rastgele çekilişe dayanan, R ve Stata'da Monte Carlo toleransıyla denetlenen değer var mı?"""
 
     def is_iv(self, model: str) -> bool:
         return isinstance(self.models.get(model), IV)

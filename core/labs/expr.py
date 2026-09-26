@@ -58,13 +58,20 @@ class StdErr:
     term: str
 
 
-Expr = Union[Var, Const, BinOp, Call, Coef, StdErr]
+@dataclass(frozen=True)
+class Ref:
+    """Daha önce hesaplanmış bir skaler (ör. bootstrap yüzdeliği); üretilen kodda aynı adlı değişken."""
+
+    name: str
+
+
+Expr = Union[Var, Const, BinOp, Call, Coef, StdErr, Ref]
 
 BINARY_OPS = ("+", "-", "*", "/", "^")
 COMPARISONS = {"le": "<=", "lt": "<", "ge": ">=", "gt": ">", "eq": "==", "ne": "!="}
 """Karşılaştırma fonksiyonları: koşul sağlanırsa 1, değilse 0 (gösterge değişkeni)."""
 FUNCTIONS = (
-    "log", "exp", "sqrt", "maximum", "minimum", "round", "floor", "positive",
+    "log", "exp", "sqrt", "abs", "maximum", "minimum", "round", "floor", "positive",
     "logistic", "normcdf", "normpdf", "sin", "cos", *COMPARISONS,
 )
 _BINARY_FUNCTIONS = ("maximum", "minimum", *COMPARISONS)
@@ -184,10 +191,22 @@ def se(model: str, term: str) -> StdErr:
     return StdErr(model, term)
 
 
+def ref(name: str) -> Ref:
+    return Ref(name)
+
+
+def absolute(a) -> Call:
+    return Call("abs", (_wrap(a),))
+
+
+def sqrt(a) -> Call:
+    return Call("sqrt", (_wrap(a),))
+
+
 # --- Doğrulama ---------------------------------------------------------------
 
 def validate(expr: Expr) -> None:
-    if isinstance(expr, (Var, Const, Coef, StdErr)):
+    if isinstance(expr, (Var, Const, Coef, StdErr, Ref)):
         return
     if isinstance(expr, BinOp):
         if expr.op not in BINARY_OPS:
@@ -229,11 +248,12 @@ def evaluate(
     frame: pd.DataFrame | None = None,
     coefficient: Callable[[str, str], float] | None = None,
     standard_error: Callable[[str, str], float] | None = None,
+    scalar: Callable[[str], float] | None = None,
 ):
     """İfadeyi bir veri çerçevesi (vektör) veya katsayılar (skaler) üzerinde hesaplar."""
 
     def again(node: Expr):
-        return evaluate(node, frame, coefficient, standard_error)
+        return evaluate(node, frame, coefficient, standard_error, scalar)
 
     if isinstance(expr, Const):
         return expr.value
@@ -249,6 +269,10 @@ def evaluate(
         if standard_error is None:
             raise ValueError("Standart hata ifadesi için tahmin edilmiş model gerekir.")
         return standard_error(expr.model, expr.term)
+    if isinstance(expr, Ref):
+        if scalar is None:
+            raise ValueError(f"'{expr.name}' skaleri için hesaplanmış skalerler gerekir.")
+        return scalar(expr.name)
     if isinstance(expr, BinOp):
         left = again(expr.left)
         right = again(expr.right)
@@ -269,6 +293,8 @@ def evaluate(
             return np.exp(values[0])
         if expr.fn == "sqrt":
             return np.sqrt(values[0])
+        if expr.fn == "abs":
+            return np.abs(values[0])
         if expr.fn == "round":
             return np.rint(values[0])
         if expr.fn == "floor":
@@ -313,6 +339,7 @@ class Dialect:
     functions: dict[str, str]
     power: str
     standard_error: Callable[[str, str], str] | None = None
+    scalar: Callable[[str], str] | None = None
 
 
 def format_number(value: float) -> str:
@@ -338,6 +365,8 @@ def render(expr: Expr, dialect: Dialect) -> str:
         if dialect.standard_error is None:
             raise ValueError("Bu dilde standart hata ifadesi tanımlı değil.")
         return dialect.standard_error(expr.model, expr.term)
+    if isinstance(expr, Ref):
+        return dialect.scalar(expr.name) if dialect.scalar is not None else expr.name
     if isinstance(expr, Call):
         arguments = [render(argument, dialect) for argument in expr.args]
         spec = dialect.functions[expr.fn]

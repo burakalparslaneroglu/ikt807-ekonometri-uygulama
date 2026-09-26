@@ -80,7 +80,8 @@ def test_steps_are_numbered_and_tied_to_the_notes(spec) -> None:
         )
         assert lab_step or reading, step.number
         assert step.title and step.explanation
-    assert _checks(spec) >= 10
+    # Notlarda basılı her sayı bir Check'tir; en kısa laboratuvar (Konu 10) altı sayı basar.
+    assert _checks(spec) >= 6
 
 
 @pytest.mark.parametrize("spec", SPECS, ids=lambda s: s.topic_key)
