@@ -2,52 +2,109 @@
 
 Varsayılan yığın temel R'dır. Dayanıklı çıkarım gereken konularda ``sandwich`` ve
 ``lmtest`` kullanılır; kovaryans türü kodda açıkça yazılır (ör. ``type = "HC1"``).
+Hansen'in ``.dta`` dosyaları ``haven``, 2SLS ``AER::ivreg`` ile okunur/tahmin edilir.
 """
 
 from __future__ import annotations
 
-from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, categorical_comment, continuous_terms, layer_styles
+from core.codegen.base import (
+    HANSEN_ARCHIVE_URL,
+    Generator,
+    categorical_comment,
+    continuous_terms,
+    flatten,
+    histogram_styles,
+    layer_styles,
+)
 from core.labs import expr as E
+from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
+    IV,
     OLS,
     BreuschPagan,
-    ClusterDraw,
-    DeltaMethod,
-    LinearCombination,
-    StandardErrorTable,
     Check,
+    ClusterDraw,
     CoefTarget,
     Curve,
+    DeltaMethod,
     Derive,
     Describe,
     Draw,
-    MeanPoints,
-    ModelLine,
-    NewSample,
-    Plot,
-    Predict,
-    Scatter,
-    Summaries,
-    ZeroLine,
+    DropMissing,
+    EffectTable,
     GroupMeanPlot,
     GroupSummary,
+    Histogram,
+    LinearCombination,
     LoadHansen,
+    MeanPoints,
+    ModelLine,
     ModelTarget,
+    MonteCarlo,
+    NewSample,
     Operation,
+    Plot,
+    Predict,
     ProjectionPlot,
     RegressionTable,
     Scalar,
     ScalarTarget,
+    Scatter,
     ShowModel,
+    StandardErrorTable,
     StatTarget,
+    Summaries,
+    ZeroLine,
 )
 
 _STAT = {"count": "length", "sum": "sum", "mean": "mean", "sd": "sd", "median": "median", "min": "min", "max": "max"}
 _COLORS = ('"#107C89"', '"#B3392F"', '"#2F9E6B"', '"#07373D"')
+_REFERENCE_STYLES = (('"#07373D"', "2"), ('"#6B4C9A"', "3"))
 
 
 def _term(term: str) -> str:
     return "(Intercept)" if term == E.INTERCEPT else term
+
+
+def _quoted(names) -> str:
+    return ", ".join(f'"{name}"' for name in names)
+
+
+def _wrapped(opening: str, items: list[str], closing: str, width: int = 88) -> list[str]:
+    """Uzun ``c(...)`` listelerini okunur satırlara böler."""
+
+    lines: list[str] = []
+    current = opening
+    indent = " " * len(opening)
+    for index, item in enumerate(items):
+        piece = item + (", " if index < len(items) - 1 else "")
+        if len(current) + len(piece.rstrip()) > width and current.strip() not in (opening.strip(), ""):
+            lines.append(current.rstrip())
+            current = indent
+        current += piece
+    lines.append(current.rstrip() + closing)
+    return lines
+
+
+def _formula_lines(formula: str, width: int = 78) -> list[str]:
+    """Uzun R formülünü ``+`` ve ``|`` işaretlerinden sonra bölünmüş satırlara ayırır."""
+
+    tokens: list[str] = []
+    for part_index, part in enumerate(formula.split(" | ")):
+        terms = part.split(" + ")
+        for index, term in enumerate(terms):
+            separator = " +" if index < len(terms) - 1 else (" |" if part_index < formula.count(" | ") else "")
+            tokens.append(term + separator)
+    lines: list[str] = []
+    current = ""
+    for token in tokens:
+        if current and len(current) + len(token) + 1 > width:
+            lines.append(current)
+            current = "  " + token
+        else:
+            current = f"{current} {token}" if current else token
+    lines.append(current)
+    return lines
 
 
 class RGenerator(Generator):
@@ -58,15 +115,24 @@ class RGenerator(Generator):
         return E.Dialect(
             variable=lambda name: f"{frame}${name}",
             coefficient=lambda model, term: f'coef({model})[["{_term(term)}"]]',
-            functions={"log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin", "round": "round", "floor": "floor"},
+            functions={
+                "log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin",
+                "round": "round", "floor": "floor", "positive": "as.numeric({0} > 0)",
+            },
             power="^",
+            standard_error=self._standard_error,
         )
+
+    def _standard_error(self, model: str, term: str) -> str:
+        return f'sqrt(diag({self.vcov(model)}))[["{_term(term)}"]]'
 
     def vcov(self, model: str, name: str | None = None) -> str:
         """Modelin kovaryans matrisi ifadesi; ``name`` verilirse o değişken adıyla yazılır."""
 
         symbol = name or model
         settings = self.models.get(model)
+        if isinstance(settings, IV):
+            return f'sandwich::vcovHC({symbol}, type = "HC1")'
         if settings is None or settings.vcov == "classic":
             return f"vcov({symbol})"
         if settings.vcov == "HC1":
@@ -76,46 +142,81 @@ class RGenerator(Generator):
     def _needs_sandwich(self, operations) -> bool:
         return any(
             (isinstance(op, OLS) and op.vcov != "classic")
-            or isinstance(op, (StandardErrorTable, BreuschPagan))
+            or isinstance(op, (StandardErrorTable, BreuschPagan, IV))
             for op in operations
         )
 
     # --- Başlık ve yardımcılar ------------------------------------------
     def imports(self, operations: tuple[Operation, ...]) -> list[str]:
-        lines: list[str] = []
-        if self._needs_sandwich(operations):
-            lines += [
-                "# Gerekli paketler: install.packages(c(\"sandwich\", \"lmtest\"))",
-                "library(sandwich)",
-                "library(lmtest)",
-                "",
-            ]
-        return lines
+        ops = flatten(operations)
+        packages: list[str] = []
+        if self._needs_sandwich(ops):
+            packages += ["sandwich", "lmtest"]
+        if any(isinstance(op, LoadHansen) and op.member.lower().endswith(".dta") for op in ops):
+            packages.append("haven")
+        if any(isinstance(op, IV) for op in ops):
+            packages.append("AER")
+        if not packages:
+            return []
+        lines = [f"# Gerekli paketler: install.packages(c({_quoted(packages)}))"]
+        if "sandwich" in packages:
+            lines += ["library(sandwich)", "library(lmtest)"]
+        return lines + [""]
 
     def helpers(self, operations: tuple[Operation, ...], *, with_checks: bool) -> list[str]:
         lines: list[str] = []
-        if any(isinstance(op, LoadHansen) for op in operations):
+        loads = [op for op in operations if isinstance(op, LoadHansen)]
+        if loads:
+            stata_file = loads[0].member.lower().endswith(".dta")
+            example = loads[0].member if stata_file else "cps09mar.txt"
             lines += [
                 "options(timeout = max(600, getOption(\"timeout\")))",
                 f'hansen_arsiv <- "{HANSEN_ARCHIVE_URL}"',
                 "",
-                "# Dosyayı kendiniz indirdiyseniz yolunu yazın (ör. \"cps09mar.txt\").",
+                f"# Dosyayı kendiniz indirdiyseniz yolunu yazın (ör. \"{example}\").",
                 "# NULL bırakırsanız veri Hansen'in sayfasından otomatik indirilir.",
                 "yerel_dosya <- NULL",
                 "",
-                "# Hansen'in .txt dosyalarında başlık satırı yoktur ve değerler boşlukla ayrılır;",
-                "# değişken adları açıklama belgesindeki sırayla verilir.",
-                "hansen_verisi <- function(dosya_adi, sutunlar, yerel_dosya = NULL) {",
-                "  if (!is.null(yerel_dosya)) return(read.table(yerel_dosya, col.names = sutunlar))",
-                "  gecici <- tempfile(fileext = \".zip\")",
-                "  download.file(hansen_arsiv, gecici, mode = \"wb\", quiet = TRUE)",
-                "  uyeler <- unzip(gecici, list = TRUE)$Name",
-                "  uye <- uyeler[tolower(basename(uyeler)) == dosya_adi][1]",
-                "  if (is.na(uye)) stop(dosya_adi, \" Hansen arşivinde bulunamadı.\")",
-                "  read.table(unz(gecici, uye), col.names = sutunlar)",
-                "}",
-                "",
             ]
+            if stata_file:
+                lines += [
+                    "# Hansen'in .dta dosyası değişken adlarını taşır; Python, R ve Stata'da aynı olsun diye",
+                    "# adlar küçük harfe çevrilir. Yerel dosya olarak ders notlarının öğretim CSV'si de verilebilir.",
+                    "hansen_verisi <- function(dosya_adi, yerel_dosya = NULL) {",
+                    "  if (!is.null(yerel_dosya) && grepl(\"\\\\.csv$\", tolower(yerel_dosya))) {",
+                    "    veri <- read.csv(yerel_dosya)",
+                    "  } else {",
+                    "    if (is.null(yerel_dosya)) {",
+                    "      gecici <- tempfile(fileext = \".zip\")",
+                    "      download.file(hansen_arsiv, gecici, mode = \"wb\", quiet = TRUE)",
+                    "      uyeler <- unzip(gecici, list = TRUE)$Name",
+                    "      uye <- uyeler[tolower(basename(uyeler)) == tolower(dosya_adi)][1]",
+                    "      if (is.na(uye)) stop(dosya_adi, \" Hansen arşivinde bulunamadı.\")",
+                    "      yerel_dosya <- unzip(gecici, files = uye, exdir = tempdir(), junkpaths = TRUE)",
+                    "      unlink(gecici)",
+                    "    }",
+                    "    veri <- as.data.frame(haven::read_dta(yerel_dosya))",
+                    "  }",
+                    "  names(veri) <- tolower(names(veri))",
+                    "  veri",
+                    "}",
+                    "",
+                ]
+            else:
+                lines += [
+                    "# Hansen'in .txt dosyalarında başlık satırı yoktur ve değerler boşlukla ayrılır;",
+                    "# değişken adları açıklama belgesindeki sırayla verilir.",
+                    "hansen_verisi <- function(dosya_adi, sutunlar, yerel_dosya = NULL) {",
+                    "  if (!is.null(yerel_dosya)) return(read.table(yerel_dosya, col.names = sutunlar))",
+                    "  gecici <- tempfile(fileext = \".zip\")",
+                    "  download.file(hansen_arsiv, gecici, mode = \"wb\", quiet = TRUE)",
+                    "  uyeler <- unzip(gecici, list = TRUE)$Name",
+                    "  uye <- uyeler[tolower(basename(uyeler)) == dosya_adi][1]",
+                    "  if (is.na(uye)) stop(dosya_adi, \" Hansen arşivinde bulunamadı.\")",
+                    "  read.table(unz(gecici, uye), col.names = sutunlar)",
+                    "}",
+                    "",
+                ]
         if with_checks:
             lines += [
                 "kontrol_et <- function(etiket, deger, beklenen, ondalik = 4) {",
@@ -131,6 +232,12 @@ class RGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
+        lines = self._operation(op)
+        if self.quiet:
+            lines = [line for line in lines if not line.lstrip().startswith(("print(", "cat("))]
+        return lines
+
+    def _operation(self, op: Operation) -> list[str]:
         if isinstance(op, StandardErrorTable):
             t = op.term
             models = ", ".join(f"{m} = {m}" for m in op.models)
@@ -178,10 +285,13 @@ class RGenerator(Generator):
                 f'cat(sprintf("{op.comment}: %.2f (delta SH %.3f)\\n", {op.name}, {op.name}_se))',
             ]
         if isinstance(op, NewSample):
+            frame = f"{op.frame} <- data.frame(id = seq_len({op.nobs}))"
+            if op.seed is None:
+                return [frame]
             return [
                 "# Sabit tohum: betik her çalıştırmada aynı veriyi üretir",
                 f"set.seed({op.seed})",
-                f"{op.frame} <- data.frame(id = seq_len({op.nobs}))",
+                frame,
             ]
         if isinstance(op, ClusterDraw):
             a, b = E.format_number(op.first), E.format_number(op.second)
@@ -204,12 +314,25 @@ class RGenerator(Generator):
         if isinstance(op, Plot):
             return self._plot(op)
         if isinstance(op, LoadHansen):
+            if op.member.lower().endswith(".dta"):
+                return [
+                    f"# Hansen'in {op.member.rsplit('.', 1)[0]} veri seti; değişken adları dosyada kayıtlı",
+                    f'{op.frame} <- hansen_verisi("{op.member}", yerel_dosya)',
+                    f"print(dim({op.frame}))  # gözlem, değişken",
+                ]
             names = ", ".join(f'"{c}"' for c in op.columns)
             return [
                 f"# Değişken sırası: Hansen'in {op.dataset} açıklama belgesi",
                 f"sutunlar <- c({names})",
                 f'{op.frame} <- hansen_verisi("{op.member}", sutunlar, yerel_dosya)',
                 f"print(dim({op.frame}))  # gözlem, değişken",
+            ]
+        if isinstance(op, DropMissing):
+            return [
+                f"# {op.comment}",
+                *_wrapped(f"eksiksiz <- complete.cases({op.frame}[, c(", [f'"{v}"' for v in op.variables], ")])"),
+                f"{op.frame} <- {op.frame}[eksiksiz, ]",
+                f"print(nrow({op.frame}))  # analiz örneklemi",
             ]
         if isinstance(op, Derive):
             rhs = E.render(op.expr, self.dialect(op.frame))
@@ -232,25 +355,18 @@ class RGenerator(Generator):
             lines += [")", f"print(round({op.result}, 4))"]
             return lines
         if isinstance(op, OLS):
-            terms = [f"factor({r})" if r in op.categorical else r for r in op.regressors]
-            formula = f"{op.outcome} ~ " + " + ".join(terms)
-            lines = [f"{op.name} <- lm({formula}, data = {op.frame})"]
-            if op.categorical:
-                lines.insert(0, categorical_comment(op, "#"))
-                shown = continuous_terms(op)
-                if shown and op.vcov == "classic":
-                    names = ", ".join(f'"{t}"' for t in shown)
-                    lines.append(f"print(round(coef({op.name})[c({names})], 4))")
-                elif shown:
-                    lines.append(f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({', '.join(repr(t).replace(chr(39), chr(34)) for t in shown)}), ])")
-            elif op.vcov == "classic":
-                lines.append(f"print(round(coef({op.name}), 4))")
-            else:
-                lines.append(f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)}))")
-            return lines
+            return self._ols(op)
+        if isinstance(op, IV):
+            return self._iv(op)
+        if isinstance(op, EffectTable):
+            return self._effect_table(op)
+        if isinstance(op, MonteCarlo):
+            return self._monte_carlo(op)
+        if isinstance(op, Histogram):
+            return self._histogram(op)
         if isinstance(op, ShowModel):
             settings = self.models.get(op.model)
-            if settings is None or settings.vcov == "classic":
+            if settings is None or (isinstance(settings, OLS) and settings.vcov == "classic"):
                 return [f"summary({op.model})", f"confint({op.model})"]
             return [f"coeftest({op.model}, vcov. = {self.vcov(op.model)})"]
         if isinstance(op, RegressionTable):
@@ -275,7 +391,7 @@ class RGenerator(Generator):
             return [
                 f"# {op.comment}",
                 f"{op.name} <- {rhs}",
-                f'cat("{op.comment}:", sprintf("%.2f", {op.name}), "\\n")',
+                f'cat("{op.comment}:", sprintf("%.{op.decimals}f", {op.name}), "\\n")',
             ]
         if isinstance(op, GroupMeanPlot):
             labels = [label for _, label in sorted(op.group_labels)]
@@ -305,6 +421,174 @@ class RGenerator(Generator):
                 '       pch = c(16, NA), lty = c(NA, 1), col = c("#107C89", "black"), bty = "n")',
             ]
         raise TypeError(f"R üreticisi bu işlemi tanımıyor: {type(op).__name__}")
+
+    # --- Tahminler -------------------------------------------------------
+    @staticmethod
+    def _call(name: str, function: str, formula: str, data: str) -> list[str]:
+        single = f"{name} <- {function}({formula}, data = {data})"
+        if len(formula) <= 120 and len(single) <= 160:
+            return [single]
+        body = _formula_lines(formula)
+        return [f"{name} <- {function}(", *[f"  {line}" for line in body[:-1]], f"  {body[-1]},",
+                f"  data = {data}", ")"]
+
+    def _ols(self, op: OLS) -> list[str]:
+        terms = [f"factor({r})" if r in op.categorical else r for r in op.regressors]
+        formula = f"{op.outcome} ~ " + " + ".join(terms)
+        lines: list[str] = []
+        data = op.frame
+        if self.needs_sample(op):
+            data = f"veri_{op.name}"
+            used = self.used_variables(op)
+            if op.where is not None:
+                variable, value = op.where
+                lines.append(f"# Tahmin örneklemi: {variable} = {E.format_number(value)} olan, eksiksiz gözlemler")
+                lines.append(
+                    f"{data} <- na.omit(subset({op.frame}, {variable} == {E.format_number(value)}, "
+                    f"select = c({', '.join(used)})))"
+                )
+            else:
+                lines.append("# Tahmin örneklemi: model ve küme değişkeni eksiksiz gözlemler")
+                lines.append(f"{data} <- na.omit({op.frame}[, c({_quoted(used)}), drop = FALSE])")
+        lines += self._call(op.name, "lm", formula, data)
+        if op.categorical:
+            lines.insert(0, categorical_comment(op, "#"))
+            shown = continuous_terms(op)
+            if shown and op.vcov == "classic":
+                lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
+            elif shown:
+                lines.append(f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({_quoted(shown)}), ])")
+            return lines
+        shown = self.shown_terms(op)
+        if shown:
+            if op.vcov == "classic":
+                lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
+            else:
+                lines.append(
+                    f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({_quoted(shown)}), , drop = FALSE])"
+                )
+        elif op.vcov == "classic":
+            lines.append(f"print(round(coef({op.name}), 4))")
+        else:
+            lines.append(f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)}))")
+        return lines
+
+    def _iv(self, op: IV) -> list[str]:
+        structural = " + ".join((*op.endogenous, *op.exogenous))
+        instruments = " + ".join((*op.instruments, *op.exogenous))
+        formula = f"{op.outcome} ~ {structural} | {instruments}"
+        lines = [
+            f"# 2SLS: {', '.join(op.endogenous)} içsel, araç {', '.join(op.instruments)}; "
+            + ("dışsal kontroller '|' işaretinin iki yanında da yer alır" if op.exogenous
+               else "'|' işaretinden sonra araçlar"),
+            '# Kovaryans: vcovHC(type = "HC1") → Python (debiased=True) ve Stata (small) ile aynı standart hata',
+        ]
+        lines += self._call(op.name, "AER::ivreg", formula, op.frame)
+        lines.append(
+            f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({_quoted(self.shown_terms(op))}), , drop = FALSE])"
+        )
+        return lines
+
+    def _effect_table(self, op: EffectTable) -> list[str]:
+        lines = [
+            f"# {op.title}" if op.title else "# Tahminler yan yana",
+            "satir <- function(m, terim, V) c(coef(m)[[terim]], sqrt(diag(V))[[terim]], nobs(m))",
+            "satirlar <- rbind(",
+        ]
+        for index, (label, model, term) in enumerate(op.rows):
+            ending = "," if index < len(op.rows) - 1 else ""
+            call = f'satir({model}, "{_term(term)}", {self.vcov(model)}){ending}'
+            entry = f'  "{label}" = {call}'
+            if len(entry) > 100:
+                lines += [f'  "{label}" =', f"    {call}"]
+            else:
+                lines.append(entry)
+        lines += [
+            ")",
+            f"{op.result} <- data.frame(tahmin = satirlar[, 1], SH = satirlar[, 2], N = satirlar[, 3],",
+            f"{' ' * (len(op.result) + len(' <- data.frame('))}row.names = rownames(satirlar))",
+            "# p-değeri: normal yaklaşımla iki yönlü, 2Φ(−|tahmin/SH|)",
+            f"{op.result}$p <- 2 * pnorm(-abs({op.result}$tahmin / {op.result}$SH))",
+            f'print(round({op.result}[, c("tahmin", "SH", "p", "N")], 4))',
+        ]
+        return lines
+
+    def _monte_carlo(self, op: MonteCarlo) -> list[str]:
+        lines = [
+            f"# {op.comment}",
+            f"# {op.reps} tekrar; tohum döngüden önce bir kez ayarlanır",
+            f"set.seed({op.seed})",
+            f"sonuclar <- vector(\"list\", {op.reps})",
+            f"for (tekrar in seq_len({op.reps})) {{",
+        ]
+        self.quiet = True
+        try:
+            for inner in op.body:
+                lines += [f"  {line}" if line else "" for line in self.operation(inner)]
+        finally:
+            self.quiet = False
+        dialect = self.dialect("")
+        lines.append("  sonuclar[[tekrar]] <- c(")
+        for index, (name, expression) in enumerate(op.collect):
+            ending = "," if index < len(op.collect) - 1 else ""
+            lines.append(f"    {name} = {E.render(expression, dialect)}{ending}")
+        lines += [
+            "  )",
+            "}",
+            f"{op.result} <- as.data.frame(do.call(rbind, sonuclar))",
+            f"print(summary({op.result}))",
+        ]
+        if op.coverage:
+            lines.append(f"# %95 güven aralığı: tahmin ± {CI_MULTIPLIER}·SH; gerçek değeri kapsayan tekrarların payı")
+        for estimate, standard_error, truth in op.coverage:
+            key = coverage_key(op.result, estimate)
+            lines += [
+                f"{key} <- mean(abs({op.result}${estimate} - {E.format_number(truth)}) <= "
+                f"{CI_MULTIPLIER} * {op.result}${standard_error})",
+                f'cat(sprintf("Kapsama oranı, {estimate} (gerçek değer {E.format_number(truth)}): %.3f\\n", {key}))',
+            ]
+        return lines
+
+    def _histogram(self, op: Histogram) -> list[str]:
+        lower, upper = E.format_number(op.lower), E.format_number(op.upper)
+        styles = histogram_styles(len(op.columns))
+        series = [f"{op.table}${column}" for column, _ in op.columns]
+        lines = [
+            f"# [{lower}, {upper}] dışındaki değerler çizilmez; kaç tane olduğu aşağıda yazdırılır",
+            f"kutular <- seq({lower}, {upper}, length.out = {op.bins + 1})",
+            f"aralikta <- function(x) x[x >= {lower} & x <= {upper}]",
+            f"sayimlar <- sapply(list({', '.join(series)}),",
+            "                   function(x) hist(aralikta(x), breaks = kutular, plot = FALSE)$counts)",
+        ]
+        for index, (item, style) in enumerate(zip(series, styles)):
+            color = f'adjustcolor("{style.color}", 0.55)'
+            if index == 0:
+                lines += [
+                    f'hist(aralikta({item}), breaks = kutular, col = {color}, border = "white",',
+                    f'     ylim = c(0, max(sayimlar)), xlab = "{op.x_label}", ylab = "Tekrar sayısı",',
+                    f'     main = "{op.title}")',
+                ]
+            else:
+                lines.append(f'hist(aralikta({item}), breaks = kutular, col = {color}, border = "white", add = TRUE)')
+        fills = [f'adjustcolor("{style.color}", 0.55)' for style in styles]
+        labels = [f'"{label}"' for _, label in op.columns]
+        ltys = ["NA"] * len(op.columns)
+        colors = ["NA"] * len(op.columns)
+        for index, (value, label) in enumerate(op.references):
+            color, lty = _REFERENCE_STYLES[index % len(_REFERENCE_STYLES)]
+            lines.append(f"abline(v = {E.format_number(value)}, col = {color}, lty = {lty}, lwd = 2)")
+            fills.append("NA")
+            labels.append(f'"{label}"')
+            ltys.append(lty)
+            colors.append(color)
+        lines += [
+            f"legend(\"topright\", legend = c({', '.join(labels)}),",
+            f"       fill = c({', '.join(fills)}), border = NA,",
+            f"       lty = c({', '.join(ltys)}), col = c({', '.join(colors)}), lwd = 2, bty = \"n\")",
+            f"print(sapply({op.table}[, c({_quoted(column for column, _ in op.columns)})],",
+            f"             function(x) sum(x < {lower} | x > {upper})))  # aralık dışında kalan değer sayısı",
+        ]
+        return lines
 
     def _plot(self, op: Plot) -> list[str]:
         frame, x = op.frame, op.x
@@ -341,10 +625,15 @@ class RGenerator(Generator):
             elif isinstance(layer, Curve):
                 curves += 1
                 name = f"egri_{curves}"
-                setup.append(f"{name} <- {E.render(layer.expr, grid)}")
+                values = E.render(layer.expr, grid)
+                if not E.variables(layer.expr):
+                    values = f"rep({values}, length(izgara))"
+                setup.append(f"{name} <- {values}")
                 ranges.append(name)
-                drawing.append(f"lines(izgara, {name}, col = {color}, lwd = 2)")
-                marks = ("NA", "1", "2")
+                lty = 2 if style.dashed else 1
+                pattern = f", lty = {lty}" if style.dashed else ""
+                drawing.append(f"lines(izgara, {name}, col = {color}, lwd = 2{pattern})")
+                marks = ("NA", str(lty), "2")
             elif isinstance(layer, ModelLine):
                 ranges.append(f"fitted({layer.model})")
                 lty = 2 if style.dashed else 1
@@ -379,13 +668,18 @@ class RGenerator(Generator):
             if target.where is not None:
                 variable, value = target.where
                 values = f"{values}[{target.frame}${variable} == {E.format_number(value)}]"
+            if target.stat == "count":
+                return f"sum(!is.na({values}))"
             return f"{_STAT[target.stat]}({values})"
         if isinstance(target, CoefTarget):
+            coefficient = f'coef({target.model})[["{_term(target.term)}"]]'
             if target.quantity == "coef":
-                return f'coef({target.model})[["{_term(target.term)}"]]'
+                return coefficient
             if target.quantity == "se_hc1":
                 return f'sqrt(diag(vcovHC({target.model}, type = "HC1")))[["{_term(target.term)}"]]'
-            return f'sqrt(diag({self.vcov(target.model)}))[["{_term(target.term)}"]]'
+            if target.quantity == "p":
+                return f"2 * pnorm(-abs({coefficient} / {self._standard_error(target.model, target.term)}))"
+            return self._standard_error(target.model, target.term)
         if isinstance(target, ModelTarget):
             if target.quantity == "r2":
                 return f"summary({target.model})$r.squared"

@@ -55,13 +55,14 @@ class LoadHansen:
     """Hansen'in veri arşivinden bir veri setini yükler.
 
     Hansen'in ``.txt`` dosyaları başlıksızdır; ``columns`` değişken adlarını veri
-    setinin açıklama belgesindeki sırayla verir.
+    setinin açıklama belgesindeki sırayla verir. ``.dta`` dosyaları adlarını kendi
+    taşır; bu durumda ``columns`` boş bırakılır ve adlar küçük harfe çevrilir.
     """
 
     dataset: str
     member: str
     frame: str
-    columns: tuple[str, ...]
+    columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,11 @@ class GroupSummary:
 
 @dataclass(frozen=True)
 class OLS:
-    """En küçük kareler tahmini."""
+    """En küçük kareler tahmini.
+
+    Tahmin örneklemi, modeldeki (ve varsa küme) değişkenlerinde eksik değeri olmayan
+    gözlemlerdir; ``where`` verilirse yalnız o alt grup kullanılır.
+    """
 
     name: str
     frame: str
@@ -105,6 +110,7 @@ class OLS:
     vcov: str = "classic"
     cluster: str | None = None
     categorical: tuple[str, ...] = ()
+    where: tuple[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -125,11 +131,16 @@ class RegressionTable:
 
 @dataclass(frozen=True)
 class Scalar:
-    """Katsayılardan türetilen tek sayı (ör. kesin yüzde etki)."""
+    """Katsayılardan türetilen tek sayı (ör. kesin yüzde etki, ilk aşama F, Wald oranı).
+
+    ``percent`` yüzde olarak gösterilip gösterilmeyeceği, ``decimals`` gösterim basamağıdır.
+    """
 
     name: str
     expr: Expr
     comment: str
+    percent: bool = True
+    decimals: int = 2
 
 
 @dataclass(frozen=True)
@@ -161,11 +172,15 @@ class ProjectionPlot:
 
 @dataclass(frozen=True)
 class NewSample:
-    """Simülasyon için boş bir örneklem ve tohumlanmış rastgele sayı üreteci."""
+    """Simülasyon için boş bir örneklem ve tohumlanmış rastgele sayı üreteci.
+
+    ``seed=None`` yalnız Monte Carlo döngüsü içinde kullanılır: üreteç döngüden önce
+    bir kez tohumlanır, her tekrar yeni çekilişler yapar.
+    """
 
     frame: str
     nobs: int
-    seed: int
+    seed: int | None
 
 
 @dataclass(frozen=True)
@@ -234,6 +249,7 @@ class Curve:
 
     expr: Expr
     label: str
+    dashed: bool = False
 
 
 @dataclass(frozen=True)
@@ -302,7 +318,84 @@ class DeltaMethod:
     comment: str
 
 
+@dataclass(frozen=True)
+class DropMissing:
+    """Analiz örneklemi: listelenen değişkenlerde eksik değeri olan gözlemleri çıkarır."""
+
+    frame: str
+    variables: tuple[str, ...]
+    comment: str
+
+
+@dataclass(frozen=True)
+class EffectTable:
+    """Farklı modellerdeki tahminleri yan yana gösterir: katsayı, SH, p (normal yaklaşım), N.
+
+    Her satır (etiket, model, terim) üçlüsüdür. SH modelin kendi kovaryans türüyledir.
+    """
+
+    rows: tuple[tuple[str, str, str], ...]
+    result: str
+    title: str = ""
+    se_label: str = "SH"
+
+
+@dataclass(frozen=True)
+class IV:
+    """İki aşamalı en küçük kareler (2SLS).
+
+    ``vcov="HC1"`` heteroskedastisiteye dayanıklı sandviçtir ve n/(n−k) ile ölçeklenir.
+    """
+
+    name: str
+    frame: str
+    outcome: str
+    endogenous: tuple[str, ...]
+    instruments: tuple[str, ...]
+    exogenous: tuple[str, ...] = ()
+    vcov: str = "HC1"
+
+
+@dataclass(frozen=True)
+class MonteCarlo:
+    """Bir işlem bloğunu ``reps`` kez yeni çekilişlerle tekrarlar ve seçilen sayıları toplar.
+
+    ``collect`` her tekrarda hesaplanan (sütun adı, ifade) çiftleridir; ifadeler
+    katsayı (``Coef``) ve standart hata (``StdErr``) içerebilir. ``coverage`` her
+    (tahmin sütunu, SH sütunu, gerçek değer) üçlüsü için %95 güven aralığının
+    (tahmin ± 1,96·SH) gerçek değeri kapsama oranını raporlar.
+    """
+
+    frame: str
+    reps: int
+    seed: int
+    body: tuple["Operation", ...]
+    collect: tuple[tuple[str, Expr], ...]
+    result: str
+    comment: str
+    coverage: tuple[tuple[str, str, float], ...] = ()
+
+
+@dataclass(frozen=True)
+class Histogram:
+    """Bir sonuç tablosundaki sütunların dağılımı; [lower, upper] dışı değerler çizilmez."""
+
+    table: str
+    columns: tuple[tuple[str, str], ...]
+    lower: float
+    upper: float
+    references: tuple[tuple[float, str], ...]
+    x_label: str
+    title: str
+    bins: int = 40
+
+
 Operation = Union[
+    DropMissing,
+    EffectTable,
+    IV,
+    MonteCarlo,
+    Histogram,
     ClusterDraw,
     StandardErrorTable,
     BreuschPagan,
@@ -340,6 +433,9 @@ class StatTarget:
 
 @dataclass(frozen=True)
 class CoefTarget:
+    """Katsayı niceliği: ``coef``, ``se`` (modelin kovaryans türüyle), ``se_hc1`` veya
+    ``p`` (normal yaklaşımla iki yönlü p-değeri, 2Φ(−|b/SH|))."""
+
     model: str
     term: str
     quantity: str = "coef"

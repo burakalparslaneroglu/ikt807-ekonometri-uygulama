@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -33,9 +34,12 @@ from core.hansen_data import (
 )
 from core.labs.runner import LabRun, run_lab, statsmodels_term
 from core.labs.spec import (
+    IV,
     OLS,
     BreuschPagan,
     DeltaMethod,
+    DropMissing,
+    EffectTable,
     LinearCombination,
     StandardErrorTable,
     REPRO_DESCRIPTIONS,
@@ -67,11 +71,16 @@ _COLORS = ("#107C89", "#B3392F", "#2F9E6B", "#07373D")
 
 # --- Veri ------------------------------------------------------------------
 
-@st.cache_data(show_spinner=False, max_entries=4)
-def _hansen_member(dataset: str) -> bytes:
-    """Arşivi bir kez indirir; sunucudaki bütün oturumlar aynı kopyayı kullanır."""
+@st.cache_resource(show_spinner=False)
+def _hansen_archive() -> bytes:
+    """Arşivi bir kez indirir; sunucudaki bütün oturumlar ve konular aynı kopyayı kullanır."""
 
-    return extract_member(download_archive(), DATASET_MEMBERS[dataset])
+    return download_archive()
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def _hansen_member(dataset: str) -> bytes:
+    return extract_member(_hansen_archive(), DATASET_MEMBERS[dataset])
 
 
 def _data_key(topic_key: str) -> str:
@@ -140,12 +149,12 @@ def _render_data_panel(spec: LabSpec) -> LoadedData | None:
                         loaded.frame, "Hansen veri arşivi", loaded.matches_hansen
                     )
                     st.rerun()
-                except (HansenDataError, OSError) as error:
+                except (HansenDataError, OSError, zipfile.BadZipFile) as error:
                     st.error(
                         f"İndirme başarısız: {error}\n\nDosyayı kendiniz indirip yandan yükleyebilirsiniz."
                     )
         uploaded = right.file_uploader(
-            f"veya dosya yükleyin ({member}, .dta ya da öğretim CSV'si)",
+            f"veya dosya yükleyin ({member} ya da ders notlarının öğretim CSV'si)",
             type=("txt", "csv", "dta"),
             key=f"{spec.topic_key}_lab_upload",
         )
@@ -266,6 +275,41 @@ def _model_output(spec: LabSpec, result) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _number(value: float, decimals: int = 4) -> str:
+    return f"{value:.{decimals}f}".replace(".", ",").replace("-", "−")
+
+
+def _count(value: float) -> str:
+    return f"{int(value):,}".replace(",", ".")
+
+
+def _effect_table(spec: LabSpec, op: EffectTable, table: pd.DataFrame) -> None:
+    if op.title:
+        st.markdown(f"**{op.title}**")
+    shown = pd.DataFrame(
+        {
+            "": table.index,
+            "Tahmin": [_number(v) for v in table["tahmin"]],
+            op.se_label: [_number(v) for v in table["sh"]],
+            "p-değeri": [_number(v, 3) for v in table["p"]],
+            "N": [_count(v) for v in table["n"]],
+        }
+    )
+    st.dataframe(shown, hide_index=True, width="stretch")
+
+
+def _compact_iv(spec: LabSpec, op: IV, result) -> None:
+    endogenous = ", ".join(spec.label(name) for name in op.endogenous)
+    instruments = ", ".join(spec.label(name) for name in op.instruments)
+    controls = f" + {len(op.exogenous)} dışsal kontrol" if op.exogenous else ""
+    term = op.endogenous[0]
+    st.markdown(
+        f"**2SLS:** {spec.label(op.outcome)} ~ [{endogenous} ← {instruments}]{controls} · "
+        f"{spec.label(term)} katsayısı {_number(float(result.params[term]))} "
+        f"(HC1 SH {_number(float(result.bse[term]))}) · N = {_count(result.nobs)}"
+    )
+
+
 def _compact_model(spec: LabSpec, op: OLS, result) -> None:
     if op.categorical or len(op.regressors) > 3:
         shown = ", ".join(spec.label(r) for r in op.regressors)
@@ -326,9 +370,19 @@ def _projection_plot(op: ProjectionPlot, data: pd.DataFrame, result) -> None:
 
 def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     state = run.state
-    has_table = any(isinstance(op, RegressionTable) for op in step.operations)
+    has_table = any(isinstance(op, (RegressionTable, EffectTable)) for op in step.operations)
     for op in step.operations:
-        if isinstance(op, Describe):
+        if isinstance(op, DropMissing):
+            before, after = state.samples[op.frame]
+            st.markdown(
+                f"**Analiz örneklemi:** N = {_count(after)} "
+                f"(yüklenen veride {_count(before)} gözlem; eksik değeri olan {_count(before - after)} gözlem çıkarıldı)"
+            )
+        elif isinstance(op, EffectTable):
+            _effect_table(spec, op, state.tables[op.result])
+        elif isinstance(op, IV) and not has_table:
+            _compact_iv(spec, op, state.models[op.name])
+        elif isinstance(op, Describe):
             st.markdown("**Betimsel istatistikler**")
             st.dataframe(_describe_table(spec, state.tables[op.result]).style.format("{:.4f}"), width="stretch")
         elif isinstance(op, GroupSummary):
@@ -383,7 +437,8 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     if scalars:
         columns = st.columns(len(scalars))
         for column, op in zip(columns, scalars):
-            column.metric(op.comment, f"%{state.scalars[op.name]:.2f}".replace(".", ",").replace("-", "−"))
+            value = _number(state.scalars[op.name], op.decimals)
+            column.metric(op.comment, f"%{value}" if op.percent else value)
 
 
 def _render_checks(step: LabStep, run: LabRun) -> None:

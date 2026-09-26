@@ -4,29 +4,38 @@
 
 ## Güncel kapsam
 
-Her konu iki sekmeden oluşur:
+Yeni yapıdaki her konu üç sekmeden oluşur:
 
 - **Uygulama:** ders notlarındaki uygulama laboratuvarını adım adım, gerçek Hansen verisiyle yeniden üretir. Her adımda notlardaki tablo ve şekiller, notlarla sayı sayı karşılaştırma ve seçilen dilde (Python, R, Stata) kod bulunur. Son adımda bütün laboratuvar tek dosya olarak indirilir; dosya sonunda sonuçları notlardaki basılı değerlerle karşılaştırır.
 - **Sezgi:** veri üretim süreci (DGP) bilinen kontrollü deneyler. Her deney aynı sırayı izler: soru, DGP ve parametreleri, neye bakıyoruz, sonuç, ne gördük ve seçilen dilde kod. Gerçek veride görülemeyen nesneler (ör. gerçek koşullu ortalama) tahminlerle yan yana gösterilir.
 
 - **Kendini sına:** haftanın kavramlarını sınayan soru seti. Dört tür: çoktan seçmeli, doğru–yanlış, boşluk doldurma ve denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; yanlış cevaplara göre tekrar edilecek bölümler listelenir. Denklem sorularında yazılan formül anında önizlenir ve doğru cevaba eşdeğerliği sayısal olarak sınanır (`100(exp(b)-1)` ile `100*exp(b)-100` aynı kabul edilir).
 
-Yeni yapı şu an **Konu 1 ve 2** için hazırdır. Konu 1: Uygulama (Notlar §1.13, 39 sayısal kontrol), Sezgi (koşullu ortalama ile OLS doğrusu; OLS artıklarının cebirsel özellikleri; OLS eğimi ile nedensel etki), Kendini sına (25 soru). Konu 2: Uygulama (Notlar §2.13, 19 sayısal kontrol: klasik ve HC1 standart hatalar, Breusch–Pagan, etkileşimde doğrusal birleşim, delta yöntemi), Sezgi (heteroskedastisite; FWL ve eksik değişken; kümelenmiş veri), Kendini sına (24 soru). Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
+Yeni yapı şu an **Konu 1–4** için hazırdır:
+
+| Konu | Uygulama (notlardaki sayılar) | Sezgi deneyleri | Kendini sına |
+|---|---|---|---|
+| 1 | §1.13, CPS, 39 kontrol | koşullu ortalama ve OLS doğrusu; artıkların cebirsel özellikleri; OLS eğimi ve nedensel etki | 25 soru |
+| 2 | §2.13, CPS, 19 kontrol: klasik/HC1 SH, Breusch–Pagan, doğrusal birleşim, delta yöntemi | heteroskedastisite; FWL ve eksik değişken; kümelenmiş veri | 24 soru |
+| 3 | §3.15, DDK2011, 26 kontrol: denge tablosu, ham ve kovaryat ayarlı tracking etkisi (okul-kümeli), seçilmiş alt grup | seçim ayrıştırması; ölçüm hatası; büyük örneklem ve içsellik (Monte Carlo) | 24 soru |
+| 4 | §4.17, Card1995, 14 kontrol: OLS, ilk aşama, indirgenmiş biçim, 2SLS, ilk aşama F, Wald oranı, elle ikinci aşama | Wald oranı ve dışlama kısıtı; zayıf araç (Monte Carlo); LATE | 24 soru |
+
+Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
 
 ### Üç dilde aynı sayı sözleşmesi
 
 | Sınıf | Yöntemler | Beklenti |
 |---|---|---|
-| Birebir aynı | OLS, HC1, 2SLS, Logit/Probit, Tobit, AME | Ondalık düzeyinde eşit |
-| Ayar sabitlenince aynı | Küme SH, kantil regresyon SH, çekirdek bant genişliği, Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
+| Birebir aynı | OLS, HC1, Logit/Probit, Tobit, AME | Ondalık düzeyinde eşit |
+| Ayar sabitlenince aynı | Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), kantil regresyon SH, çekirdek bant genişliği, Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
 | Yalnız dağılımda aynı | Bootstrap, çapraz doğrulama, DML bölmeleri | Diller farklı rastgele sayı üreteci kullanır |
 
 Her adım hangi sınıfta olduğunu arayüzde gösterir.
 
 ### Öğrenci tarafında yazılım
 
-- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`.
-- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`.
+- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`.
+- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS için `AER`.
 - **Stata:** 14 ve üstü. Konu 11–12'deki `lasso` ve çapraz uyarlamalı komutlar Stata 16 gerektirir.
 
 ## Teknik yapı
@@ -70,6 +79,8 @@ yolu ortam değişkeniyle verilir; verilmezse bu testler atlanır:
 
 ```powershell
 $env:IKT807_HANSEN_CPS09MAR_PATH = "C:\veri\cps09mar.txt"
+$env:IKT807_HANSEN_DDK2011_PATH = "C:\veri\DDK2011.dta"
+$env:IKT807_HANSEN_CARD1995_PATH = "C:\veri\Card1995.dta"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
@@ -81,9 +92,11 @@ Stata lisans gerektirdiği için otomatik test edilemez; do-dosyası sonunda ken
 Ders notlarındaki uygulamalar Hansen'in *Econometrics* veri arşivine dayanır. Gerçek veri dosyaları depoya eklenmez. Uygulama sekmesi veriyi iki yoldan alır:
 
 1. **Hansen'in sayfasından çalışma anında indirme.** Arşiv (`Econometrics Data.zip`) sunucuda bir kez indirilir ve önbelleğe alınır; bütün oturumlar aynı kopyayı kullanır. Hansen'in sayfası `~bhansen` → `~behansen` adresine yönlenmektedir; önce güncel, sonra eski adres denenir.
-2. **Dosya yükleme.** Hansen'in `cps09mar.txt` / `.dta` dosyası veya ders notlarının öğretim CSV'si yüklenebilir. Dosya yalnız oturumda tutulur.
+2. **Dosya yükleme.** Hansen'in dosyası (`cps09mar.txt`, `DDK2011.dta`, `Card1995.dta`) veya ders notlarının öğretim CSV'si yüklenebilir. Dosya yalnız oturumda tutulur.
 
-Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`) verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
+`cps09mar` başlıksız `.txt` olarak okunur (değişken adları açıklama belgesindeki sırayla). DDK2011 ve Card1995, değişken adlarını taşıyan `.dta` dosyalarından okunur; adlar üç dilde aynı olsun diye küçük harfe çevrilir. Bu iki veri setinde eksik değerler olağandır; analiz örneklemi laboratuvar adımlarında açıkça kurulur.
+
+Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH` ve `IKT807_HANSEN_CARD1995_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
 
 Her veri setinin kaynağı, gözlem birimi, örneklem kısıtı, değişken birimi, küme/yeniden örnekleme birimi ve yeniden dağıtım durumu `core/data_registry.py` içinde kayıtlıdır.
 

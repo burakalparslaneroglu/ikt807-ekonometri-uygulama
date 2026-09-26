@@ -261,7 +261,8 @@ STEPS = (
         ),
         takeaway=(
             "Model (3)'te eğitim katsayısı 0,1148: eğitim yılı bir birim daha yüksek gözlemlerin "
-            "koşullu log ücreti yaklaşık %11,5, kesin dönüşümle %12,16 daha yüksektir. \"Bir kişiye "
+            "koşullu ortalama log ücreti 0,1148 daha yüksektir; bu, ücrette yaklaşık %11,5, kesin dönüşümle "
+            "%12,16 daha yüksek değere karşılık gelir. \"Bir kişiye "
             "bir yıl daha eğitim verirsek ücreti %12 artar\" demiyoruz: model eğitimde dışsal bir "
             "müdahaleyi tanımlamıyor. Daha yüksek R² fonksiyonel biçimin doğruluğunu, nedenselliği "
             "veya daha iyi öngörüyü tek başına kanıtlamaz."

@@ -1,8 +1,11 @@
 """Laboratuvar tanımını gerçek veri üzerinde çalıştırır ve notlarla karşılaştırır.
 
-Hesap, üretilen Python koduyla aynı kütüphanelerle (pandas + statsmodels formül
-arayüzü) yapılır. Böylece uygulamanın gösterdiği sayı ile öğrencinin indirdiği
-Python betiğinin ürettiği sayı aynı koddan gelir; R ve Stata testlerle eşlenir.
+OLS, üretilen Python koduyla aynı kütüphaneyle (statsmodels) hesaplanır. 2SLS,
+``linearmodels`` paketinin ``IV2SLS(...).fit(cov_type="robust", debiased=True)``
+sonucunu veren formüllerle doğrudan numpy üzerinde hesaplanır: Monte Carlo
+deneylerinde yüzlerce tekrar etkileşimli hızda çalışsın diye. İki hesabın eşitliği,
+üretilen Python betiğinin uygulamanın sayılarını yeniden ürettiğini sınayan testlerle
+denetlenir. R ve Stata sonuçları da testlerle eşlenir.
 """
 
 from __future__ import annotations
@@ -11,49 +14,65 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 import statsmodels.formula.api as smf
+from scipy import stats
 
 from core.labs import expr as E
 from core.labs.spec import (
+    IV,
     OLS,
+    VCOV_TYPES,
     BreuschPagan,
-    ClusterDraw,
-    DeltaMethod,
-    LinearCombination,
-    StandardErrorTable,
     Check,
+    ClusterDraw,
     CoefTarget,
     Curve,
+    DeltaMethod,
     Derive,
     Describe,
     Draw,
-    MeanPoints,
-    ModelLine,
-    NewSample,
-    Plot,
-    Predict,
-    Scatter,
-    Summaries,
-    ZeroLine,
+    DropMissing,
+    EffectTable,
     GroupMeanPlot,
     GroupSummary,
+    Histogram,
     LabSpec,
+    LinearCombination,
     LoadHansen,
+    MeanPoints,
+    ModelLine,
     ModelTarget,
+    MonteCarlo,
+    NewSample,
     Operation,
+    Plot,
+    Predict,
     ProjectionPlot,
     RegressionTable,
     Scalar,
     ScalarTarget,
+    Scatter,
     ShowModel,
+    StandardErrorTable,
     StatTarget,
+    Summaries,
+    ZeroLine,
 )
 
 STATSMODELS_INTERCEPT = "Intercept"
+CI_MULTIPLIER = 1.96
+"""%95 güven aralığı çarpanı; üç dilde de aynı sabit kullanılır."""
 
 
 def statsmodels_term(term: str) -> str:
     return STATSMODELS_INTERCEPT if term == E.INTERCEPT else term
+
+
+def normal_p_value(estimate: float, standard_error: float) -> float:
+    """İki yönlü p-değeri, normal yaklaşımla: 2Φ(−|b/SH|)."""
+
+    return float(2.0 * stats.norm.sf(abs(estimate / standard_error)))
 
 
 @dataclass
@@ -75,6 +94,8 @@ class LabState:
     scalars: dict[str, float] = field(default_factory=dict)
     plots: dict[str, object] = field(default_factory=dict)
     rngs: dict[str, np.random.Generator] = field(default_factory=dict)
+    samples: dict[str, tuple[int, int]] = field(default_factory=dict)
+    """``DropMissing`` sonrası (önceki, sonraki) gözlem sayısı, çerçeve adına göre."""
 
 
 @dataclass
@@ -90,27 +111,135 @@ class LabRun:
         return self.checks.get(number, [])
 
 
+# --- OLS ------------------------------------------------------------------------
+
 def _formula(outcome: str, regressors: tuple[str, ...], categorical: tuple[str, ...] = ()) -> str:
     terms = [f"C({name})" if name in categorical else name for name in regressors]
     return f"{outcome} ~ " + " + ".join(terms)
 
 
+def _complete_rows(data: pd.DataFrame, used: list[str]) -> pd.DataFrame:
+    """``used`` değişkenlerinde eksik değeri olmayan satırlar (eksik yoksa kopyasız)."""
+
+    try:
+        block = data[used].to_numpy(dtype=float)
+    except (TypeError, ValueError):  # sayısal olmayan sütun: pandas'ın genel yolu
+        return data.dropna(subset=used)
+    keep = ~np.isnan(block).any(axis=1)
+    return data if keep.all() else data[keep]
+
+
+def estimation_sample(op: OLS, frame: pd.DataFrame) -> pd.DataFrame:
+    """Tahmin örneklemi: ``where`` alt grubu ve modeldeki (ve küme) değişkenleri eksiksiz gözlemler."""
+
+    data = frame
+    if op.where is not None:
+        variable, value = op.where
+        data = data[data[variable] == value]
+    used = list(dict.fromkeys([op.outcome, *op.regressors] + ([op.cluster] if op.cluster else [])))
+    return _complete_rows(data, used)
+
+
 def fit_ols(op: OLS, frame: pd.DataFrame):
-    model = smf.ols(_formula(op.outcome, op.regressors, op.categorical), data=frame)
+    if op.vcov not in VCOV_TYPES:
+        raise ValueError(f"Desteklenmeyen kovaryans türü: {op.vcov}")
+    if op.vcov == "cluster" and not op.cluster:
+        raise ValueError("Küme-dayanıklı kovaryans için küme değişkeni gerekir.")
+    data = estimation_sample(op, frame)
+    if op.categorical:
+        model = smf.ols(_formula(op.outcome, op.regressors, op.categorical), data=data)
+    else:
+        # Formül ayrıştırmadan aynı tasarım matrisi: Monte Carlo tekrarlarında hız için.
+        columns = {STATSMODELS_INTERCEPT: np.ones(len(data))}
+        columns.update({name: data[name].to_numpy(dtype=float) for name in op.regressors})
+        design = pd.DataFrame(columns, index=data.index)
+        model = sm.OLS(pd.Series(data[op.outcome].to_numpy(dtype=float), index=data.index, name=op.outcome), design)
     if op.vcov == "classic":
         return model.fit()
     if op.vcov == "HC1":
         return model.fit(cov_type="HC1")
-    if op.vcov == "cluster":
-        if not op.cluster:
-            raise ValueError("Küme-dayanıklı kovaryans için küme değişkeni gerekir.")
-        return model.fit(cov_type="cluster", cov_kwds={"groups": frame[op.cluster]})
-    raise ValueError(f"Desteklenmeyen kovaryans türü: {op.vcov}")
+    return model.fit(cov_type="cluster", cov_kwds={"groups": data[op.cluster].to_numpy()})
 
+
+# --- 2SLS -----------------------------------------------------------------------
+
+@dataclass
+class IVFit:
+    """2SLS sonucu; statsmodels sonuçlarıyla aynı adlı alanlar (``params``, ``bse`` ...)."""
+
+    params: pd.Series
+    bse: pd.Series
+    covariance: pd.DataFrame
+    nobs: int
+    rsquared: float
+    resid: pd.Series
+    fittedvalues: pd.Series
+
+    def cov_params(self) -> pd.DataFrame:
+        return self.covariance
+
+    @property
+    def tvalues(self) -> pd.Series:
+        return self.params / self.bse
+
+    @property
+    def pvalues(self) -> pd.Series:
+        return pd.Series(2.0 * stats.norm.sf(np.abs(self.tvalues)), index=self.params.index)
+
+    def conf_int(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {0: self.params - CI_MULTIPLIER * self.bse, 1: self.params + CI_MULTIPLIER * self.bse}
+        )
+
+
+def fit_iv(op: IV, frame: pd.DataFrame) -> IVFit:
+    """2SLS ve heteroskedastisiteye dayanıklı kovaryans, n/(n−k) ölçekli (HC1).
+
+    β = (X̂'X̂)⁻¹X̂'Y, X̂ = P_Z X; V = (X̂'X̂)⁻¹(Σ x̂ᵢx̂ᵢ'êᵢ²)(X̂'X̂)⁻¹ · n/(n−k),
+    êᵢ = Yᵢ − Xᵢ'β yapısal artıktır (ikinci aşama artığı değil). Bu,
+    linearmodels ``IV2SLS(...).fit(cov_type="robust", debiased=True)`` ile aynıdır.
+    """
+
+    if op.vcov != "HC1":
+        raise ValueError(f"2SLS için desteklenmeyen kovaryans türü: {op.vcov}")
+    if len(op.instruments) < len(op.endogenous):
+        raise ValueError("Tanımlama için en az endojen değişken sayısı kadar dışlanmış araç gerekir.")
+    used = list(dict.fromkeys([op.outcome, *op.endogenous, *op.instruments, *op.exogenous]))
+    data = _complete_rows(frame, used)
+    nobs = len(data)
+    exogenous = [np.ones(nobs)] + [data[name].to_numpy(dtype=float) for name in op.exogenous]
+    x = np.column_stack(exogenous + [data[name].to_numpy(dtype=float) for name in op.endogenous])
+    z = np.column_stack(exogenous + [data[name].to_numpy(dtype=float) for name in op.instruments])
+    y = data[op.outcome].to_numpy(dtype=float)
+    names = [STATSMODELS_INTERCEPT, *op.exogenous, *op.endogenous]
+
+    # İşlem sırası linearmodels ile aynıdır; sonuçlar makine duyarlığında örtüşür.
+    pinv_z = np.linalg.pinv(z)
+    projection = pinv_z @ x
+    beta = np.linalg.inv((x.T @ z) @ projection) @ ((x.T @ z) @ (pinv_z @ y))
+    residual = y - x @ beta
+    scores = (z @ projection) * residual[:, None]
+    meat = scores.T @ scores / nobs * nobs / (nobs - x.shape[1])
+    bread = np.linalg.inv((x.T @ z) @ projection / nobs)
+    covariance = bread @ meat @ bread / nobs
+    covariance = (covariance + covariance.T) / 2
+    centered = y - y.mean()
+    return IVFit(
+        params=pd.Series(beta, index=names),
+        bse=pd.Series(np.sqrt(np.diag(covariance)), index=names),
+        covariance=pd.DataFrame(covariance, index=names, columns=names),
+        nobs=nobs,
+        rsquared=float(1.0 - residual @ residual / (centered @ centered)),
+        resid=pd.Series(residual, index=data.index),
+        fittedvalues=pd.Series(x @ beta, index=data.index),
+    )
+
+
+# --- Yardımcılar ----------------------------------------------------------------
 
 def _statistic(series: pd.Series, stat: str) -> float:
     if stat == "count":
-        return float(series.size)
+        return float(series.count())
     if stat == "sum":
         return float(series.sum())
     if stat == "mean":
@@ -133,6 +262,17 @@ def _coefficient(state: LabState):
     return lookup
 
 
+def _standard_error(state: LabState):
+    def lookup(model: str, term: str) -> float:
+        return float(state.models[model].bse[statsmodels_term(term)])
+
+    return lookup
+
+
+def _evaluate_scalar(expression: E.Expr, state: LabState) -> float:
+    return float(E.evaluate(expression, coefficient=_coefficient(state), standard_error=_standard_error(state)))
+
+
 @dataclass
 class PlotLayerData:
     layer: object
@@ -150,10 +290,10 @@ def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
         elif isinstance(layer, Scatter):
             data = frame[[op.x, layer.y]].rename(columns={layer.y: "deger"})
         elif isinstance(layer, Curve):
-            data = grid.assign(deger=np.asarray(E.evaluate(layer.expr, grid), dtype=float))
+            data = grid.assign(deger=np.asarray(E.evaluate(layer.expr, grid), dtype=float) * np.ones(len(grid)))
         elif isinstance(layer, ModelLine):
             params = state.models[layer.model].params
-            data = grid.assign(deger=params["Intercept"] + params[op.x] * grid[op.x])
+            data = grid.assign(deger=params[STATSMODELS_INTERCEPT] + params[op.x] * grid[op.x])
         elif isinstance(layer, ZeroLine):
             data = grid.assign(deger=0.0)
         else:
@@ -162,10 +302,150 @@ def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
     return layers
 
 
+def coverage_key(result: str, estimate: str) -> str:
+    """Monte Carlo kapsama oranının skaler adı; üç dilde aynı ad kullanılır."""
+
+    return f"{result}_kapsama_{estimate}"
+
+
+class _BatchFit:
+    """Bir tekrar yığınındaki bütün tahminler: ``params``/``bse`` sözlükleri (terim → dizi)."""
+
+    def __init__(self, names: list[str], params: np.ndarray, errors: np.ndarray) -> None:
+        self.params = {name: params[:, index] for index, name in enumerate(names)}
+        self.bse = {name: errors[:, index] for index, name in enumerate(names)}
+
+
+def _batch_ols(op: OLS, data: dict[str, np.ndarray], reps: int, nobs: int) -> _BatchFit:
+    x = np.stack([np.ones((reps, nobs))] + [np.broadcast_to(data[r], (reps, nobs)) for r in op.regressors], axis=2)
+    y = np.broadcast_to(data[op.outcome], (reps, nobs))
+    xtx = np.einsum("rni,rnj->rij", x, x)
+    inverse = np.linalg.inv(xtx)
+    beta = np.einsum("rij,rj->ri", inverse, np.einsum("rni,rn->ri", x, y))
+    residual = y - np.einsum("rni,ri->rn", x, beta)
+    k = x.shape[2]
+    if op.vcov == "classic":
+        sigma2 = np.einsum("rn,rn->r", residual, residual) / (nobs - k)
+        covariance = inverse * sigma2[:, None, None]
+    else:
+        meat = np.einsum("rni,rn,rnj->rij", x, residual**2, x)
+        covariance = inverse @ meat @ inverse * nobs / (nobs - k)
+    names = [STATSMODELS_INTERCEPT, *op.regressors]
+    return _BatchFit(names, beta, np.sqrt(np.einsum("rii->ri", covariance)))
+
+
+def _batch_iv(op: IV, data: dict[str, np.ndarray], reps: int, nobs: int) -> _BatchFit:
+    def columns(names) -> list[np.ndarray]:
+        return [np.broadcast_to(data[name], (reps, nobs)) for name in names]
+
+    exogenous = [np.ones((reps, nobs))] + columns(op.exogenous)
+    x = np.stack(exogenous + columns(op.endogenous), axis=2)
+    z = np.stack(exogenous + columns(op.instruments), axis=2)
+    y = np.broadcast_to(data[op.outcome], (reps, nobs))
+    ztz_inverse = np.linalg.inv(np.einsum("rni,rnj->rij", z, z))
+    xtz = np.einsum("rni,rnj->rij", x, z)
+    projection = ztz_inverse @ np.einsum("rni,rnj->rij", z, x)
+    p1 = xtz @ projection
+    p2 = np.einsum("rij,rj->ri", xtz, np.einsum("rij,rj->ri", ztz_inverse, np.einsum("rni,rn->ri", z, y)))
+    beta = np.linalg.solve(p1, p2[..., None])[..., 0]
+    residual = y - np.einsum("rni,ri->rn", x, beta)
+    x_hat = z @ projection
+    k = x.shape[2]
+    meat = np.einsum("rni,rn,rnj->rij", x_hat, residual**2, x_hat) / nobs * nobs / (nobs - k)
+    bread = np.linalg.inv(p1 / nobs)
+    covariance = bread @ meat @ bread / nobs
+    names = [STATSMODELS_INTERCEPT, *op.exogenous, *op.endogenous]
+    return _BatchFit(names, beta, np.sqrt(np.einsum("rii->ri", covariance)))
+
+
+def _batchable(op: MonteCarlo) -> bool:
+    """Vektörleştirilmiş yol yalnız bu işlemlerle ve yalnız normal çekilişlerle kullanılır.
+
+    Normal çekilişler aynı bit akışından sırayla üretildiği için (tekrar × çekiliş × gözlem)
+    boyutlu tek bir çekiliş, döngüdeki ardışık çekilişlerin aynısıdır.
+    """
+
+    for inner in op.body:
+        if isinstance(inner, NewSample):
+            if inner.seed is not None or inner.frame != op.frame:
+                return False
+        elif isinstance(inner, Draw):
+            if inner.distribution != "normal" or inner.frame != op.frame:
+                return False
+        elif isinstance(inner, Derive):
+            if inner.frame != op.frame:
+                return False
+        elif isinstance(inner, OLS):
+            if inner.categorical or inner.where is not None or inner.vcov not in ("classic", "HC1"):
+                return False
+        elif isinstance(inner, IV):
+            continue
+        else:
+            return False
+    return sum(isinstance(inner, NewSample) for inner in op.body) == 1 and isinstance(op.body[0], NewSample)
+
+
+def _monte_carlo_batch(op: MonteCarlo, rng: np.random.Generator) -> pd.DataFrame:
+    nobs = op.body[0].nobs
+    draws = [inner for inner in op.body if isinstance(inner, Draw)]
+    chunk = max(1, min(op.reps, 250_000 // max(nobs, 1)))
+    collected: dict[str, list[np.ndarray]] = {name: [] for name, _ in op.collect}
+    done = 0
+    while done < op.reps:
+        reps = min(chunk, op.reps - done)
+        normals = rng.standard_normal(size=(reps, len(draws), nobs))
+        data: dict[str, np.ndarray] = {"id": np.arange(1, nobs + 1, dtype=float)}
+        fits: dict[str, _BatchFit] = {}
+        index = 0
+        for inner in op.body[1:]:
+            if isinstance(inner, Draw):
+                data[inner.name] = inner.first + inner.second * normals[:, index, :]
+                index += 1
+            elif isinstance(inner, Derive):
+                data[inner.name] = np.broadcast_to(np.asarray(E.evaluate(inner.expr, data), dtype=float), (reps, nobs))
+            elif isinstance(inner, OLS):
+                fits[inner.name] = _batch_ols(inner, data, reps, nobs)
+            else:
+                fits[inner.name] = _batch_iv(inner, data, reps, nobs)
+        for name, expression in op.collect:
+            values = E.evaluate(
+                expression,
+                coefficient=lambda model, term: fits[model].params[statsmodels_term(term)],
+                standard_error=lambda model, term: fits[model].bse[statsmodels_term(term)],
+            )
+            collected[name].append(np.broadcast_to(np.asarray(values, dtype=float), (reps,)))
+        done += reps
+    return pd.DataFrame({name: np.concatenate(parts) for name, parts in collected.items()})
+
+
+def _monte_carlo(op: MonteCarlo, state: LabState, sources: dict[str, pd.DataFrame], batch: bool = True) -> None:
+    rng = np.random.default_rng(op.seed)
+    names = [name for name, _ in op.collect]
+    if batch and _batchable(op):
+        table = _monte_carlo_batch(op, rng)
+    else:
+        rows: list[list[float]] = []
+        for _ in range(op.reps):
+            local = LabState(rngs={op.frame: rng})
+            for inner in op.body:
+                execute(inner, local, sources)
+            rows.append([_evaluate_scalar(expression, local) for _, expression in op.collect])
+        table = pd.DataFrame(rows, columns=names)
+    state.tables[op.result] = table
+    for estimate, standard_error, truth in op.coverage:
+        covered = (table[estimate] - truth).abs() <= CI_MULTIPLIER * table[standard_error]
+        state.scalars[coverage_key(op.result, estimate)] = float(covered.mean())
+
+
+# --- İşlemler -------------------------------------------------------------------
+
 def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) -> None:
     if isinstance(op, NewSample):
         state.frames[op.frame] = pd.DataFrame({"id": np.arange(1, op.nobs + 1)})
-        state.rngs[op.frame] = np.random.default_rng(op.seed)
+        if op.seed is not None:
+            state.rngs[op.frame] = np.random.default_rng(op.seed)
+        elif op.frame not in state.rngs:
+            raise ValueError("Tohumsuz örneklem yalnız Monte Carlo döngüsü içinde kullanılabilir.")
     elif isinstance(op, ClusterDraw):
         frame, rng = state.frames[op.frame], state.rngs[op.frame]
         shocks = rng.normal(op.first, op.second, size=op.groups)
@@ -236,6 +516,14 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         if op.dataset not in sources:
             raise ValueError(f"'{op.dataset}' verisi yüklenmemiş.")
         state.frames[op.frame] = sources[op.dataset].copy()
+    elif isinstance(op, DropMissing):
+        frame = state.frames[op.frame]
+        missing = [name for name in op.variables if name not in frame.columns]
+        if missing:
+            raise ValueError("Veride beklenen değişkenler yok: " + ", ".join(missing))
+        kept = frame.dropna(subset=list(op.variables)).copy()
+        state.samples[op.frame] = (len(frame), len(kept))
+        state.frames[op.frame] = kept
     elif isinstance(op, Derive):
         frame = state.frames[op.frame]
         frame[op.name] = E.evaluate(op.expr, frame)
@@ -260,13 +548,36 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         state.tables[op.result] = table
     elif isinstance(op, OLS):
         state.models[op.name] = fit_ols(op, state.frames[op.frame])
+    elif isinstance(op, IV):
+        state.models[op.name] = fit_iv(op, state.frames[op.frame])
+    elif isinstance(op, EffectTable):
+        rows = []
+        for label, model, term in op.rows:
+            result = state.models[model]
+            key = statsmodels_term(term)
+            estimate, standard_error = float(result.params[key]), float(result.bse[key])
+            rows.append(
+                {
+                    "etiket": label,
+                    "tahmin": estimate,
+                    "sh": standard_error,
+                    "p": normal_p_value(estimate, standard_error),
+                    "n": int(result.nobs),
+                }
+            )
+        state.tables[op.result] = pd.DataFrame(rows).set_index("etiket")
+    elif isinstance(op, MonteCarlo):
+        _monte_carlo(op, state, sources)
+    elif isinstance(op, Histogram):
+        table = state.tables[op.table]
+        state.plots[f"histogram:{op.title}"] = table[[column for column, _ in op.columns]].copy()
     elif isinstance(op, ShowModel):
         if op.model not in state.models:
             raise ValueError(f"'{op.model}' modeli henüz tahmin edilmedi.")
     elif isinstance(op, RegressionTable):
         state.tables[op.result] = regression_table(state, op)
     elif isinstance(op, Scalar):
-        state.scalars[op.name] = float(E.evaluate(op.expr, coefficient=_coefficient(state)))
+        state.scalars[op.name] = _evaluate_scalar(op.expr, state)
     elif isinstance(op, GroupMeanPlot):
         frame = state.frames[op.frame]
         state.plots[f"grup:{op.y}:{op.group}"] = (
@@ -307,6 +618,8 @@ def regression_table(state: LabState, op: RegressionTable) -> pd.DataFrame:
     return table
 
 
+# --- Notlarla karşılaştırma ---------------------------------------------------------
+
 def evaluate_target(target, state: LabState) -> float:
     if isinstance(target, StatTarget):
         series = state.frames[target.frame][target.variable]
@@ -323,6 +636,8 @@ def evaluate_target(target, state: LabState) -> float:
             return float(result.bse[term])
         if target.quantity == "se_hc1":
             return float(result.HC1_se[term])
+        if target.quantity == "p":
+            return normal_p_value(float(result.params[term]), float(result.bse[term]))
         raise ValueError(f"Desteklenmeyen katsayı niceliği: {target.quantity}")
     if isinstance(target, ModelTarget):
         result = state.models[target.model]

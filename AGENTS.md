@@ -1,7 +1,7 @@
 # IKT 807 Geliştirme Kuralları
 
 1. Güncel yerel ders notları konu sırası, terminoloji, notasyon, estimand, varsayım dili ve yorumlama sınırları için bağlayıcıdır.
-2. Ders notu ile yazılım veya literatür arasında içerik uyuşmazlığı görülürse sessiz düzeltme yapılmaz. Durum `NOTE_CONSISTENCY_ISSUE` olarak raporlanır ve kullanıcı kararı beklenir.
+2. Ders notu, sunum, uygulama veya literatür arasında uyuşmazlık ya da notlarda hata bulunursa sessiz düzeltme yapılmaz. Düzeltme aynı turda kaynağından başlar: önce ders notu (LaTeX), sonra ilgili sunum, sonra uygulama; notlar ve sunumlar sıfır hatayla yeniden derlenir. Her değişiklik raporlanır. Notasyon veya terim gibi yoruma açık seçimler gerekçesiyle bildirilir; içerik kararı gerektiren uyuşmazlıklar `NOTE_CONSISTENCY_ISSUE` olarak raporlanır ve kullanıcı kararı beklenir. Notlar ve sunumlar bu depoda değil, öğretim elemanının yerel klasöründe tutulur (kural 12).
 3. Look-ahead öğretim yapılmaz. Sonraki konunun yöntemi önceki konuda aktif laboratuvar olarak açılmaz.
 4. Ekonometrik hesaplama, veri hazırlama, simülasyon ve soru üretimi Streamlit'ten bağımsız `core/` katmanında tutulur.
 5. `app.py` yalnız ortak shell, navigation ve seçili topic `render()` çağrısını içerir.

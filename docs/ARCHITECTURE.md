@@ -37,17 +37,17 @@ Konu 01-12 sayısal sahipliği:
 - `core/code_recipes.py`: Sezgi sekmesindeki 48 bölüm için bağımsız Python betiği ve Colab not defteri üretimi.
 - `core/labs/spec.py`: ders notu laboratuvar şeması (işlemler, notlardaki sayılar, tekrarlanabilirlik sınıfı).
 - `core/labs/expr.py`: türetilmiş değişkenler ve katsayı dönüşümleri için küçük ifade dili; pandas'ta değerlendirilir ve üç dile çevrilir.
-- `core/labs/runner.py`: laboratuvarı pandas + statsmodels formül arayüzüyle çalıştırır ve notlarla karşılaştırır.
-- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1 ve 2).
+- `core/labs/runner.py`: laboratuvarı çalıştırır ve notlarla karşılaştırır. OLS statsmodels ile (üretilen Python koduyla aynı kütüphane), 2SLS linearmodels `IV2SLS(...).fit(cov_type="robust", debiased=True)` ile aynı formüllerle numpy üzerinde hesaplanır; eşitlik testle denetlenir. Tahmin örneklemi (eksik değerler, alt grup, küme değişkeni) açıkça kurulur.
+- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1–4).
 - `core/labs/sezgi.py`: Sezgi deneylerinin şeması (soru, DGP, parametreler, ölçüler, yorum).
-- `core/labs/sezgi_konuNN.py`: konu deneyleri (Konu 1 ve 2'de üçer deney).
+- `core/labs/sezgi_konuNN.py`: konu deneyleri (Konu 1–4'te üçer deney).
 - `topics/sim_ui.py`: Sezgi sekmesinin ortak arayüzü.
 - `core/quiz/model.py`: "Kendini sına" soru türleri ve notlandırma kuralları.
 - `core/quiz/expression.py`: öğrencinin yazdığı formülü güvenli okuma (eval yok; izinli sözdizimi ağacı), LaTeX önizleme ve sayısal eşdeğerlik.
-- `core/quiz/konuNN.py`: konu soru setleri (Konu 1: 25, Konu 2: 24 soru).
+- `core/quiz/konuNN.py`: konu soru setleri (Konu 1: 25, Konu 2–4: 24'er soru).
 - `topics/quiz_ui.py`: "Kendini sına" sekmesinin arayüzü.
 - `core/codegen/`: Python, R ve Stata üreticileri.
-- `core/hansen_data.py`: Hansen veri arşivi indirme, arşivde dosya bulma, yüklenen dosyayı doğrulama.
+- `core/hansen_data.py`: Hansen veri arşivi indirme, arşivde dosya bulma (`.txt` ve `.dta`), yüklenen dosyayı doğrulama.
 
 ## Uygulama laboratuvarı akışı
 
@@ -66,7 +66,9 @@ Bir Sezgi deneyi (`SimExperiment`), kaydırıcı değerlerinden işlem listesi �
 
 Grafikler katmanlardan kurulur (`MeanPoints`, `Scatter`, `Curve`, `ModelLine`, `ZeroLine`); katman renkleri `core/codegen/base.layer_styles` ile uygulamada ve üç dilde aynıdır.
 
-Konu 1 yeni yapıya taşındığı için `core/code_recipes.py` içindeki konu01 tarifleri arayüzde kullanılmaz; diğer konular taşınınca kaldırılacaktır.
+`MonteCarlo` işlemi bir işlem bloğunu yeni çekilişlerle tekrarlar ve seçilen katsayı/standart hata ifadelerini bir tabloda toplar (isteğe bağlı olarak güven aralığı kapsama oranı). Rastgele sayı üreteci döngüden önce bir kez tohumlanır; Python kodu uygulamayla aynı çekiliş sırasını izler. Uygulama, blok yalnız normal çekiliş, türetme, OLS ve 2SLS içeriyorsa tekrarları vektörleştirerek toplu hesaplar (aynı bit akışı, aynı formüller; döngüyle eşitliği testle denetlenir); öğrenci kodu okunaklı döngü olarak kalır. Stata sonuçları `postfile` ile geçici dosyada (`tempfile`) toplar; do-dosyası bitince dosya silinir. `Histogram` sonuç tablosundaki sütunların dağılımını aynı kutularla üç dilde çizer.
+
+Konu 1–4 yeni yapıya taşındığı için `core/code_recipes.py` içindeki konu01–konu04 tarifleri arayüzde kullanılmaz; diğer konular taşınınca kaldırılacaktır.
 
 ## Registry akışı
 
@@ -89,7 +91,7 @@ Konu değiştiğinde `core/session_utils.py` önceki konunun soru indeksini ve c
 - Streamlit AppTest: app entrypoint, konu geçişi, metin ölçeği ve soru/cevap state'i.
 - Sayısal benchmark: OLS ve FWL eşitlikleri, statsmodels HC1/küme kovaryansı, delta yöntemi, etki tanıları ve deterministik DGP.
 - Konu 01-02 AppTest: mekanizma uyarısı, veri modu, çıkarım seçimi, fonksiyonel biçim ve etkili gözlem state'i.
-- Konu 03-04 AppTest: atama mekanizması, lisans kapıları, dışlama ihlali ve IV geçerlilik state'i.
+- Konu 03-04: Uygulama/Sezgi/Kendini sına sekmeleri, deneylerin ekonometrik doğruluğu (seçim ayrıştırması, zayıflama, olasılık limiti, Wald = 2SLS, zayıf araç kapsaması, LATE), numpy 2SLS ile linearmodels eşitliği, `.dta` okuma.
 - Konu 05-06 AppTest: olasılık-etki dönüşümü, Tobit yakınsaması, veri mekanizması ve seçim dışlama state'i.
 - Konu 07-08 AppTest: kantil hedefi, kernel/bandwidth state'i ve CPS/DDK lisans kapıları.
 - Konu 09-10 AppTest: RDD yönü, manipülasyon/ilk aşama uyarıları, bootstrap yöntemi, örnekleme birimi ve LM/CPS lisans kapıları.

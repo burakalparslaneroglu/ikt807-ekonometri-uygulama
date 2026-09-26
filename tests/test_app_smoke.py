@@ -36,16 +36,17 @@ def test_question_answer_and_new_question_state() -> None:
     """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
 
     app = _run_app()
-    app.radio(key="topic_selector").set_value("konu03").run()
-    app.button(key="konu03_toggle_answer").click().run()
+    app.radio(key="topic_selector").set_value("konu05").run()
+    successes = len(app.success)
+    app.button(key="konu05_toggle_answer").click().run()
     assert not app.exception
-    assert app.session_state["konu03_answer_visible"] is True
-    assert len(app.success) == 1
+    assert app.session_state["konu05_answer_visible"] is True
+    assert len(app.success) == successes + 1
 
-    app.button(key="konu03_new_question").click().run()
-    assert app.session_state["konu03_answer_visible"] is False
-    assert app.session_state["konu03_question_index"] == 1
-    assert len(app.success) == 0
+    app.button(key="konu05_new_question").click().run()
+    assert app.session_state["konu05_answer_visible"] is False
+    assert app.session_state["konu05_question_index"] == 1
+    assert len(app.success) == successes
 
 
 def test_topic_01_intuition_experiments_are_interactive() -> None:
@@ -76,44 +77,40 @@ def test_topic_02_has_three_tabs_and_interactive_experiments() -> None:
     assert not app.exception
     assert any(metric.label == "FWL eğimi" for metric in app.metric)
 
-def test_topic_03_identification_labs_and_data_gate() -> None:
+def test_topic_03_has_three_tabs_lab_and_experiments() -> None:
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu03").run()
     assert not app.exception
-    assert app.segmented_control(key="konu03_assignment").value == (
-        "Seçime dayalı atama"
-    )
-    assert any(metric.label == "Seçim bileşeni" for metric in app.metric)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu03_lab_step").value == 1
+    assert any("DDK2011.dta" in item.value for item in app.markdown)
+    assert any(metric.label == "Gözlenen fark" for metric in app.metric)
 
-    app.segmented_control(key="konu03_assignment").set_value(
-        "Rastgele atama"
-    ).run()
-    assert any("Rastgele atama" in item.value for item in app.success)
-
-    app.segmented_control(key="konu03_trial_source").set_value(
-        "Hazırlanmış DDK CSV"
-    ).run()
+    app.slider(key="konu03_sezgi1_s").set_value(0.0).run()
     assert not app.exception
-    assert any("DDK verisi lisans teyidi" in item.value for item in app.info)
+    assert any("rastgele atanıyor" in item.value for item in app.info)
+
+    app.segmented_control(key="konu03_sezgi_deney").set_value(2).run()
+    assert not app.exception
+    assert any(metric.label == "Zayıflama çarpanı λ (DGP)" for metric in app.metric)
 
 
-def test_topic_04_iv_validity_and_card_data_gate() -> None:
+def test_topic_04_has_three_tabs_lab_and_experiments() -> None:
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu04").run()
     assert not app.exception
-    assert app.slider(key="konu04_strength").value == 0.35
-    assert any("üç koşul birlikte" in item.value for item in app.success)
-    assert any(metric.label == "İlk aşama" for metric in app.metric)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu04_lab_step").value == 1
+    assert any("Card1995.dta" in item.value for item in app.markdown)
+    assert any(metric.label == "Wald = 2SLS" for metric in app.metric)
 
-    app.slider(key="konu04_exclusion_violation").set_value(0.10).run()
+    app.slider(key="konu04_sezgi1_kappa").set_value(0.1).run()
     assert not app.exception
-    assert any("dışlama kısıtı ihlal" in item.value for item in app.warning)
-    assert any("koşullar birlikte sağlanmıyor" in item.value for item in app.error)
+    assert any("dışlama kısıtı veriden test edilemez" in item.value for item in app.info)
 
-    app.segmented_control(key="konu04_data_source").set_value(
-        "Hazırlanmış Card CSV"
-    ).run()
-    assert any("Card verisi lisans teyidi" in item.value for item in app.info)
+    app.segmented_control(key="konu04_sezgi_deney").set_value(3).run()
+    assert not app.exception
+    assert any(metric.label == "LATE (DGP)" for metric in app.metric)
 
 
 def test_topic_05_binary_models_effects_and_cps_gate() -> None:

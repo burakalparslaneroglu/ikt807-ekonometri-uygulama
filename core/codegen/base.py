@@ -6,12 +6,15 @@ from dataclasses import dataclass
 
 from core.labs import expr as E
 from core.labs.spec import (
+    IV,
     OLS,
     Check,
+    CoefTarget,
     Curve,
     LabSpec,
     MeanPoints,
     ModelLine,
+    MonteCarlo,
     Scatter,
     ZeroLine,
     LabStep,
@@ -35,29 +38,57 @@ class LayerStyle:
 
 
 _LINE_COLORS = (("#B3392F", "179 57 47"), ("#2F9E6B", "47 158 107"), ("#6B4C9A", "107 76 154"))
+_POINT_COLORS = (("#107C89", "16 124 137"), ("#C98A1B", "201 138 27"))
+_CURVE_COLORS = (("#07373D", "7 55 61"), ("#6B4C9A", "107 76 154"))
+_HISTOGRAM_COLORS = (("#107C89", "16 124 137"), ("#B3392F", "179 57 47"), ("#C98A1B", "201 138 27"))
 
 
 def layer_styles(layers) -> list[LayerStyle]:
-    """Grafik katmanlarının üç dilde ve uygulamada aynı renkleri."""
+    """Grafik katmanlarının üç dilde ve uygulamada aynı renkleri.
+
+    Aynı türden ikinci katman (ör. ikinci ortalama serisi) farklı renk alır; ilk
+    katmanların renkleri bütün konularda sabittir.
+    """
 
     styles: list[LayerStyle] = []
-    lines = 0
+    counts = {"lines": 0, "points": 0, "curves": 0}
     for layer in layers:
         if isinstance(layer, MeanPoints):
-            styles.append(LayerStyle("#107C89", "16 124 137"))
+            color, rgb = _POINT_COLORS[counts["points"] % len(_POINT_COLORS)]
+            styles.append(LayerStyle(color, rgb))
+            counts["points"] += 1
         elif isinstance(layer, Scatter):
             styles.append(LayerStyle("#9AA5A6", "154 165 166"))
         elif isinstance(layer, Curve):
-            styles.append(LayerStyle("#07373D", "7 55 61"))
-        elif isinstance(layer, ModelLine):
-            color, rgb = _LINE_COLORS[lines % len(_LINE_COLORS)]
+            color, rgb = _CURVE_COLORS[counts["curves"] % len(_CURVE_COLORS)]
             styles.append(LayerStyle(color, rgb, dashed=layer.dashed))
-            lines += 1
+            counts["curves"] += 1
+        elif isinstance(layer, ModelLine):
+            color, rgb = _LINE_COLORS[counts["lines"] % len(_LINE_COLORS)]
+            styles.append(LayerStyle(color, rgb, dashed=layer.dashed))
+            counts["lines"] += 1
         elif isinstance(layer, ZeroLine):
             styles.append(LayerStyle("#07373D", "7 55 61", dotted=True))
         else:
             raise TypeError(f"Tanınmayan grafik katmanı: {type(layer).__name__}")
     return styles
+
+
+def histogram_styles(count: int) -> list[LayerStyle]:
+    """Histogram serilerinin üç dilde ve uygulamada aynı renkleri."""
+
+    return [LayerStyle(*_HISTOGRAM_COLORS[index % len(_HISTOGRAM_COLORS)]) for index in range(count)]
+
+
+def flatten(operations) -> list[Operation]:
+    """İşlemler ve Monte Carlo döngülerinin içindeki işlemler, sırasıyla."""
+
+    found: list[Operation] = []
+    for op in operations:
+        found.append(op)
+        if isinstance(op, MonteCarlo):
+            found.extend(flatten(op.body))
+    return found
 
 
 @dataclass(frozen=True)
@@ -75,13 +106,13 @@ LANGUAGE_INFO = {
 }
 
 
-def model_settings(spec: LabSpec) -> dict[str, OLS]:
-    """Her model adının son tahmin ayarları (kovaryans türü, küme)."""
+def model_settings(spec: LabSpec) -> dict[str, OLS | IV]:
+    """Her model adının son tahmin ayarları (tür, kovaryans, küme); döngü içindekiler dahil."""
 
-    settings: dict[str, OLS] = {}
+    settings: dict[str, OLS | IV] = {}
     for step in spec.steps:
-        for op in step.operations:
-            if isinstance(op, OLS):
+        for op in flatten(step.operations):
+            if isinstance(op, (OLS, IV)):
                 settings[op.name] = op
     return settings
 
@@ -90,7 +121,7 @@ def coefficient_models(expression: E.Expr) -> list[str]:
     """Bir ifadenin başvurduğu model adları (sırası korunarak)."""
 
     found: list[str] = []
-    if isinstance(expression, E.Coef):
+    if isinstance(expression, (E.Coef, E.StdErr)):
         found.append(expression.model)
     elif isinstance(expression, E.BinOp):
         found.extend(coefficient_models(expression.left))
@@ -115,6 +146,41 @@ class Generator:
         self.spec = spec
         self.models = model_settings(spec)
         self.has_checks = any(step.checks for step in spec.steps)
+        self.real_data = spec.kind != "sezgi"
+        self.p_checks = any(
+            isinstance(check.target, CoefTarget) and check.target.quantity == "p"
+            for step in spec.steps
+            for check in step.checks
+        )
+        self.quiet = False
+        """Monte Carlo döngüsü içinde ekrana yazdırma satırları üretilmez."""
+
+    def is_iv(self, model: str) -> bool:
+        return isinstance(self.models.get(model), IV)
+
+    def needs_sample(self, op: OLS) -> bool:
+        """Tahmin örneklemini açıkça oluşturmak gerekir mi?
+
+        Alt grup (``where``) her zaman; küme-dayanıklı SH gerçek veride (eksik değer
+        olabilir) gerekir: küme değişkeni, tahmin örneklemiyle satır satır eşleşmelidir.
+        """
+
+        return op.where is not None or (op.cluster is not None and self.real_data)
+
+    @staticmethod
+    def used_variables(op: OLS) -> list[str]:
+        used = [op.outcome, *op.regressors] + ([op.cluster] if op.cluster else [])
+        return list(dict.fromkeys(used))
+
+    @staticmethod
+    def shown_terms(op: OLS | IV) -> list[str] | None:
+        """Kısa çıktı: çok regresörlü modelde yalnız ilk (ilgilenilen) terim; ``None`` hepsi."""
+
+        if isinstance(op, IV):
+            return list(op.endogenous)
+        if len(op.regressors) > 5:
+            return [op.regressors[0]]
+        return None
 
     # --- Alt sınıfların doldurduğu parçalar -------------------------------
     def imports(self, operations: tuple[Operation, ...]) -> list[str]:
@@ -215,10 +281,10 @@ class Generator:
 
 
 def scalar_model(op: Scalar) -> str | None:
+    """Tek modelin katsayılarını kullanan ifadede o model; birden çok modelde ``None``."""
+
     models = coefficient_models(op.expr)
-    if len(models) > 1:
-        raise ValueError("Bir skaler ifade şimdilik yalnız tek modelin katsayılarını kullanabilir.")
-    return models[0] if models else None
+    return models[0] if len(models) == 1 else None
 
 
 def generator(spec: LabSpec, language: str) -> Generator:

@@ -5,51 +5,73 @@ Bilinçli seçimler:
 * ``version 14``: öğrencilerdeki sürüm karışık; bu konular Stata 14 ve üstünde çalışır.
 * ``generate double``: Stata'nın varsayılan ``float`` türü yaklaşık 7 anlamlı basamak
   taşır; türetilmiş değişkenler çift hassasiyetle saklanır.
+* ``ivregress ..., vce(robust) small``: ``small`` olmadan dayanıklı kovaryans n/(n−k)
+  ile ölçeklenmez; Python (``debiased=True``) ve R (``vcovHC(type = "HC1")``) ile aynı
+  standart hata için gereklidir.
+* Monte Carlo sonuçları ``tempfile`` ile toplanır: do-dosyası bitince dosya kendiliğinden
+  silinir, çalışma klasöründe (ör. OneDrive) iz bırakmaz.
 * Kontroller ``kontrol_et`` programıyla yapılır; bir değer tutmazsa do-dosyası durur.
 """
 
 from __future__ import annotations
 
-from core.codegen.base import HANSEN_ARCHIVE_URL, Generator, categorical_comment, continuous_terms, layer_styles, scalar_model
+from core.codegen.base import (
+    HANSEN_ARCHIVE_URL,
+    Generator,
+    categorical_comment,
+    coefficient_models,
+    continuous_terms,
+    histogram_styles,
+    layer_styles,
+    scalar_model,
+)
 from core.labs import expr as E
+from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
+    IV,
     OLS,
     BreuschPagan,
-    ClusterDraw,
-    DeltaMethod,
-    LinearCombination,
-    StandardErrorTable,
     Check,
+    ClusterDraw,
     CoefTarget,
     Curve,
+    DeltaMethod,
     Derive,
     Describe,
     Draw,
-    MeanPoints,
-    ModelLine,
-    NewSample,
-    Plot,
-    Predict,
-    Scatter,
-    Summaries,
-    ZeroLine,
+    DropMissing,
+    EffectTable,
     GroupMeanPlot,
     GroupSummary,
+    Histogram,
+    LinearCombination,
     LoadHansen,
+    MeanPoints,
+    ModelLine,
     ModelTarget,
+    MonteCarlo,
+    NewSample,
     Operation,
+    Plot,
+    Predict,
     ProjectionPlot,
     RegressionTable,
     Scalar,
     ScalarTarget,
+    Scatter,
     ShowModel,
+    StandardErrorTable,
     StatTarget,
+    Summaries,
+    ZeroLine,
 )
 
 _TABSTAT = {"count": "n", "sum": "sum", "mean": "mean", "sd": "sd", "median": "p50", "min": "min", "max": "max"}
 _COLLAPSE = {"count": "count", "sum": "sum", "mean": "mean", "sd": "sd", "median": "median", "min": "min", "max": "max"}
 _RESULT = {"count": "r(N)", "sum": "r(sum)", "mean": "r(mean)", "sd": "r(sd)", "median": "r(p50)", "min": "r(min)", "max": "r(max)"}
 _SYMBOLS = ("O", "S", "T", "D")
+_REFERENCE_STYLES = (("7 55 61", "dash", "kesikli"), ("107 76 154", "dot", "noktalı"))
+_QUIET_PREFIXES = ("estimates table", "display", "describe", "summarize", "count")
 
 
 def _term(term: str) -> str:
@@ -64,6 +86,46 @@ def _vce(op: OLS) -> str:
     return f", vce(cluster {op.cluster})"
 
 
+def _command(text: str, limit: int = 130, width: int = 90) -> list[str]:
+    """``limit``ten uzun Stata komutunu ``///`` ile ``width`` genişliğinde satırlara böler."""
+
+    if len(text) <= limit:
+        return [text]
+    words = text.split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if current and len(current) + len(word) + 1 > width:
+            lines.append(current + " ///")
+            current = "    " + word
+        else:
+            current = f"{current} {word}" if current else word
+    lines.append(current)
+    return lines
+
+
+def _scalar_name(prefix: str, model: str, term: str) -> str:
+    return f"{prefix}_{model}_{_term(term)}"
+
+
+def _without_repeated_restores(lines: list[str]) -> list[str]:
+    """Arka arkaya aynı modeli yeniden yükleyen ``estimates restore`` satırlarını çıkarır."""
+
+    kept: list[str] = []
+    active: str | None = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("quietly estimates restore "):
+            model = stripped.rsplit(" ", 1)[-1]
+            if model == active:
+                continue
+            active = model
+        elif stripped.startswith(("quietly regress", "regress", "quietly ivregress", "ivregress")):
+            active = None
+        kept.append(line)
+    return kept
+
+
 class StataGenerator(Generator):
     language = "Stata"
     comment = "*"
@@ -72,8 +134,12 @@ class StataGenerator(Generator):
         return E.Dialect(
             variable=lambda name: name,
             coefficient=lambda model, term: f"_b[{_term(term)}]",
-            functions={"log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min", "round": "round", "floor": "floor"},
+            functions={
+                "log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min",
+                "round": "round", "floor": "floor", "positive": "({0} > 0)",
+            },
             power="^",
+            standard_error=lambda model, term: f"_se[{_term(term)}]",
         )
 
     def header(self) -> list[str]:
@@ -105,12 +171,50 @@ class StataGenerator(Generator):
             ]
         return lines
 
+    def _scalar_lines(self, name: str, expression: E.Expr) -> list[str]:
+        """``scalar name = ifade``; ifade birden çok modelin katsayısını kullanabilir."""
+
+        models = coefficient_models(expression)
+        if len(models) <= 1:
+            lines = [f"quietly estimates restore {models[0]}"] if models else []
+            return lines + [f"scalar {name} = {E.render(expression, self.dialect())}"]
+        lines: list[str] = []
+        stored: list[tuple[str, str, str]] = []
+
+        def collect(node: E.Expr) -> None:
+            if isinstance(node, (E.Coef, E.StdErr)):
+                kind = "b" if isinstance(node, E.Coef) else "se"
+                item = (kind, node.model, node.term)
+                if item not in stored:
+                    stored.append(item)
+            elif isinstance(node, E.BinOp):
+                collect(node.left)
+                collect(node.right)
+            elif isinstance(node, E.Call):
+                for argument in node.args:
+                    collect(argument)
+
+        collect(expression)
+        for model in models:
+            lines.append(f"quietly estimates restore {model}")
+            for kind, owner, term in stored:
+                if owner == model:
+                    lines.append(f"scalar {_scalar_name(kind, owner, term)} = _{kind}[{_term(term)}]")
+        dialect = E.Dialect(
+            variable=lambda variable: variable,
+            coefficient=lambda model, term: f"scalar({_scalar_name('b', model, term)})",
+            functions=self.dialect().functions,
+            power="^",
+            standard_error=lambda model, term: f"scalar({_scalar_name('se', model, term)})",
+        )
+        return lines + [f"scalar {name} = {E.render(expression, dialect)}"]
+
     def _load(self, op: LoadHansen) -> list[str]:
         member = op.member
         found = "if !_rc & `\"`yerel_dosya'\"' == \"\" local yerel_dosya"
-        variables = " ".join(op.columns)
-        return [
-            f"* Dosyayı kendiniz indirdiyseniz yolunu yazın (ör. \"{member}\" veya \"{op.dataset}.dta\");",
+        example = f'"{member}"' if member.lower().endswith(".dta") else f'"{member}" veya "{op.dataset}.dta"'
+        lines = [
+            f"* Dosyayı kendiniz indirdiyseniz yolunu yazın (ör. {example});",
             "* boş bırakırsanız veri Hansen'in sayfasından bir kez indirilir ve hansen_veri",
             "* klasörüne açılır. Sonraki çalıştırmalarda aynı klasör yeniden kullanılır.",
             'local yerel_dosya ""',
@@ -149,6 +253,22 @@ class StataGenerator(Generator):
             "    }",
             "}",
             "",
+        ]
+        if member.lower().endswith(".dta"):
+            return lines + [
+                "* Değişken adları dosyada kayıtlıdır; Python ve R ile aynı olsun diye küçük harfe çevrilir.",
+                "* Ders notlarının öğretim CSV'si de yerel dosya olarak verilebilir.",
+                "if lower(substr(`\"`yerel_dosya'\"', -4, .)) == \".csv\" {",
+                "    import delimited \"`yerel_dosya'\", clear",
+                "}",
+                "else {",
+                "    use \"`yerel_dosya'\", clear",
+                "}",
+                "capture rename *, lower",
+                "describe, short",
+            ]
+        variables = " ".join(op.columns)
+        return lines + [
             f"* Hansen'in .txt dosyasında başlık yoktur; değişkenler açıklama belgesindeki sırayla okunur.",
             "if lower(substr(`\"`yerel_dosya'\"', -4, .)) == \".dta\" {",
             "    use \"`yerel_dosya'\", clear",
@@ -162,6 +282,12 @@ class StataGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
+        lines = self._operation(op)
+        if self.quiet:
+            lines = [line for line in lines if not line.lstrip().startswith(_QUIET_PREFIXES)]
+        return lines
+
+    def _operation(self, op: Operation) -> list[str]:
         if isinstance(op, StandardErrorTable):
             lines = ["* Aynı modeller HC1 ile: katsayılar değişmez, yalnız standart hatalar değişir"]
             names: list[str] = []
@@ -204,6 +330,8 @@ class StataGenerator(Generator):
                 f"scalar {op.name}_se = sqrt(nl_V[1,1])",
             ]
         if isinstance(op, NewSample):
+            if op.seed is None:
+                return ["clear", f"set obs {op.nobs}", "generate long id = _n"]
             return [
                 "* Sabit tohum: do-dosyası her çalıştırmada aynı veriyi üretir",
                 "clear",
@@ -239,6 +367,12 @@ class StataGenerator(Generator):
             return self._plot(op)
         if isinstance(op, LoadHansen):
             return self._load(op)
+        if isinstance(op, DropMissing):
+            return [
+                f"* {op.comment}",
+                *_command(f"drop if missing({', '.join(op.variables)})"),
+                "count",
+            ]
         if isinstance(op, Derive):
             rhs = E.render(op.expr, self.dialect())
             return [f"* {op.comment}", f"generate double {op.name} = {rhs}"]
@@ -263,19 +397,15 @@ class StataGenerator(Generator):
             lines += ["list, noobs abbreviate(16) separator(0)", "restore"]
             return lines
         if isinstance(op, OLS):
-            regressors = " ".join(f"i.{r}" if r in op.categorical else r for r in op.regressors)
-            lines = [
-                f"quietly regress {op.outcome} {regressors}{_vce(op)}",
-                f"estimates store {op.name}",
-            ]
-            if op.categorical:
-                lines.insert(0, categorical_comment(op, "*"))
-                shown = continuous_terms(op)
-                if shown:
-                    lines.append(f"estimates table {op.name}, keep({' '.join(shown)}) b(%9.4f)")
-            else:
-                lines.append(f"estimates table {op.name}, b(%9.4f)")
-            return lines
+            return self._ols(op)
+        if isinstance(op, IV):
+            return self._iv(op)
+        if isinstance(op, EffectTable):
+            return self._effect_table(op)
+        if isinstance(op, MonteCarlo):
+            return self._monte_carlo(op)
+        if isinstance(op, Histogram):
+            return self._histogram(op)
         if isinstance(op, ShowModel):
             return [f"estimates replay {op.model}"]
         if isinstance(op, RegressionTable):
@@ -286,14 +416,15 @@ class StataGenerator(Generator):
             ]
         if isinstance(op, Scalar):
             lines = [f"* {op.comment}"]
-            model = scalar_model(op)
-            if model:
-                lines.append(f"quietly estimates restore {model}")
-            rhs = E.render(op.expr, self.dialect())
-            lines += [
-                f"scalar {op.name} = {rhs}",
-                f'display "{op.comment}: " %6.2f scalar({op.name})',
-            ]
+            if scalar_model(op) is not None or not coefficient_models(op.expr):
+                model = scalar_model(op)
+                if model:
+                    lines.append(f"quietly estimates restore {model}")
+                lines.append(f"scalar {op.name} = {E.render(op.expr, self.dialect())}")
+            else:
+                lines += self._scalar_lines(op.name, op.expr)
+            width = max(6, op.decimals + 4)
+            lines.append(f'display "{op.comment}: " %{width}.{op.decimals}f scalar({op.name})')
             return lines
         if isinstance(op, GroupMeanPlot):
             ordered = sorted(op.group_labels)
@@ -326,6 +457,130 @@ class StataGenerator(Generator):
             ]
         raise TypeError(f"Stata üreticisi bu işlemi tanımıyor: {type(op).__name__}")
 
+    # --- Tahminler -------------------------------------------------------
+    def _ols(self, op: OLS) -> list[str]:
+        regressors = " ".join(f"i.{r}" if r in op.categorical else r for r in op.regressors)
+        condition = ""
+        lines: list[str] = []
+        if op.where is not None:
+            variable, value = op.where
+            condition = f" if {variable} == {E.format_number(value)}"
+            lines.append(f"* Tahmin örneklemi: {variable} = {E.format_number(value)} olan gözlemler "
+                         "(eksik değerli gözlemleri Stata kendisi dışarıda bırakır)")
+        lines += _command(f"quietly regress {op.outcome} {regressors}{condition}{_vce(op)}")
+        lines.append(f"estimates store {op.name}")
+        if op.categorical:
+            lines.insert(0, categorical_comment(op, "*"))
+            shown = continuous_terms(op)
+            if shown:
+                lines.append(f"estimates table {op.name}, keep({' '.join(shown)}) b(%9.4f)")
+            return lines
+        shown = self.shown_terms(op)
+        if shown:
+            lines.append(f"estimates table {op.name}, keep({' '.join(shown)}) b(%9.4f) se(%9.4f)")
+        else:
+            lines.append(f"estimates table {op.name}, b(%9.4f)")
+        return lines
+
+    def _iv(self, op: IV) -> list[str]:
+        exogenous = " ".join(op.exogenous)
+        instrumented = f"({' '.join(op.endogenous)} = {' '.join(op.instruments)})"
+        command = f"quietly ivregress 2sls {op.outcome} {exogenous} {instrumented}, vce(robust) small"
+        command = command.replace("  ", " ")
+        return [
+            f"* 2SLS: {', '.join(op.endogenous)} içsel, araç {', '.join(op.instruments)}",
+            "* small: HC1 ölçeği n/(n−k) → Python (debiased=True) ve R (vcovHC HC1) ile aynı standart hata",
+            *_command(command),
+            f"estimates store {op.name}",
+            f"estimates table {op.name}, keep({' '.join(self.shown_terms(op))}) b(%9.4f) se(%9.4f)",
+        ]
+
+    def _effect_table(self, op: EffectTable) -> list[str]:
+        models = list(dict.fromkeys(model for _, model, _ in op.rows))
+        terms = list(dict.fromkeys(_term(term) for _, _, term in op.rows))
+        clustered = any(isinstance(self.models.get(m), OLS) and self.models[m].vcov == "cluster" for m in models)
+        distribution = "küme SH'de t(G−1)" if clustered else "t(n−k)"
+        lines = [f"* {op.title}" if op.title else "* Tahminler yan yana"]
+        lines += [f"*   {model}: {label}" for label, model, _ in op.rows]
+        lines.append(f"* p-değerleri Stata'nın kendi dağılımıyla ({distribution}); notlar normal yaklaşım kullanır")
+        lines += _command(
+            f"estimates table {' '.join(models)}, keep({' '.join(terms)}) b(%9.4f) se(%9.4f) p(%9.3f) stats(N)"
+        )
+        return lines
+
+    def _monte_carlo(self, op: MonteCarlo) -> list[str]:
+        names = [name for name, _ in op.collect]
+        lines = [
+            f"* {op.comment}",
+            f"* {op.reps} tekrar; tohum döngüden önce bir kez ayarlanır. Sonuçlar geçici dosyada",
+            "* toplanır (tempfile): do-dosyası bitince silinir, klasörde dosya bırakmaz.",
+            f"set seed {op.seed}",
+            "tempname sonuc",
+            "tempfile mc_dosya",
+            f"postfile `sonuc' {' '.join(names)} using \"`mc_dosya'\", replace",
+            f"forvalues tekrar = 1/{op.reps} {{",
+            "    quietly {",
+        ]
+        self.quiet = True
+        try:
+            for inner in op.body:
+                lines += [f"        {line}" if line else "" for line in self.operation(inner)]
+        finally:
+            self.quiet = False
+        collected: list[str] = []
+        for name, expression in op.collect:
+            collected += self._scalar_lines(f"c_{name}", expression)
+        lines += [f"        {line}" for line in _without_repeated_restores(collected)]
+        lines += [
+            f"        post `sonuc' {' '.join(f'(scalar(c_{name}))' for name in names)}",
+            "    }",
+            "}",
+            "postclose `sonuc'",
+            "use \"`mc_dosya'\", clear",
+            f"summarize {' '.join(names)}",
+        ]
+        if op.coverage:
+            lines.append(f"* %95 güven aralığı: tahmin ± {CI_MULTIPLIER}·SH; gerçek değeri kapsayan tekrarların payı")
+        for estimate, standard_error, truth in op.coverage:
+            key = coverage_key(op.result, estimate)
+            lines += [
+                f"generate byte kapsar = abs({estimate} - {E.format_number(truth)}) <= {CI_MULTIPLIER} * {standard_error}",
+                "quietly summarize kapsar",
+                f"scalar {key} = r(mean)",
+                "drop kapsar",
+                f'display "Kapsama oranı, {estimate} (gerçek değer {E.format_number(truth)}): " %5.3f scalar({key})',
+            ]
+        return lines
+
+    def _histogram(self, op: Histogram) -> list[str]:
+        lower, upper = E.format_number(op.lower), E.format_number(op.upper)
+        width = E.format_number(round((op.upper - op.lower) / op.bins, 10))
+        layers = []
+        for (column, _), style in zip(op.columns, histogram_styles(len(op.columns))):
+            layers.append(
+                f"(histogram {column} if inrange({column}, {lower}, {upper}), start({lower}) width({width}) "
+                f'frequency fcolor(none) lcolor("{style.rgb}") lwidth(medthick))'
+            )
+        legend = " ".join(f'{index} "{label}"' for index, (_, label) in enumerate(op.columns, start=1))
+        references = []
+        notes = []
+        for index, (value, label) in enumerate(op.references):
+            rgb, pattern, word = _REFERENCE_STYLES[index % len(_REFERENCE_STYLES)]
+            references.append(f'xline({E.format_number(value)}, lpattern({pattern}) lcolor("{rgb}"))')
+            notes.append(f"{word} çizgi: {label}")
+        lines = [
+            f"* [{lower}, {upper}] dışındaki değerler çizilmez; kaç tane olduğu aşağıda sayılır",
+            "* Stata 14 uyumu için çubuklar içi boş (saydamlık Stata 15 ile gelir)",
+            f"twoway {layers[0]} ///",
+            *[f"       {layer} ///" for layer in layers[1:]],
+            f"       , {' '.join(references)} ///",
+            f'       legend(order({legend})) note("{"; ".join(notes)}") ///',
+            f'       xtitle("{op.x_label}") ytitle("Tekrar sayısı") title("{op.title}", size(medium))',
+        ]
+        for column, _ in op.columns:
+            lines.append(f"count if !inrange({column}, {lower}, {upper})")
+        return lines
+
     def _plot(self, op: Plot) -> list[str]:
         x = op.x
         grid = E.Dialect(
@@ -351,8 +606,9 @@ class StataGenerator(Generator):
             elif isinstance(layer, Scatter):
                 layers.append(f"(scatter {layer.y} {x}, msymbol(p) mcolor(gs10))")
             elif isinstance(layer, Curve):
+                pattern = " lpattern(dash)" if style.dashed else ""
                 layers.append(
-                    f"(function y = {E.render(layer.expr, grid)}, range({x}) lcolor({color}) lwidth(medthick))"
+                    f"(function y = {E.render(layer.expr, grid)}, range({x}) lcolor({color}) lwidth(medthick){pattern})"
                 )
             elif isinstance(layer, ModelLine):
                 a, b = f"a_{layer.model}", f"b_{layer.model}"
@@ -396,8 +652,13 @@ class StataGenerator(Generator):
                 if restored != stored:
                     lines.append(f"quietly estimates restore {stored}")
                     restored = stored
-                prefix = "_b" if target.quantity == "coef" else "_se"
-                value_expr = f"{prefix}[{_term(target.term)}]"
+                term = _term(target.term)
+                if target.quantity == "coef":
+                    value_expr = f"_b[{term}]"
+                elif target.quantity == "p":
+                    value_expr = f"2*normal(-abs(_b[{term}]/_se[{term}]))"
+                else:
+                    value_expr = f"_se[{term}]"
             elif isinstance(target, ModelTarget):
                 if restored != target.model:
                     lines.append(f"quietly estimates restore {target.model}")

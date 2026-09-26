@@ -113,7 +113,7 @@ def normalize_text(text: str) -> str:
     text = text.strip().replace("İ", "i").replace("I", "ı").lower()
     text = unicodedata.normalize("NFC", text)
     text = re.sub(r"\s+", "", text)
-    text = text.replace("(", "[").replace(")", "]")
+    text = text.replace("(", "[").replace(")", "]").replace("−", "-").replace("’", "'")
     return text.strip(".,;:!?'\"")
 
 

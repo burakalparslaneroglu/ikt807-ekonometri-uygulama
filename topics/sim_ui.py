@@ -11,10 +11,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from core.codegen.base import LANGUAGE_INFO, LANGUAGES, generator, layer_styles
+from core.codegen.base import LANGUAGE_INFO, LANGUAGES, generator, histogram_styles, layer_styles
 from core.labs.runner import LabState, PlotLayerData, execute
 from core.labs.sezgi import SimExperiment
-from core.labs.spec import REPRO_DESCRIPTIONS, Curve, MeanPoints, ModelLine, Plot, ReproClass, Scatter
+from core.labs.spec import REPRO_DESCRIPTIONS, Curve, Histogram, MeanPoints, ModelLine, Plot, ReproClass, Scatter
 from topics.lab_ui import CODE_LANGUAGE_KEY
 from topics.regression_ui import show_figure, style_figure
 
@@ -90,6 +90,51 @@ def _figure(op: Plot, layers: list[PlotLayerData]) -> go.Figure:
             )
     style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
     return figure
+
+
+_REFERENCE_STYLES = (("#07373D", "dash"), ("#6B4C9A", "dot"))
+
+
+def _histogram(op: Histogram, data: pd.DataFrame) -> tuple[go.Figure, str]:
+    """Üretilen kodla aynı kutular: [lower, upper] aralığında ``bins`` eşit genişlikte kutu."""
+
+    edges = np.linspace(op.lower, op.upper, op.bins + 1)
+    centers = (edges[:-1] + edges[1:]) / 2
+    figure = go.Figure()
+    outside: list[str] = []
+    for (column, label), style in zip(op.columns, histogram_styles(len(op.columns))):
+        values = data[column].to_numpy(dtype=float)
+        counts, _ = np.histogram(values, bins=edges)
+        figure.add_trace(
+            go.Bar(
+                x=centers, y=counts, width=np.diff(edges), name=label,
+                marker={"color": style.color, "opacity": 0.55, "line": {"width": 0}},
+                hovertemplate=f"{label}<br>%{{x:.3f}} civarı: %{{y}} tekrar<extra></extra>",
+            )
+        )
+        missing = int(((values < op.lower) | (values > op.upper)).sum())
+        outside.append(f"{label}: {missing}")
+    for index, (value, label) in enumerate(op.references):
+        color, dash = _REFERENCE_STYLES[index % len(_REFERENCE_STYLES)]
+        figure.add_trace(
+            go.Scatter(
+                x=[value, value], y=[0, 1], mode="lines", name=label, yaxis="y2",
+                line={"color": color, "width": 2.5, "dash": dash}, hoverinfo="skip",
+            )
+        )
+    figure.update_layout(
+        barmode="overlay",
+        yaxis2={"overlaying": "y", "range": [0, 1], "visible": False},
+    )
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title="Tekrar sayısı", legend_title="")
+    def plain(value: float) -> str:
+        return f"{value:g}".replace(".", ",").replace("-", "−")
+
+    caption = (
+        f"Kutular: [{plain(op.lower)}; {plain(op.upper)}] aralığında {op.bins} eşit genişlik. "
+        "Aralık dışında kalan tekrar sayısı — " + ", ".join(outside) + "."
+    )
+    return figure, caption
 
 
 def _table(experiment: SimExperiment, name: str, table: pd.DataFrame) -> pd.DataFrame:
@@ -172,6 +217,10 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
     for op in experiment.build(parameters):
         if isinstance(op, Plot):
             show_figure(_figure(op, state.plots[f"grafik:{op.title}"]))
+        elif isinstance(op, Histogram):
+            figure, caption = _histogram(op, state.plots[f"histogram:{op.title}"])
+            show_figure(figure)
+            st.caption(caption)
 
     metrics = experiment.metrics(state, parameters)
     columns = st.columns(len(metrics))

@@ -49,10 +49,18 @@ class Coef:
     term: str
 
 
-Expr = Union[Var, Const, BinOp, Call, Coef]
+@dataclass(frozen=True)
+class StdErr:
+    """Tahmin edilmiş bir modelin katsayısının standart hatası (modelin kendi kovaryans türüyle)."""
+
+    model: str
+    term: str
+
+
+Expr = Union[Var, Const, BinOp, Call, Coef, StdErr]
 
 BINARY_OPS = ("+", "-", "*", "/", "^")
-FUNCTIONS = ("log", "exp", "sqrt", "maximum", "minimum", "round", "floor")
+FUNCTIONS = ("log", "exp", "sqrt", "maximum", "minimum", "round", "floor", "positive")
 _BINARY_FUNCTIONS = ("maximum", "minimum")
 _PRECEDENCE = {"+": 1, "-": 1, "*": 2, "/": 2, "^": 3}
 _ATOM = 4
@@ -120,14 +128,24 @@ def rounded(a) -> Call:
     return Call("round", (_wrap(a),))
 
 
+def positive(a) -> Call:
+    """Gösterge fonksiyonu: argüman sıfırdan büyükse 1, değilse 0."""
+
+    return Call("positive", (_wrap(a),))
+
+
 def coef(model: str, term: str) -> Coef:
     return Coef(model, term)
+
+
+def se(model: str, term: str) -> StdErr:
+    return StdErr(model, term)
 
 
 # --- Doğrulama ---------------------------------------------------------------
 
 def validate(expr: Expr) -> None:
-    if isinstance(expr, (Var, Const, Coef)):
+    if isinstance(expr, (Var, Const, Coef, StdErr)):
         return
     if isinstance(expr, BinOp):
         if expr.op not in BINARY_OPS:
@@ -168,22 +186,30 @@ def evaluate(
     expr: Expr,
     frame: pd.DataFrame | None = None,
     coefficient: Callable[[str, str], float] | None = None,
+    standard_error: Callable[[str, str], float] | None = None,
 ):
     """İfadeyi bir veri çerçevesi (vektör) veya katsayılar (skaler) üzerinde hesaplar."""
+
+    def again(node: Expr):
+        return evaluate(node, frame, coefficient, standard_error)
 
     if isinstance(expr, Const):
         return expr.value
     if isinstance(expr, Var):
         if frame is None:
             raise ValueError(f"'{expr.name}' için veri çerçevesi gerekir.")
-        return frame[expr.name].astype(float)
+        return np.asarray(frame[expr.name], dtype=float)
     if isinstance(expr, Coef):
         if coefficient is None:
             raise ValueError("Katsayı ifadesi için tahmin edilmiş model gerekir.")
         return coefficient(expr.model, expr.term)
+    if isinstance(expr, StdErr):
+        if standard_error is None:
+            raise ValueError("Standart hata ifadesi için tahmin edilmiş model gerekir.")
+        return standard_error(expr.model, expr.term)
     if isinstance(expr, BinOp):
-        left = evaluate(expr.left, frame, coefficient)
-        right = evaluate(expr.right, frame, coefficient)
+        left = again(expr.left)
+        right = again(expr.right)
         if expr.op == "+":
             return left + right
         if expr.op == "-":
@@ -194,7 +220,7 @@ def evaluate(
             return left / right
         return left**right
     if isinstance(expr, Call):
-        values = [evaluate(argument, frame, coefficient) for argument in expr.args]
+        values = [again(argument) for argument in expr.args]
         if expr.fn == "log":
             return np.log(values[0])
         if expr.fn == "exp":
@@ -205,6 +231,8 @@ def evaluate(
             return np.rint(values[0])
         if expr.fn == "floor":
             return np.floor(values[0])
+        if expr.fn == "positive":
+            return np.where(np.asarray(values[0]) > 0, 1.0, 0.0)
         if expr.fn == "minimum":
             return np.minimum(values[0], values[1])
         return np.maximum(values[0], values[1])
@@ -215,12 +243,17 @@ def evaluate(
 
 @dataclass(frozen=True)
 class Dialect:
-    """Bir hedef dilin ifade sözdizimi."""
+    """Bir hedef dilin ifade sözdizimi.
+
+    ``functions`` değerleri ya bir ad (``np.exp`` → ``np.exp(x)``) ya da ``{0}``
+    yer tutuculu bir kalıptır (``as.numeric({0} > 0)``).
+    """
 
     variable: Callable[[str], str]
     coefficient: Callable[[str, str], str]
     functions: dict[str, str]
     power: str
+    standard_error: Callable[[str, str], str] | None = None
 
 
 def format_number(value: float) -> str:
@@ -242,9 +275,16 @@ def render(expr: Expr, dialect: Dialect) -> str:
         return dialect.variable(expr.name)
     if isinstance(expr, Coef):
         return dialect.coefficient(expr.model, expr.term)
+    if isinstance(expr, StdErr):
+        if dialect.standard_error is None:
+            raise ValueError("Bu dilde standart hata ifadesi tanımlı değil.")
+        return dialect.standard_error(expr.model, expr.term)
     if isinstance(expr, Call):
-        inner = ", ".join(render(argument, dialect) for argument in expr.args)
-        return f"{dialect.functions[expr.fn]}({inner})"
+        arguments = [render(argument, dialect) for argument in expr.args]
+        spec = dialect.functions[expr.fn]
+        if "{0}" in spec:
+            return spec.format(*arguments)
+        return f"{spec}({', '.join(arguments)})"
     parent = _PRECEDENCE[expr.op]
     left = render(expr.left, dialect)
     right = render(expr.right, dialect)
@@ -299,7 +339,7 @@ def derivative(node: Expr, target: Coef) -> Expr:
     """``node``'un ``target`` katsayısına göre türevi (sadeleştirilmiş)."""
 
     def d(item: Expr) -> Expr:
-        if isinstance(item, (Const, Var)):
+        if isinstance(item, (Const, Var, StdErr)):
             return Const(0.0)
         if isinstance(item, Coef):
             return Const(1.0 if item == target else 0.0)
