@@ -274,7 +274,29 @@ class ZeroLine:
     label: str
 
 
-Layer = Union[MeanPoints, Scatter, Curve, ModelLine, ZeroLine]
+@dataclass(frozen=True)
+class LocalCurve:
+    """Grafik katmanı: y'nin x üzerindeki Gauss çekirdekli yerel doğrusal (``degree=1``) veya yerel
+    sabit / Nadaraya–Watson (``degree=0``) tahmini, bant genişliği h."""
+
+    y: str
+    bandwidth: float
+    label: str
+    degree: int = 1
+    dashed: bool = False
+    color: int | None = None
+
+
+@dataclass(frozen=True)
+class BinMeans:
+    """Grafik katmanı: x'in eşit genişlikli ``bins`` aralığında x ve y ortalamaları."""
+
+    y: str
+    bins: int
+    label: str
+
+
+Layer = Union[MeanPoints, Scatter, Curve, ModelLine, ZeroLine, LocalCurve, BinMeans]
 
 
 @dataclass(frozen=True)
@@ -460,13 +482,100 @@ class Tobit:
 
 @dataclass(frozen=True)
 class QuantileRegression:
-    """Kantil regresyon; ``q=0.5`` medyan (en küçük mutlak sapma, LAD) regresyonudur."""
+    """Kantil regresyon; ``q=0.5`` medyan (en küçük mutlak sapma, LAD) regresyonudur.
+
+    Katsayılar doğrusal programlama probleminin kesin çözümüdür (R ``rq``, Stata ``qreg`` ile
+    aynı). ``vcov="nid"``: Hendricks–Koenker sandviç kovaryansı, koşullu yoğunluk her gözlemde
+    τ ± h kantil doğrularının farkından (h: Hall–Sheather); R ``summary.rq(se = "nid")``.
+    ``vcov="none"``: standart hata hesaplanmaz.
+    """
 
     name: str
     frame: str
     outcome: str
     regressors: tuple[str, ...]
     q: float = 0.5
+    vcov: str = "none"
+
+
+@dataclass(frozen=True)
+class QuantileDifference:
+    """Aynı spesifikasyonun iki kantil tahmini arasındaki fark β̂(τ₂) − β̂(τ₁) için Wald testi.
+
+    Standart hata iki tahminin ortak asimptotik kovaryansından: Cov = (min(τ₁,τ₂) − τ₁τ₂)
+    H₁⁻¹ X'X H₂⁻¹, Hₖ = X'FₖX (Hendricks–Koenker yoğunlukları). Skalerler: ``name``, ``name_se``,
+    ``name_z``, ``name_p``.
+    """
+
+    name: str
+    low: str
+    high: str
+    term: str
+    comment: str
+
+
+@dataclass(frozen=True)
+class CoefficientProfile:
+    """Bir katsayının kantiller boyunca profili ve noktasal %95 güven bandı (± 1,96·SH).
+
+    ``models`` (τ, model adı) çiftleridir; ``reference`` verilirse (ör. OLS) yatay çizgi olarak çizilir.
+    """
+
+    models: tuple[tuple[float, str], ...]
+    term: str
+    x_label: str
+    y_label: str
+    title: str
+    reference: str | None = None
+    reference_label: str = "OLS"
+
+
+@dataclass(frozen=True)
+class LocalLinear:
+    """Gauss çekirdekli yerel doğrusal tahmin, seçilmiş noktalarda ve birkaç bant genişliğinde.
+
+    ``bandwidths`` (sütun adı, h) çiftleridir. Sonuç tablosu: satırlar ``values``, sütunlar bu adlar.
+    """
+
+    name: str
+    frame: str
+    x: str
+    y: str
+    bandwidths: tuple[tuple[str, float], ...]
+    values: tuple[float, ...]
+    result: str
+
+
+@dataclass(frozen=True)
+class BandwidthCV:
+    """Yerel doğrusal tahminde çapraz doğrulama ölçütü CV(h), bir h ızgarasında.
+
+    ``grid`` (alt, üst, adım). Birini-dışarıda-bırak CV her zaman; ``cluster`` verilirse küme-silmeli
+    CV de hesaplanır. Sonuç tablosu: satırlar h, sütunlar ``cv`` ve ``cv_kume``. Skalerler:
+    ``name_h`` ve ``name_h_kume`` (ölçütü en küçük yapan h; eşitlikte küçük olan).
+    """
+
+    name: str
+    frame: str
+    x: str
+    y: str
+    grid: tuple[float, float, float]
+    result: str
+    x_label: str
+    title: str
+    cluster: str | None = None
+
+
+@dataclass(frozen=True)
+class LocalResidual:
+    """Artıklaştırma: ``name`` = v − m̂(x), m̂ Gauss çekirdekli yerel doğrusal tahmin (örneklem noktalarında)."""
+
+    frame: str
+    name: str
+    variable: str
+    x: str
+    bandwidth: float
+    comment: str
 
 
 @dataclass(frozen=True)
@@ -551,6 +660,11 @@ class Histogram:
 
 
 Operation = Union[
+    QuantileDifference,
+    CoefficientProfile,
+    LocalLinear,
+    BandwidthCV,
+    LocalResidual,
     KeepIf,
     Recode,
     BinaryChoice,

@@ -36,16 +36,16 @@ def test_question_answer_and_new_question_state() -> None:
     """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
 
     app = _run_app()
-    app.radio(key="topic_selector").set_value("konu07").run()
+    app.radio(key="topic_selector").set_value("konu09").run()
     successes = len(app.success)
-    app.button(key="konu07_toggle_answer").click().run()
+    app.button(key="konu09_toggle_answer").click().run()
     assert not app.exception
-    assert app.session_state["konu07_answer_visible"] is True
+    assert app.session_state["konu09_answer_visible"] is True
     assert len(app.success) == successes + 1
 
-    app.button(key="konu07_new_question").click().run()
-    assert app.session_state["konu07_answer_visible"] is False
-    assert app.session_state["konu07_question_index"] == 1
+    app.button(key="konu09_new_question").click().run()
+    assert app.session_state["konu09_answer_visible"] is False
+    assert app.session_state["konu09_question_index"] == 1
     assert len(app.success) == successes
 
 
@@ -149,39 +149,43 @@ def test_topic_06_has_three_tabs_lab_and_experiments() -> None:
     assert any("dışlama değişkeni seçimi etkilemiyor" in item.value for item in app.info)
 
 
-def test_topic_07_quantile_targets_and_cps_gate() -> None:
+def test_topic_07_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
+    # Veri yolu tanımlıysa laboratuvar açılışta 15 kantil regresyonu çözer; bu test yalnız arayüzü sınar.
+    for name in ("IKT807_HANSEN_CPS09MAR_PATH", "IKT807_CPS_PATH"):
+        monkeypatch.delenv(name, raising=False)
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu07").run()
     assert not app.exception
-    assert app.slider(key="konu07_tau").value == 0.50
-    assert any(metric.label == "Pozitif artık eğimi" for metric in app.metric)
-    assert any(metric.label == "OLS x eğimi" for metric in app.metric)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu07_lab_step").value == 1
+    assert any("cps09mar.txt" in item.value for item in app.markdown)
+    assert any(metric.label == "τ = 0,90 eğimi" for metric in app.metric)
 
-    app.slider(key="konu07_tau").set_value(0.80).run()
+    app.slider(key="konu07_sezgi1_gamma").set_value(0.0).run()
     assert not app.exception
-    assert app.slider(key="konu07_tau").value == 0.80
+    assert any("paraleldir" in item.value for item in app.info)
 
-    app.segmented_control(key="konu07_data_source").set_value(
-        "Hazırlanmış CPS CSV"
-    ).run()
-    assert any("CPS verisi lisans teyidi" in item.value for item in app.info)
+    app.segmented_control(key="konu07_sezgi_deney").set_value(3).run()
+    assert not app.exception
+    assert any(metric.label == "Oran (kuram)" for metric in app.metric)
 
 
-def test_topic_08_smoothing_controls_and_ddk_gate() -> None:
+def test_topic_08_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
+    monkeypatch.delenv("IKT807_HANSEN_DDK2011_PATH", raising=False)
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu08").run()
     assert not app.exception
-    assert app.slider(key="konu08_bandwidth").value == 0.70
-    assert any(metric.label == "Ağırlık toplamı" for metric in app.metric)
-    assert any(
-        metric.label == "Çapraz doğrulama bant genişliği"
-        for metric in app.metric
-    )
-    assert any("DDK verisi lisans teyidi" in item.value for item in app.info)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu08_lab_step").value == 1
+    assert any("DDK2011.dta" in item.value for item in app.markdown)
+    assert any(metric.label == "CV ile seçilen h" for metric in app.metric)
 
-    app.selectbox(key="konu08_kernel").set_value("Epanechnikov").run()
+    app.segmented_control(key="konu08_sezgi_deney").set_value(2).run()
     assert not app.exception
-    assert app.selectbox(key="konu08_kernel").value == "Epanechnikov"
+    assert any(metric.label == "NW hatası, x = 0" for metric in app.metric)
+    app.slider(key="konu08_sezgi2_h").set_value(0.2).run()
+    assert not app.exception
+    assert any("Nadaraya–Watson" in item.value for item in app.info)
 
 
 def test_topic_09_rdd_direction_diagnostics_and_lm_gate() -> None:

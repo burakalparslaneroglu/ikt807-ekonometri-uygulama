@@ -14,8 +14,20 @@ import streamlit as st
 from core.codegen.base import LANGUAGE_INFO, LANGUAGES, generator, histogram_styles, layer_styles
 from core.labs.runner import LabState, PlotLayerData, execute
 from core.labs.sezgi import SimExperiment
-from core.labs.spec import REPRO_DESCRIPTIONS, Curve, Histogram, MeanPoints, ModelLine, Plot, ReproClass, Scatter
-from topics.lab_ui import CODE_LANGUAGE_KEY
+from core.labs.spec import (
+    REPRO_DESCRIPTIONS,
+    BandwidthCV,
+    BinMeans,
+    Curve,
+    Histogram,
+    LocalCurve,
+    MeanPoints,
+    ModelLine,
+    Plot,
+    ReproClass,
+    Scatter,
+)
+from topics.lab_ui import CODE_LANGUAGE_KEY, render_bandwidth_cv
 from topics.regression_ui import show_figure, style_figure
 
 
@@ -57,17 +69,20 @@ def _render_sliders(experiment: SimExperiment) -> None:
             )
 
 
-def _figure(op: Plot, layers: list[PlotLayerData]) -> go.Figure:
+def layered_figure(op: Plot, layers: list[PlotLayerData]) -> go.Figure:
+    """Katmanlı grafik (Sezgi deneyleri ve Uygulama adımları); üretilen kodla aynı katmanlar ve renkler."""
+
     figure = go.Figure()
     for item, style in zip(layers, layer_styles(op.layers)):
         layer, data = item.layer, item.data
-        if isinstance(layer, MeanPoints):
+        if isinstance(layer, (MeanPoints, BinMeans)):
+            hover = "x ortalaması = %{x:.2f}" if isinstance(layer, BinMeans) else "x = %{x}"
             figure.add_trace(
                 go.Scatter(
                     x=data[op.x], y=data["ortalama"], mode="markers", name=layer.label,
                     marker={"size": np.sqrt(data["n"]) * 1.1 + 4, "color": style.color, "opacity": 0.9},
                     customdata=data[["n"]],
-                    hovertemplate="x = %{x}<br>ortalama = %{y:.4f}<br>n = %{customdata[0]}<extra></extra>",
+                    hovertemplate=hover + "<br>ortalama = %{y:.4f}<br>n = %{customdata[0]}<extra></extra>",
                 )
             )
         elif isinstance(layer, Scatter):
@@ -80,7 +95,7 @@ def _figure(op: Plot, layers: list[PlotLayerData]) -> go.Figure:
             )
         else:
             dash = "dash" if style.dashed else ("dot" if style.dotted else "solid")
-            width = 3 if isinstance(layer, (Curve, ModelLine)) else 1.5
+            width = 3 if isinstance(layer, (Curve, ModelLine, LocalCurve)) else 1.5
             figure.add_trace(
                 go.Scatter(
                     x=data[op.x], y=data["deger"], mode="lines", name=layer.label,
@@ -216,11 +231,13 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
     st.markdown("\n".join(f"- {line}" for line in experiment.look_at))
     for op in experiment.build(parameters):
         if isinstance(op, Plot):
-            show_figure(_figure(op, state.plots[f"grafik:{op.title}"]))
+            show_figure(layered_figure(op, state.plots[f"grafik:{op.title}"]))
         elif isinstance(op, Histogram):
             figure, caption = _histogram(op, state.plots[f"histogram:{op.title}"])
             show_figure(figure)
             st.caption(caption)
+        elif isinstance(op, BandwidthCV):
+            render_bandwidth_cv(op, state, metrics=False)
 
     metrics = experiment.metrics(state, parameters)
     columns = st.columns(len(metrics))

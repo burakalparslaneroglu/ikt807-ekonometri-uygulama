@@ -163,8 +163,10 @@ STEPS = (
         ),
         code_note=(
             "OLS ve Tobit üç dilde aynı sayıyı verir (Tobit: Python'da kodda tanımlı MLE, R `AER::tobit`, Stata "
-            "`tobit, ll(0)`). LAD çözümü tek olmayabilir; statsmodels, R `quantreg::rq` ve Stata `qreg` farklı "
-            "algoritmalarla aynı eğriyi iki ondalıkta verir. Kontrollerin ortalamaları örneklemin tamamından alınır."
+            "`tobit, ll(0)`). LAD doğrusal programlamanın kesin çözümüdür (Python `scipy.optimize.linprog`, R "
+            "`quantreg::rq`, Stata `qreg`). Bu örneklemde çözüm tek değildir (R \"nonunique\" uyarısı verir): diller "
+            "aynı amaç değerini veren farklı köşe çözümleri seçebilir; eğriler iki ondalıkta aynıdır. Kontrollerin "
+            "ortalamaları örneklemin tamamından alınır."
         ),
     ),
     LabStep(

@@ -8,6 +8,8 @@ from core.labs import expr as E
 from core.labs.spec import (
     IV,
     OLS,
+    BinMeans,
+    LocalCurve,
     AverageProfile,
     BinaryChoice,
     Check,
@@ -77,6 +79,15 @@ def layer_styles(layers) -> list[LayerStyle]:
             counts["lines"] += 1
         elif isinstance(layer, ZeroLine):
             styles.append(LayerStyle("#07373D", "7 55 61", dotted=True))
+        elif isinstance(layer, LocalCurve):
+            position = counts["curves"] if layer.color is None else layer.color
+            color, rgb = _CURVE_COLORS[position % len(_CURVE_COLORS)]
+            styles.append(LayerStyle(color, rgb, dashed=layer.dashed))
+            counts["curves"] += 1
+        elif isinstance(layer, BinMeans):
+            color, rgb = _POINT_COLORS[counts["points"] % len(_POINT_COLORS)]
+            styles.append(LayerStyle(color, rgb))
+            counts["points"] += 1
         else:
             raise TypeError(f"Tanınmayan grafik katmanı: {type(layer).__name__}")
     return styles
@@ -269,7 +280,12 @@ class Generator:
         return None
 
     # --- Alt sınıfların doldurduğu parçalar -------------------------------
-    def imports(self, operations: tuple[Operation, ...]) -> list[str]:
+    def imports(self, operations: tuple[Operation, ...], *, script: bool = False) -> list[str]:
+        return []
+
+    def output_setup(self) -> list[str]:
+        """Tam betikte içe aktarmalardan hemen sonra gelen çıktı ayarı (dile özgü; çoğu dilde boş)."""
+
         return []
 
     def helpers(self, operations: tuple[Operation, ...], *, with_checks: bool) -> list[str]:
@@ -369,7 +385,8 @@ class Generator:
             op for step in self.spec.steps for op in step.operations
         )
         lines = self.header()
-        lines.extend(self.imports(operations))
+        lines.extend(self.imports(operations, script=True))
+        lines.extend(self.output_setup())
         lines.extend(self.helpers(operations, with_checks=self.has_checks))
         lines.extend(self.function_helpers(operations))
         for step in self.spec.steps:

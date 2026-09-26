@@ -19,11 +19,17 @@ from core.codegen.base import (
     profile_others,
     table_row_text,
 )
+from core.codegen import r_np as RNP
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    BandwidthCV,
+    BinMeans,
+    LocalCurve,
+    LocalLinear,
+    LocalResidual,
     AverageProfile,
     BinaryChoice,
     KeepIf,
@@ -90,7 +96,7 @@ def _term(term: str) -> str:
 _FUNCTIONS = {
     "log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin",
     "round": "round", "floor": "floor", "positive": "as.numeric({0} > 0)",
-    "logistic": "plogis", "normcdf": "pnorm", "normpdf": "dnorm",
+    "logistic": "plogis", "normcdf": "pnorm", "normpdf": "dnorm", "sin": "sin", "cos": "cos",
     **{name: f"as.numeric({{0}} {symbol} {{1}})" for name, symbol in E.COMPARISONS.items()},
 }
 _COLORS_HEX = ("#107C89", "#B3392F", "#2F9E6B", "#07373D")
@@ -256,6 +262,8 @@ class RGenerator(Generator):
             return f'sandwich::vcovHC({symbol}, type = "HC1")'
         if isinstance(settings, BinaryChoice):
             return f"dayanikli_vcov({symbol})" if settings.vcov == "robust" else f"vcov({symbol})"
+        if isinstance(settings, QuantileRegression) and settings.vcov == "nid":
+            return f"{RNP.summary_name(symbol)}$cov"
         if isinstance(settings, (Tobit, QuantileRegression, MarginalEffects)):
             return f"vcov({symbol})"
         if settings is None or settings.vcov == "classic":
@@ -272,7 +280,7 @@ class RGenerator(Generator):
         )
 
     # --- Başlık ve yardımcılar ------------------------------------------
-    def imports(self, operations: tuple[Operation, ...]) -> list[str]:
+    def imports(self, operations: tuple[Operation, ...], *, script: bool = False) -> list[str]:
         ops = flatten(operations)
         packages: list[str] = []
         if self._needs_sandwich(ops):
@@ -365,19 +373,34 @@ class RGenerator(Generator):
 
     def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
         ops = flatten(operations)
+        layers = [layer for op in ops if isinstance(op, Plot) for layer in op.layers]
         names: list[str] = []
         if any(isinstance(op, BinaryChoice) and op.vcov == "robust" for op in ops):
             names.append("dayanikli_vcov")
         if any(isinstance(op, MarginalEffects) for op in ops):
             names.append("marjinal_etkiler")
+        if any(isinstance(op, QuantileRegression) for op in ops):
+            names.append("nobs_rq")
+        if any(isinstance(op, (LocalLinear, LocalResidual)) for op in ops) or any(
+            isinstance(layer, LocalCurve) for layer in layers
+        ):
+            names.append("yerel")
+        if any(isinstance(op, BandwidthCV) for op in ops):
+            names.append("cv")
+        if any(isinstance(layer, BinMeans) for layer in layers):
+            names.append("aralik")
         return names
 
     def helper_code(self, name: str) -> list[str]:
-        if name == "dayanikli_vcov":
-            return _ROBUST_HELPER + [""]
-        if name == "marjinal_etkiler":
-            return _MARGINAL_EFFECTS_HELPER + [""]
-        return []
+        texts = {
+            "dayanikli_vcov": _ROBUST_HELPER,
+            "marjinal_etkiler": _MARGINAL_EFFECTS_HELPER,
+            "nobs_rq": RNP.NOBS_HELPER,
+            "yerel": RNP.LOCAL_HELPER,
+            "cv": RNP.CV_HELPER,
+            "aralik": RNP.BINS_HELPER,
+        }
+        return texts[name] + [""] if name in texts else []
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
@@ -387,6 +410,9 @@ class RGenerator(Generator):
         return lines
 
     def _operation(self, op: Operation) -> list[str]:
+        nonparametric = RNP.operation(self, op)
+        if nonparametric is not None:
+            return nonparametric
         limited = self._limited_operation(op)
         if limited is not None:
             return limited
@@ -587,8 +613,8 @@ class RGenerator(Generator):
                 for variable, operator, value in op.conditions
             )
             return [
-                f"# {op.comment}",
-                f"{op.frame} <- {op.frame}[{parts}, ]",
+                f"# {op.comment} (which(): koşulu eksik olan satırlar da dışarıda kalır)",
+                f"{op.frame} <- {op.frame}[which({parts}), ]",
                 f"print(nrow({op.frame}))  # analiz örneklemi",
             ]
         if isinstance(op, Recode):
@@ -658,15 +684,6 @@ class RGenerator(Generator):
             shown = ["(Intercept)", op.regressors[0]] if len(op.regressors) > 5 else ["(Intercept)", *op.regressors]
             lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
             lines.append(f'cat("sigma:", round({op.name}$scale, 4), "\\n")')
-            return lines
-        if isinstance(op, QuantileRegression):
-            formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
-            lines = [f"# Kantil regresyon, q = {E.format_number(op.q)}"
-                     + (" (medyan / LAD); çözüm tek olmayabilir, rq bunu uyarıyla bildirir" if op.q == 0.5 else "")]
-            call = self._call(op.name, "quantreg::rq", formula, op.frame, f"tau = {E.format_number(op.q)}")
-            lines += call
-            shown = ["(Intercept)", op.regressors[0]] if len(op.regressors) > 5 else ["(Intercept)", *op.regressors]
-            lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
             return lines
         if isinstance(op, ProfileCurves):
             return self._profile_curves(op)
@@ -968,6 +985,25 @@ class RGenerator(Generator):
                     f"col = {color}, lwd = 2, lty = {lty})"
                 )
                 marks = ("NA", str(lty), "2")
+            elif isinstance(layer, LocalCurve):
+                curves += 1
+                name = f"egri_{curves}"
+                degree = "" if layer.degree == 1 else f", derece = {layer.degree}"
+                setup.append(
+                    f"{name} <- yerel_dogrusal({frame}${x}, {frame}${layer.y}, izgara, "
+                    f"{E.format_number(layer.bandwidth)}{degree})"
+                )
+                ranges.append(name)
+                lty = 2 if style.dashed else 1
+                pattern = f", lty = {lty}" if style.dashed else ""
+                drawing.append(f"lines(izgara, {name}, col = {color}, lwd = 2{pattern})")
+                marks = ("NA", str(lty), "2")
+            elif isinstance(layer, BinMeans):
+                name = f"aralik_{layer.y}"
+                setup.append(f"{name} <- aralik_ortalamalari({frame}${x}, {frame}${layer.y}, {layer.bins})")
+                ranges.append(f"{name}$y")
+                drawing.append(f"points({name}$x, {name}$y, pch = 16, col = {color})")
+                marks = ("16", "NA", "NA")
             else:  # ZeroLine
                 ranges.append("0")
                 drawing.append(f"abline(h = 0, col = {color}, lty = 3)")

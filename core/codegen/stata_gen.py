@@ -15,12 +15,14 @@ Bilinçli seçimler:
 
 from __future__ import annotations
 
+from core.codegen import stata_np as SNP
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
     Generator,
     categorical_comment,
     coefficient_models,
     continuous_terms,
+    flatten,
     histogram_styles,
     layer_styles,
     profile_others,
@@ -32,12 +34,13 @@ from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    BinMeans,
+    LocalCurve,
     AverageProfile,
     BinaryChoice,
     KeepIf,
     MarginalEffects,
     ProfileCurves,
-    QuantileRegression,
     Recode,
     TableTarget,
     Tobit,
@@ -124,7 +127,7 @@ def _cell(table: str, column: str, row) -> str:
 _FUNCTIONS = {
     "log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min",
     "round": "round", "floor": "floor", "positive": "({0} > 0)",
-    "logistic": "invlogit", "normcdf": "normal", "normpdf": "normalden",
+    "logistic": "invlogit", "normcdf": "normal", "normpdf": "normalden", "sin": "sin", "cos": "cos",
     **{name: f"({{0}} {symbol} {{1}})" for name, symbol in E.COMPARISONS.items()},
 }
 _LINE_COLORS = ("16 124 137", "179 57 47", "47 158 107", "7 55 61")
@@ -158,6 +161,19 @@ def _command(text: str, limit: int = 130, width: int = 90) -> list[str]:
 
 def _scalar_name(prefix: str, model: str, term: str) -> str:
     return f"{prefix}_{model}_{_term(term)}"
+
+
+def _without_output(lines: list[str]) -> list[str]:
+    """Monte Carlo döngüsünde ekrana yazan komutları (ve ``///`` ile süren satırlarını) çıkarır."""
+
+    kept: list[str] = []
+    dropping = False
+    for line in lines:
+        if dropping or line.lstrip().startswith(_QUIET_PREFIXES):
+            dropping = line.rstrip().endswith("///")
+            continue
+        kept.append(line)
+    return kept
 
 
 def _without_repeated_restores(lines: list[str]) -> list[str]:
@@ -223,6 +239,14 @@ class StataGenerator(Generator):
                 "",
             ]
         return lines
+
+    def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
+        ops = flatten(operations)
+        layers = [layer for op in ops if isinstance(op, Plot) for layer in op.layers]
+        return SNP.helper_names(ops, layers)
+
+    def helper_code(self, name: str) -> list[str]:
+        return SNP.HELPERS[name] + [""] if name in SNP.HELPERS else []
 
     def _scalar_lines(self, name: str, expression: E.Expr) -> list[str]:
         """``scalar name = ifade``; ifade birden çok modelin katsayısını kullanabilir."""
@@ -335,14 +359,13 @@ class StataGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
-        limited = self._limited_operation(op)
-        if limited is not None:
-            if self.quiet:
-                limited = [line for line in limited if not line.lstrip().startswith(_QUIET_PREFIXES)]
-            return limited
-        lines = self._operation(op)
+        lines = SNP.operation(self, op, _command)
+        if lines is None:
+            lines = self._limited_operation(op)
+        if lines is None:
+            lines = self._operation(op)
         if self.quiet:
-            lines = [line for line in lines if not line.lstrip().startswith(_QUIET_PREFIXES)]
+            lines = _without_output(lines)
         return lines
 
     def _operation(self, op: Operation) -> list[str]:
@@ -578,15 +601,6 @@ class StataGenerator(Generator):
                 f"if _rc != 0 scalar {op.name}_sigma = sqrt(_b[/var(e.{op.outcome})])",
                 f'display "sigma: " %9.4f scalar({op.name}_sigma)',
             ]
-        if isinstance(op, QuantileRegression):
-            regressors = " ".join(op.regressors)
-            quantile = E.format_number(op.q)
-            return [
-                f"* Kantil regresyon, q = {quantile}" + (" (medyan / LAD)" if op.q == 0.5 else ""),
-                *_command(f"quietly qreg {op.outcome} {regressors}, quantile({quantile})"),
-                f"estimates store {op.name}",
-                f"estimates table {op.name}, keep({op.regressors[0]}) b(%9.4f)",
-            ]
         if isinstance(op, ProfileCurves):
             return self._profile_curves(op)
         if isinstance(op, TobitTargets):
@@ -663,53 +677,59 @@ class StataGenerator(Generator):
         return lines
 
     def _profile_curves(self, op: ProfileCurves) -> list[str]:
+        """x'β seçilmiş değerlerde ve ince ızgarada; ``matrix score`` her modelin kendi regresörlerini kullanır."""
+
         others = profile_others(op, self.models)
-        numbers = _numlist(op.values)
-        models = " ".join(model for model, _ in op.models)
-
-        def terms(variable_text: str) -> str:
-            dialect = E.Dialect(
-                variable=lambda name: variable_text if name == op.variable else name,
-                coefficient=lambda model, term: f"_b[{_term(term)}]",
-                functions=_FUNCTIONS,
-                power="^",
-            )
-            pieces = [f"_b[{op.variable}]*{variable_text}"]
-            pieces += [f"_b[{name}]*{E.render(expression, dialect)}" for name, expression in op.derived]
-            return " + ".join(pieces)
-
-        constant = " + ".join(["_b[_cons]"] + [f"_b[{name}]*scalar(ort_{name})" for name in others])
         low, high, count = op.plot_grid
-        step = E.format_number((high - low) / (int(count) - 1))
+        count = int(count)
+        step = E.format_number((high - low) / (count - 1))
+        first = len(op.values)
+        dialect = E.Dialect(
+            variable=lambda name: name,
+            coefficient=lambda model, term: f"_b[{_term(term)}]",
+            functions=_FUNCTIONS,
+            power="^",
+        )
         lines = [
             f"* Profil: {op.variable} ızgarasında x'β; türetilen terimler ızgaradan, diğer regresörler",
             "* örneklem ortalamasında. OLS/LAD'de x'β tahmin edilen ortalama/medyan, Tobit'te gizli ortalama.",
-            *_command(f"foreach v of varlist {' '.join(others)} {{"),
-            "    quietly summarize `v'",
-            "    scalar ort_`v' = r(mean)",
-            "}",
-            f"foreach m in {models} {{",
-            "    quietly estimates restore `m'",
-            *[f"    {line}" for line in _command(f"scalar sabit_`m' = {constant}")],
-            f"    foreach g of numlist {numbers} {{",
-            *[f"        {line}" for line in _command(f"scalar {op.result}_`m'_`g' = scalar(sabit_`m') + " + terms("`g'"))],
-            "    }",
-            "}",
-            f"foreach g of numlist {numbers} {{",
-            "    display %6.0f `g' " + " ".join(f"%9.2f scalar({op.result}_{model}_`g')" for model, _ in op.models),
-            "}",
-            "* Eğriler: ince ızgarada aynı hesap",
+        ]
+        if others:
+            lines += [
+                *_command(f"foreach v of varlist {' '.join(others)} {{"),
+                "    quietly summarize `v'",
+                "    scalar ort_`v' = r(mean)",
+                "}",
+            ]
+        for model, _ in op.models:
+            lines += [f"quietly estimates restore {model}", f"matrix b_{model} = e(b)"]
+        lines += [
+            f"* Geçici veri: ilk {first} satır seçilmiş değerler, sonraki {count} satır grafik ızgarası.",
+            "* matrix score her satırda x'β'yı modelin kendi katsayılarıyla hesaplar (equation(#1): ana denklem).",
             "preserve",
             "clear",
-            f"quietly set obs {int(count)}",
-            f"generate double {op.variable} = {E.format_number(low)} + (_n - 1)*{step}",
-            f"foreach m in {models} {{",
-            "    quietly estimates restore `m'",
-            *[f"    {line}" for line in _command(f"generate double egri_`m' = scalar(sabit_`m') + {terms(op.variable)}")],
-            "}",
+            f"quietly set obs {first + count}",
+            f"generate double {op.variable} = {E.format_number(low)} + (_n - {first + 1})*{step}",
         ]
+        for row, value in enumerate(op.values, start=1):
+            lines.append(f"quietly replace {op.variable} = {E.format_number(value)} in {row}")
+        for name, expression in op.derived:
+            lines.append(f"generate double {name} = {E.render(expression, dialect)}")
+        for name in others:
+            lines.append(f"generate double {name} = scalar(ort_{name})")
+        for model, _ in op.models:
+            lines.append(f"matrix score double egri_{model} = b_{model}, equation(#1)")
+        for model, _ in op.models:
+            for row, value in enumerate(op.values, start=1):
+                lines.append(f"scalar {op.result}_{model}_{table_row_text(value)} = egri_{model}[{row}]")
+        curves = " ".join(f"egri_{model}" for model, _ in op.models)
+        lines += [
+            f"format {curves} %9.2f",
+            f"list {op.variable} {curves} in 1/{first}, noobs abbreviate(16)",
+        ]
+        rows = f"in {first + 1}/{first + count}"
         layers = [
-            f'(line egri_{model} {op.variable}, lcolor("{color}") lwidth(medthick))'
+            f'(line egri_{model} {op.variable} {rows}, lcolor("{color}") lwidth(medthick))'
             for (model, _), color in zip(op.models, _LINE_COLORS)
         ]
         legend = " ".join(f'{index} "{label}"' for index, (_, label) in enumerate(op.models, start=1))
@@ -880,6 +900,7 @@ class StataGenerator(Generator):
             ]
         layers: list[str] = []
         legend: list[str] = []
+        created: list[str] = []
         for index, (layer, style) in enumerate(zip(op.layers, layer_styles(op.layers)), start=1):
             color = f'"{style.rgb}"'
             if isinstance(layer, MeanPoints):
@@ -909,16 +930,24 @@ class StataGenerator(Generator):
                 layers.append(
                     f"(function y = `{a}' + `{b}' * x, range({x}) lcolor({color}) lwidth(medthick){pattern})"
                 )
+            elif isinstance(layer, (LocalCurve, BinMeans)):
+                prepared, drawn, temporary = SNP.plot_layer(layer, index, x, color, style.dashed)
+                setup += prepared
+                layers.append(drawn)
+                created += temporary
             else:  # ZeroLine
                 layers.append(f"(function y = 0, range({x}) lcolor({color}) lpattern(dot))")
             legend.append(f'{index} "{layer.label}"')
         body = " ///\n       ".join(layers)
-        return setup + [
+        lines = setup + [
             f"twoway {body}, ///",
             f"       legend(order({' '.join(legend)}) cols(1) position(11) ring(0)) ///",
             f'       xtitle("{op.x_label}") ytitle("{op.y_label}") ///',
             f'       title("{op.title}", size(medium))',
         ]
+        if created:
+            lines += _command(f"drop {' '.join(created)}")
+        return lines
 
     # --- Notlarla karşılaştırma -----------------------------------------
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:

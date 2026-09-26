@@ -211,8 +211,8 @@ def test_generated_python_reproduces_the_app_exactly(experiment, monkeypatch) ->
 def test_generated_r_runs(experiment, tmp_path: Path) -> None:
     script = tmp_path / "deney.R"
     script.write_text(generator(experiment.spec(experiment.defaults()), "R").script(), encoding="utf-8")
-    result = subprocess.run(["Rscript", str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=600,
-                            env=dict(os.environ, LANG="C.UTF-8", LC_ALL="C.UTF-8"))
+    result = subprocess.run(["Rscript", str(script)], cwd=tmp_path, capture_output=True, encoding="utf-8",
+                            errors="replace", timeout=600, env=dict(os.environ, LANG="C.UTF-8", LC_ALL="C.UTF-8"))
     assert result.returncode == 0, result.stderr[-2000:]
 
 
@@ -254,6 +254,7 @@ def _ddk_like(rows: int = 40) -> pd.DataFrame:
         "totalscore": rng.normal(20, 5, rows), "std_mark": rng.normal(size=rows), "girl": rng.integers(0, 2, rows),
         "agetest": rng.normal(9, 1, rows), "sbm": rng.integers(0, 2, rows), "etpteacher": rng.integers(0, 2, rows),
         "lowstream": rng.integers(0, 2, rows), "SDstream_std_mark": rng.normal(size=rows),
+        "percentile": rng.uniform(0, 100, rows),
     })
 
 

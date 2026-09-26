@@ -147,9 +147,9 @@ def test_generated_python_is_valid_syntax() -> None:
 @needs_data
 def test_generated_python_reproduces_notes(tmp_path: Path) -> None:
     path = _prepared("Python", tmp_path)
-    environment = dict(os.environ, MPLBACKEND="Agg")
+    environment = dict(os.environ, MPLBACKEND="Agg", PYTHONIOENCODING="cp1254")  # Türkçe Windows kod sayfası
     result = subprocess.run(
-        [sys.executable, str(path)], cwd=tmp_path, capture_output=True, text=True,
+        [sys.executable, str(path)], cwd=tmp_path, capture_output=True, encoding="utf-8", errors="replace",
         timeout=600, env=environment,
     )
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
@@ -161,7 +161,7 @@ def test_generated_python_reproduces_notes(tmp_path: Path) -> None:
 def test_generated_r_reproduces_notes(tmp_path: Path) -> None:
     path = _prepared("R", tmp_path)
     result = subprocess.run(
-        ["Rscript", str(path)], cwd=tmp_path, capture_output=True, text=True, timeout=600,
+        ["Rscript", str(path)], cwd=tmp_path, capture_output=True, encoding="utf-8", errors="replace", timeout=600,
     )
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
     assert result.stdout.count("  OK   ") == CHECK_COUNT

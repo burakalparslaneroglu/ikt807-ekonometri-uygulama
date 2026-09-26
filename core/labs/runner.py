@@ -20,10 +20,19 @@ from scipy import stats
 
 from core.labs import expr as E
 from core.labs import limited as L
+from core.labs import quantreg as Q
+from core.labs import smoothing as S
 from core.labs.spec import (
     IV,
     OLS,
     VCOV_TYPES,
+    BandwidthCV,
+    BinMeans,
+    CoefficientProfile,
+    LocalCurve,
+    LocalLinear,
+    LocalResidual,
+    QuantileDifference,
     AverageProfile,
     BinaryChoice,
     KeepIf,
@@ -108,8 +117,9 @@ class LabState:
     scalars: dict[str, float] = field(default_factory=dict)
     plots: dict[str, object] = field(default_factory=dict)
     rngs: dict[str, np.random.Generator] = field(default_factory=dict)
-    samples: dict[str, tuple[int, int]] = field(default_factory=dict)
-    """``DropMissing`` / ``KeepIf`` sonrası (önceki, sonraki) gözlem sayısı, çerçeve adına göre."""
+    samples: dict[object, tuple[int, int]] = field(default_factory=dict)
+    """``DropMissing`` / ``KeepIf`` öncesi ve sonrası gözlem sayısı. Anahtar işlemin kendisidir: aynı veri
+    çerçevesinde art arda ``KeepIf`` ve ``DropMissing`` olabilir."""
     links: dict[str, str] = field(default_factory=dict)
     """Olasılık modellerinin bağlantısı (logit, probit; OLS için linear), model adına göre."""
 
@@ -321,6 +331,14 @@ def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
             data = grid.assign(deger=params[STATSMODELS_INTERCEPT] + params[op.x] * grid[op.x])
         elif isinstance(layer, ZeroLine):
             data = grid.assign(deger=0.0)
+        elif isinstance(layer, LocalCurve):
+            complete = frame[[op.x, layer.y]].dropna()
+            values = S.local_fit(complete[op.x], complete[layer.y], grid[op.x], layer.bandwidth, layer.degree)
+            data = grid.assign(deger=values)
+        elif isinstance(layer, BinMeans):
+            complete = frame[[op.x, layer.y]].dropna()
+            binned = S.binned_means(complete[op.x], complete[layer.y], layer.bins)
+            data = pd.DataFrame({op.x: binned["x"], "ortalama": binned["y"], "n": binned["n"]})
         else:
             raise TypeError(f"Tanınmayan grafik katmanı: {type(layer).__name__}")
         layers.append(PlotLayerData(layer, data))
@@ -593,7 +611,7 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         if missing:
             raise ValueError("Veride beklenen değişkenler yok: " + ", ".join(missing))
         kept = frame.dropna(subset=list(op.variables)).copy()
-        state.samples[op.frame] = (len(frame), len(kept))
+        state.samples[op] = (len(frame), len(kept))
         state.frames[op.frame] = kept
     elif isinstance(op, Derive):
         frame = state.frames[op.frame]
@@ -622,7 +640,7 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         keep = np.ones(len(frame), dtype=bool)
         for variable, operator, value in op.conditions:
             keep &= _compare(frame[variable].to_numpy(dtype=float), operator, value)
-        state.samples[op.frame] = (len(frame), int(keep.sum()))
+        state.samples[op] = (len(frame), int(keep.sum()))
         state.frames[op.frame] = frame[keep].copy()
     elif isinstance(op, Recode):
         frame = state.frames[op.frame]
@@ -643,7 +661,43 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
     elif isinstance(op, Tobit):
         state.models[op.name] = L.fit_tobit(op, state.frames[op.frame])
     elif isinstance(op, QuantileRegression):
-        state.models[op.name] = L.fit_quantile(op, state.frames[op.frame])
+        state.models[op.name] = Q.fit_quantile(op, state.frames[op.frame])
+    elif isinstance(op, QuantileDifference):
+        difference, standard_error = Q.quantile_difference(
+            state.models[op.low], state.models[op.high], statsmodels_term(op.term)
+        )
+        state.scalars[op.name] = difference
+        state.scalars[f"{op.name}_se"] = standard_error
+        state.scalars[f"{op.name}_z"] = difference / standard_error
+        state.scalars[f"{op.name}_p"] = normal_p_value(difference, standard_error)
+    elif isinstance(op, CoefficientProfile):
+        key = statsmodels_term(op.term)
+        rows = [
+            {"tau": tau, "katsayi": float(state.models[model].params[key]),
+             "sh": float(state.models[model].bse[key])}
+            for tau, model in op.models
+        ]
+        state.plots[f"kantil_profili:{op.term}"] = pd.DataFrame(rows)
+    elif isinstance(op, LocalLinear):
+        frame = state.frames[op.frame][[op.x, op.y]].dropna()
+        state.tables[op.result] = pd.DataFrame(
+            {column: S.local_linear(frame[op.x], frame[op.y], op.values, h) for column, h in op.bandwidths},
+            index=pd.Index(op.values, name=op.x),
+        )
+    elif isinstance(op, BandwidthCV):
+        used = [op.x, op.y] + ([op.cluster] if op.cluster else [])
+        frame = state.frames[op.frame][used].dropna()
+        grid = S.bandwidth_grid(*op.grid)
+        cluster = frame[op.cluster].to_numpy() if op.cluster else None
+        table = S.cv_curve(frame[op.x], frame[op.y], grid, cluster)
+        state.tables[op.result] = table
+        state.scalars[f"{op.name}_h"] = float(table["cv"].idxmin())
+        if op.cluster:
+            state.scalars[f"{op.name}_h_kume"] = float(table["cv_kume"].idxmin())
+        state.plots[f"cv:{op.result}"] = table
+    elif isinstance(op, LocalResidual):
+        frame = state.frames[op.frame]
+        frame[op.name] = S.local_residuals(frame[op.x], frame[op.variable], op.bandwidth)
     elif isinstance(op, ProfileCurves):
         frame = state.frames[op.frame]
         needed = list(dict.fromkeys(name for model, _ in op.models for name in state.models[model].params.index))

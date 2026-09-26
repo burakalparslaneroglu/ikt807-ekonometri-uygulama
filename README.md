@@ -11,7 +11,7 @@ Yeni yapıdaki her konu üç sekmeden oluşur:
 
 - **Kendini sına:** haftanın kavramlarını sınayan soru seti. Dört tür: çoktan seçmeli, doğru–yanlış, boşluk doldurma ve denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; yanlış cevaplara göre tekrar edilecek bölümler listelenir. Denklem sorularında yazılan formül anında önizlenir ve doğru cevaba eşdeğerliği sayısal olarak sınanır (`100(exp(b)-1)` ile `100*exp(b)-100` aynı kabul edilir).
 
-Yeni yapı şu an **Konu 1–6** için hazırdır:
+Yeni yapı şu an **Konu 1–8** için hazırdır:
 
 | Konu | Uygulama (notlardaki sayılar) | Sezgi deneyleri | Kendini sına |
 |---|---|---|---|
@@ -21,6 +21,8 @@ Yeni yapı şu an **Konu 1–6** için hazırdır:
 | 4 | §4.17, Card1995, 14 kontrol: OLS, ilk aşama, indirgenmiş biçim, 2SLS, ilk aşama F, Wald oranı, elle ikinci aşama | Wald oranı ve dışlama kısıtı; zayıf araç (Monte Carlo); LATE | 24 soru |
 | 5 | §5.15 ve §5.9 Tablo 5.1, CPS, 58 kontrol: LPM, Logit, Probit, AME (türev ve sonlu fark), ölçek çarpanı, yaş profili | LPM ve Logit; ölçek normalizasyonu; kukla değişkende türev ve sonlu fark | 24 soru |
 | 6 | §6.16, CHJ2004, 44 kontrol: veri zinciri, spline'lı OLS/LAD/Tobit profilleri, Tobit'in üç hedefi ve model kontrolü | sansürleme (Tablo 6.2); Heckman iki aşama (Tablo 6.3); dışlama kısıtı olmadan Heckman (Monte Carlo) | 24 soru |
+| 7 | §7.16, CPS, 45 kontrol: beş kantilde kesin kantil regresyon, Hendricks–Koenker SH, OLS karşılaştırması, katsayı profili, kantiller arası fark testi | konum ve ölçek: kantil doğruları; kalın kuyruklu hata: OLS ve LAD (Monte Carlo); kuyruk kantillerinde belirsizlik (Monte Carlo) | 24 soru |
+| 8 | §8.13, DDK2011, 18 kontrol: doğrusal model, birini-dışarıda-bırak ve okul-kümeli CV ile bant genişliği, kübik polinom, kübik spline, yerel doğrusal tahminler | bant genişliği ve yanlılık–varyans; sınırda Nadaraya–Watson ve yerel doğrusal; kısmen doğrusal model: doğrusal kontrol ve Robinson (Monte Carlo) | 24 soru |
 
 Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
 
@@ -28,16 +30,16 @@ Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod 
 
 | Sınıf | Yöntemler | Beklenti |
 |---|---|---|
-| Birebir aynı | OLS, HC1, Logit/Probit ve Tobit katsayıları, AME | Ondalık düzeyinde eşit |
-| Ayar sabitlenince aynı | Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), Logit/Probit dayanıklı SH (gözlenen Hessian'lı sandviç: Python `HC0`, R `dayanikli_vcov()`, Stata `vce(robust)`; Stata ayrıca n/(n−1) ile çarpar), LAD (çözüm tek olmayabilir; eğriler aynı), kantil regresyon SH, çekirdek bant genişliği, Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
+| Birebir aynı | OLS, HC1, Logit/Probit ve Tobit katsayıları, AME, kantil regresyon katsayıları (kesin çözüm tekse), yerel doğrusal tahmin ve CV ile seçilen bant genişliği | Ondalık düzeyinde eşit |
+| Ayar sabitlenince aynı | Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), Logit/Probit dayanıklı SH (gözlenen Hessian'lı sandviç: Python `HC0`, R `dayanikli_vcov()`, Stata `vce(robust)`; Stata ayrıca n/(n−1) ile çarpar), LAD (çözüm tek olmayabilir; eğriler aynı), kantil regresyon SH (Hendricks–Koenker: R `se = "nid"`; Python ve Stata'da kodda yazılı), Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
 | Yalnız dağılımda aynı | Bootstrap, çapraz doğrulama, DML bölmeleri | Diller farklı rastgele sayı üreteci kullanır |
 
 Her adım hangi sınıfta olduğunu arayüzde gösterir.
 
 ### Öğrenci tarafında yazılım
 
-- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`.
-- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS için `AER`.
+- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`; kantil regresyonun kesin çözümü için `scipy`.
+- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS ve Tobit için `AER`, kantil regresyon için `quantreg`.
 - **Stata:** 14 ve üstü. Konu 11–12'deki `lasso` ve çapraz uyarlamalı komutlar Stata 16 gerektirir.
 
 ## Teknik yapı

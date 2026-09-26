@@ -8,6 +8,7 @@ IKT807_HANSEN_CHJ2004_PATH.
 
 from __future__ import annotations
 
+import importlib
 import os
 import re
 import shutil
@@ -15,14 +16,34 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
-from core.codegen.base import LANGUAGES, render_script, render_step
-from core.hansen_data import load_from_upload
+from core.codegen.base import LANGUAGES, generator, render_script, render_step
+from core.hansen_data import DATASET_MEMBERS, load_from_upload
 from core.labs.registry import LABS
 from core.labs.runner import run_lab
 
 SPECS = list(LABS.values())
+
+
+def _experiments() -> list:
+    found = []
+    for number in range(1, 13):
+        try:
+            module = importlib.import_module(f"core.labs.sezgi_konu{number:02d}")
+        except ModuleNotFoundError:
+            continue
+        found.extend(getattr(module, f"KONU{number:02d}_EXPERIMENTS"))
+    return found
+
+
+EXPERIMENTS = _experiments()
+UTF8_OUTPUT = 'sys.stdout.reconfigure(encoding="utf-8")'
+STATA_SPECS = [spec for spec in SPECS if DATASET_MEMBERS[spec.dataset].lower().endswith(".dta")]
+STATA_INTEGER_TYPES = ((np.int8, -127, 100), (np.int16, -32767, 32740), (np.int32, -2147483647, 2147483620))
+"""Stata byte, int ve long türlerinin veri aralıkları (``compress`` bu sırayla en küçüğünü seçer)."""
 
 
 def _data_path(dataset: str) -> Path | None:
@@ -95,9 +116,58 @@ def test_app_reproduces_every_number_in_the_notes(spec) -> None:
     assert not failures, failures
 
 
-def _prepared(spec, language: str, folder: Path) -> Path:
+@pytest.mark.parametrize(
+    "spec", SPECS + [experiment.spec(experiment.defaults()) for experiment in EXPERIMENTS],
+    ids=lambda s: f"{s.topic_key}-{s.kind}-{s.title[:20]}",
+)
+def test_python_scripts_write_utf8_before_any_output(spec) -> None:
+    script = render_script(spec, "Python")
+    assert "import sys" in script.splitlines()
+    assert UTF8_OUTPUT in script
+    first_print = script.find("print(")
+    assert first_print == -1 or script.index(UTF8_OUTPUT) < first_print
+
+
+def test_utf8_output_setup_survives_a_turkish_windows_code_page(tmp_path: Path) -> None:
+    """Türkçe Windows'ta yönlendirilen çıktı cp1254'tür; τ, β̂, → bu kod sayfasında yoktur."""
+
+    text = "τ = 0,90; β̂; θ; ε; → ; Şış Ğğ İı"
+    setup = "\n".join(generator(SPECS[0], "Python").output_setup())
+    environment = dict(os.environ, PYTHONIOENCODING="cp1254")
+    for body, works in ((f"import sys\n{setup}\nprint({text!r})\n", True), (f"print({text!r})\n", False)):
+        path = tmp_path / "cikti.py"
+        path.write_text(body, encoding="utf-8")
+        result = subprocess.run([sys.executable, str(path)], capture_output=True, encoding="utf-8",
+                                errors="replace", timeout=60, env=environment)
+        assert (result.returncode == 0) is works, result.stderr[-500:]
+        if works:
+            assert result.stdout.strip() == text
+
+
+def _compressed_stata_copy(source: Path, folder: Path) -> Path:
+    """Stata ``compress`` gibi: tam sayı değerli, eksiksiz sütunları en küçük tamsayı türüyle yazar.
+
+    Hansen'in arşivindeki .dta dosyaları bu biçimde olabilir; pandas bu sütunları int8/int16/int32
+    okur ve üretilen kod küçük tamsayı türlerinde taşmaya karşı korunmalıdır.
+    """
+
+    frame = pd.read_stata(source, convert_categoricals=False)
+    for column in frame.columns:
+        values = frame[column]
+        if values.dtype.kind != "f" or values.isna().any() or not np.all(np.mod(values, 1) == 0):
+            continue
+        for dtype, low, high in STATA_INTEGER_TYPES:
+            if values.min() >= low and values.max() <= high:
+                frame[column] = values.astype(dtype)
+                break
+    target = folder / f"sikistirilmis_{source.name}"
+    frame.to_stata(target, write_index=False)
+    return target
+
+
+def _prepared(spec, language: str, folder: Path, data: Path | None = None) -> Path:
     script = render_script(spec, language)
-    local = str(_data(spec)).replace("\\", "/")
+    local = str(data or _data(spec)).replace("\\", "/")
     before, after = {"Python": ("YEREL_DOSYA = None", f'YEREL_DOSYA = "{local}"'),
                      "R": ("yerel_dosya <- NULL", f'yerel_dosya <- "{local}"')}[language]
     path = folder / f"{spec.topic_key}.{ {'Python': 'py', 'R': 'R'}[language] }"
@@ -108,8 +178,37 @@ def _prepared(spec, language: str, folder: Path) -> Path:
 @pytest.mark.parametrize("spec", SPECS, ids=lambda s: s.topic_key)
 def test_generated_python_reproduces_the_notes(spec, tmp_path: Path) -> None:
     path = _prepared(spec, "Python", tmp_path)
-    result = subprocess.run([sys.executable, str(path)], cwd=tmp_path, capture_output=True, text=True,
-                            timeout=900, env=dict(os.environ, MPLBACKEND="Agg"))
+    # PYTHONIOENCODING=cp1254: Türkçe Windows'ta dosyaya/boruya yönlendirilen çıktının kod sayfası. Betik
+    # çıktıyı UTF-8'e çevirdiği için τ, β̂ gibi karakterler bu ortamda da yazılabilmelidir.
+    result = subprocess.run([sys.executable, str(path)], cwd=tmp_path, capture_output=True, encoding="utf-8",
+                            errors="replace", timeout=900,
+                            env=dict(os.environ, MPLBACKEND="Agg", PYTHONIOENCODING="cp1254"))
+    assert result.returncode == 0, result.stdout[-1500:] + result.stderr[-1500:]
+    assert result.stdout.count("  OK   ") == _checks(spec)
+
+
+@pytest.mark.parametrize("spec", STATA_SPECS, ids=lambda s: s.topic_key)
+def test_app_and_python_are_robust_to_compressed_stata_storage(spec, tmp_path: Path) -> None:
+    """Tamsayıları byte/int/long olarak saklanmış .dta dosyasıyla da uygulama ve üretilen Python kodu
+    notlardaki sayıları vermeli.
+
+    Aksi hâlde örneğin int8 deneyim değişkeninin karesi uyarı vermeden taşar (12**2 = -112) ve bütün
+    katsayılar değişir; Card1995'te OLS eğitim katsayısı 0,0747 yerine 0,0753 çıkar.
+    """
+
+    source = _data(spec)
+    if source.suffix.lower() != ".dta":
+        pytest.skip("Yerel veri .dta değil.")
+    compressed = _compressed_stata_copy(source, tmp_path)
+    assert any(dtype.itemsize < 8 for dtype in pd.read_stata(compressed).dtypes if dtype.kind == "i")
+    loaded = load_from_upload(spec.dataset, compressed.read_bytes(), compressed.name)
+    run = run_lab(spec, {spec.dataset: loaded.frame})
+    failures = [f"{c.check.label}: {c.value}" for items in run.checks.values() for c in items if not c.passed]
+    assert not failures, failures
+    path = _prepared(spec, "Python", tmp_path, data=compressed)
+    result = subprocess.run([sys.executable, str(path)], cwd=tmp_path, capture_output=True, encoding="utf-8",
+                            errors="replace", timeout=900,
+                            env=dict(os.environ, MPLBACKEND="Agg", PYTHONIOENCODING="cp1254"))
     assert result.returncode == 0, result.stdout[-1500:] + result.stderr[-1500:]
     assert result.stdout.count("  OK   ") == _checks(spec)
 
@@ -118,7 +217,7 @@ def test_generated_python_reproduces_the_notes(spec, tmp_path: Path) -> None:
 @pytest.mark.parametrize("spec", SPECS, ids=lambda s: s.topic_key)
 def test_generated_r_reproduces_the_notes(spec, tmp_path: Path) -> None:
     path = _prepared(spec, "R", tmp_path)
-    result = subprocess.run(["Rscript", str(path)], cwd=tmp_path, capture_output=True, text=True, timeout=900,
-                            env=dict(os.environ, LANG="C.UTF-8", LC_ALL="C.UTF-8"))
+    result = subprocess.run(["Rscript", str(path)], cwd=tmp_path, capture_output=True, encoding="utf-8",
+                            errors="replace", timeout=900, env=dict(os.environ, LANG="C.UTF-8", LC_ALL="C.UTF-8"))
     assert result.returncode == 0, result.stdout[-1500:] + result.stderr[-1500:]
     assert result.stdout.count("  OK   ") == _checks(spec)

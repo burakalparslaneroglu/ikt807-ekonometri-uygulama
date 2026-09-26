@@ -38,17 +38,19 @@ Konu 01-12 sayısal sahipliği:
 - `core/labs/spec.py`: ders notu laboratuvar şeması (işlemler, notlardaki sayılar, tekrarlanabilirlik sınıfı).
 - `core/labs/expr.py`: türetilmiş değişkenler ve katsayı dönüşümleri için küçük ifade dili; pandas'ta değerlendirilir ve üç dile çevrilir.
 - `core/labs/runner.py`: laboratuvarı çalıştırır ve notlarla karşılaştırır. OLS statsmodels ile (üretilen Python koduyla aynı kütüphane), 2SLS linearmodels `IV2SLS(...).fit(cov_type="robust", debiased=True)` ile aynı formüllerle numpy üzerinde hesaplanır; eşitlik testle denetlenir. Tahmin örneklemi (eksik değerler, alt grup, küme değişkeni) açıkça kurulur.
-- `core/labs/limited.py`: sınırlı bağımlı değişken hesapları. Logit/Probit statsmodels ile (dayanıklı kovaryans: gözlenen Hessian'lı sandviç, `HC0`); ortalama marjinal etkiler (sürekli terimde türev, kategorik/kesikli terimde referansa göre fark, delta yöntemi SH); ortalama olasılık profili; Tobit (Olsen parametrelemesiyle Newton, R `AER::tobit` ile aynı çözüm); LAD (statsmodels `QuantReg`); ızgara profilleri ve Tobit'in üç hedefi. Monte Carlo için vektörleştirilmiş Logit/Probit Newton'u.
-- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1–6).
+- `core/labs/limited.py`: sınırlı bağımlı değişken hesapları. Logit/Probit statsmodels ile (dayanıklı kovaryans: gözlenen Hessian'lı sandviç, `HC0`); ortalama marjinal etkiler (sürekli terimde türev, kategorik/kesikli terimde referansa göre fark, delta yöntemi SH); ortalama olasılık profili; Tobit (Olsen parametrelemesiyle Newton, R `AER::tobit` ile aynı çözüm); ızgara profilleri ve Tobit'in üç hedefi. Monte Carlo için vektörleştirilmiş Logit/Probit Newton'u.
+- `core/labs/quantreg.py`: kantil regresyon ve LAD. Koenker'in dual doğrusal programı HiGHS (`scipy.optimize.linprog`) ile kesin çözülür; çözüm tekse R `quantreg::rq` (Barrodale–Roberts) ve Stata `qreg` ile aynı köşe çözümüdür. Standart hatalar Hendricks–Koenker sandviçidir (R `summary.rq(se = "nid")`; Hall–Sheather bant genişliği). İki kantil arasındaki katsayı farkı ortak asimptotik kovaryansla sınanır. HiGHS aynı süreçte eşzamanlı çağrılmaz: Windows'ta eşzamanlı çağrılar erişim ihlaline yol açabildiği için bütün çözümler süreç genelinde bir kilitle sıraya konur (ayrı Streamlit oturumları dahil).
+- `core/labs/smoothing.py`: Gauss çekirdekli yerel doğrusal ve yerel sabit (Nadaraya–Watson) tahmin (kapalı biçim), birini-dışarıda-bırak ve küme-silmeli çapraz doğrulama, kutu ortalamaları, Robinson artıklaştırması.
+- `core/labs/konuNN.py`: konu laboratuvarları (şu an Konu 1–8).
 - `core/labs/sezgi.py`: Sezgi deneylerinin şeması (soru, DGP, parametreler, ölçüler, yorum).
-- `core/labs/sezgi_konuNN.py`: konu deneyleri (Konu 1–6'da üçer deney).
+- `core/labs/sezgi_konuNN.py`: konu deneyleri (Konu 1–8'de üçer deney).
 - `topics/sim_ui.py`: Sezgi sekmesinin ortak arayüzü.
 - `core/quiz/model.py`: "Kendini sına" soru türleri ve notlandırma kuralları.
 - `core/quiz/expression.py`: öğrencinin yazdığı formülü güvenli okuma (eval yok; izinli sözdizimi ağacı), LaTeX önizleme ve sayısal eşdeğerlik.
-- `core/quiz/konuNN.py`: konu soru setleri (Konu 1: 25, Konu 2–6: 24'er soru).
+- `core/quiz/konuNN.py`: konu soru setleri (Konu 1: 25, Konu 2–8: 24'er soru).
 - `topics/quiz_ui.py`: "Kendini sına" sekmesinin arayüzü.
-- `core/codegen/`: Python, R ve Stata üreticileri.
-- `core/hansen_data.py`: Hansen veri arşivi indirme, arşivde dosya bulma (`.txt` ve `.dta`), yüklenen dosyayı doğrulama (cps09mar, DDK2011, Card1995, CHJ2004).
+- `core/codegen/`: Python, R ve Stata üreticileri. `python_np.py`, `r_np.py` ve `stata_np.py` kantil regresyon ve parametrik olmayan işlemleri üretir: Python'da `linprog` ile kesin çözüm ve kodda yazılı Hendricks–Koenker kovaryansı; R'de `quantreg::rq` ve `summary(se = "nid")`; Stata'da `qreg` ve kovaryansı `ereturn repost` ile yazan `hk_sh` programı. Yerel doğrusal tahmin ve CV Python'da NumPy, R'de matris işlemleri, Stata'da Mata ile aynı formüllerle yazılır. Tam Python betikleri içe aktarmalardan hemen sonra çıktıyı UTF-8'e çevirir: Windows'ta dosyaya ya da başka programa yönlendirilen çıktı yerel kod sayfasını (ör. cp1254) kullanır ve τ, β̂ gibi karakterleri yazamaz. Python kodu `.dta` dosyalarını uygulama gibi `convert_categoricals=False` ile okur ve tamsayı sütunları int64'e, float32 sütunları float64'e çevirir: Hansen'in dosyalarında tamsayılar byte/int/long olarak saklanabilir ve pandas'ın okuduğu int8 sütunda kare alma uyarısız taşar.
+- `core/hansen_data.py`: Hansen veri arşivi indirme, arşivde dosya bulma (`.txt` ve `.dta`), yüklenen dosyayı doğrulama (cps09mar, DDK2011, Card1995, CHJ2004; DDK2011'de Konu 8 için `percentile` sütunu gerekir).
 
 ## Uygulama laboratuvarı akışı
 
@@ -67,11 +69,11 @@ Terim adları dilden bağımsızdır: kategorik değişkenin bir düzeyi `race4=
 
 Bir Sezgi deneyi (`SimExperiment`), kaydırıcı değerlerinden işlem listesi üreten bir tanımdır. Simülasyon işlemleri (`NewSample`, `Draw`) Python'da `numpy.random.default_rng` ile uygulamayla aynı sırada çekiliş yapar; bu yüzden üretilen Python kodu uygulamadaki sayıların aynısını verir. R (`set.seed` + `rnorm`) ve Stata (`set seed` + `rnormal()`) aynı dağılımdan farklı çekiliş yapar; deneyler "yalnız dağılımda aynı" sınıfındadır.
 
-Grafikler katmanlardan kurulur (`MeanPoints`, `Scatter`, `Curve`, `ModelLine`, `ZeroLine`); katman renkleri `core/codegen/base.layer_styles` ile uygulamada ve üç dilde aynıdır.
+Grafikler katmanlardan kurulur (`MeanPoints`, `Scatter`, `Curve`, `ModelLine`, `ZeroLine`, `BinMeans`, `LocalCurve`); katman renkleri `core/codegen/base.layer_styles` ile uygulamada ve üç dilde aynıdır.
 
 `MonteCarlo` işlemi bir işlem bloğunu yeni çekilişlerle tekrarlar ve seçilen katsayı/standart hata ifadelerini bir tabloda toplar (isteğe bağlı olarak güven aralığı kapsama oranı). Rastgele sayı üreteci döngüden önce bir kez tohumlanır; Python kodu uygulamayla aynı çekiliş sırasını izler. Uygulama, blok yalnız normal çekiliş, türetme, OLS (alt örneklemli dahil), 2SLS, kategoriksiz Logit/Probit ve doğrusal indeks içeriyorsa tekrarları vektörleştirerek toplu hesaplar (aynı bit akışı, aynı formüller; döngüyle eşitliği testle denetlenir); öğrenci kodu okunaklı döngü olarak kalır. Stata sonuçları `postfile` ile geçici dosyada (`tempfile`) toplar; do-dosyası bitince dosya silinir. `Histogram` sonuç tablosundaki sütunların dağılımını aynı kutularla üç dilde çizer.
 
-Konu 1–6 yeni yapıya taşındığı için `core/code_recipes.py` içindeki konu01–konu06 tarifleri arayüzde kullanılmaz; diğer konular taşınınca kaldırılacaktır.
+Konu 1–8 yeni yapıya taşındığı için `core/code_recipes.py` içindeki konu01–konu08 tarifleri arayüzde kullanılmaz; diğer konular taşınınca kaldırılacaktır.
 
 ## Registry akışı
 
@@ -96,14 +98,14 @@ Konu değiştiğinde `core/session_utils.py` önceki konunun soru indeksini ve c
 - Konu 01-02 AppTest: mekanizma uyarısı, veri modu, çıkarım seçimi, fonksiyonel biçim ve etkili gözlem state'i.
 - Konu 03-04: Uygulama/Sezgi/Kendini sına sekmeleri, deneylerin ekonometrik doğruluğu (seçim ayrıştırması, zayıflama, olasılık limiti, Wald = 2SLS, zayıf araç kapsaması, LATE), numpy 2SLS ile linearmodels eşitliği, `.dta` okuma.
 - Konu 05-06: Uygulama/Sezgi/Kendini sına sekmeleri; AME'nin statsmodels ile, Tobit'in R `AER::tobit` çözümüyle eşitliği; Probit dayanıklı kovaryansının gözlenen Hessian'lı sandviç olması; Sezgi varsayılanlarının notlardaki Tablo 6.2 ve 6.3'ü birebir üretmesi; dışlama kısıtı olmadan Heckman varyansı; Heckman Monte Carlo'sunun vektörleştirilmiş yolla döngünün eşitliği.
-- Konu 07-08 AppTest: kantil hedefi, kernel/bandwidth state'i ve CPS/DDK lisans kapıları.
+- Konu 07-08: Uygulama/Sezgi/Kendini sına sekmeleri; kesin kantil çözümünün, Hendricks–Koenker standart hatalarının ve kantil farkı testinin R `quantreg` ile eşitliği; LP çözümünün alt-gradyan koşulu; yerel doğrusal tahminin ağırlıklı EKK sabit terimi olması ve CV'nin kaba kuvvet hesapla eşitliği; Sezgi deneylerinin kuramsal değerleri (kuyruk kantili SH oranı, kalın kuyrukta LAD'ın OLS'e üstünlüğü, sınırda Nadaraya–Watson yanlılığı, doğrusal kontrolün yanlılığı ve Robinson).
 - Konu 09-10 AppTest: RDD yönü, manipülasyon/ilk aşama uyarıları, bootstrap yöntemi, örnekleme birimi ve LM/CPS lisans kapıları.
 - Konu 11-12 AppTest: lambda seçim kuralı, kat-içi ölçekleme, CPS/DDK lisans kapıları, OOF cross-fitting ve araştırma akışı state'i.
 - Kod tarifi testi: 12 konunun dört bölümünü kapsayan 48 Python betiğinin derlenmesi ve dış veri olmadan çalışması; Colab JSON sözleşmesi.
 
 ## Öğrenci kodu akışı
 
-Her konu sekmesi `render_reproduction_code` ile merkezi tarif kaydına bağlanır. Python çıktısı sabit rastgelelik tohumu, veri hazırlama, tahmin ve raporlama adımlarını içerir. Colab çıktısı aynı kodu ve açık paket kurulum hücresini taşır. Gerçek CPS/DDK dosyaları yalnız öğrenci tarafından sağlanır; yokluğunda kontrollü öğretim örneği kullanılır.
+Henüz taşınmamış konular (Konu 9–12) `render_reproduction_code` ile merkezi tarif kaydına bağlanır. Python çıktısı sabit rastgelelik tohumu, veri hazırlama, tahmin ve raporlama adımlarını içerir. Colab çıktısı aynı kodu ve açık paket kurulum hücresini taşır. Gerçek CPS/DDK dosyaları yalnız öğrenci tarafından sağlanır; yokluğunda kontrollü öğretim örneği kullanılır.
 
 ## Veri yayınlama kapısı
 
@@ -124,5 +126,7 @@ sayısal karşılaştırmayla sınanır.
 
 `tests/test_all_labs.py` ve `tests/test_all_quizzes.py` kayıtlı bütün laboratuvar ve soru setlerini
 kendiliğinden kapsar: adım numaralandırması, üç dilde kod üretimi, Stata kuralları, notlardaki sayıların
-uygulamada ve üretilen Python/R kodunda yeniden üretilmesi, soru setinde kavram tekilliği, bölüm kapsamı,
+uygulamada ve üretilen Python/R kodunda yeniden üretilmesi (Python betikleri Türkçe Windows kod sayfası
+`PYTHONIOENCODING=cp1254` altında çalıştırılır; `.dta` verili konularda uygulama ve Python kodu, tamsayıları
+Stata `compress` gibi en küçük türde saklanmış bir kopyayla da sınanır), soru setinde kavram tekilliği, bölüm kapsamı,
 cevap anahtarı dengesi. Yeni bir konu kayda eklendiğinde ayrıca test yazmadan bu sözleşmelere tabidir.

@@ -14,11 +14,19 @@ from core.codegen.base import (
     link_of,
     profile_others,
 )
+from core.codegen import python_np as NP
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    BandwidthCV,
+    BinMeans,
+    CoefficientProfile,
+    LocalCurve,
+    LocalLinear,
+    LocalResidual,
+    QuantileDifference,
     AverageProfile,
     BinaryChoice,
     KeepIf,
@@ -72,10 +80,24 @@ _FUNCTIONS = {
     "minimum": "np.minimum", "round": "np.rint", "floor": "np.floor",
     "positive": "np.where({0} > 0, 1.0, 0.0)",
     "logistic": "expit", "normcdf": "stats.norm.cdf", "normpdf": "stats.norm.pdf",
+    "sin": "np.sin", "cos": "np.cos",
     **{name: f"np.where({{0}} {symbol} {{1}}, 1.0, 0.0)" for name, symbol in E.COMPARISONS.items()},
 }
 _LINK_NAMES = {"logit": "Logit", "probit": "Probit"}
 _REFERENCE_STYLES = (("#07373D", '"--"'), ("#6B4C9A", '":"'))
+
+
+STATA_NUMERIC_TYPES = (
+    "# Stata sayıları byte/int/long/float türlerinde saklayabilir; pandas bunları",
+    "# int8/int16/int32/float32 okur. Küçük tamsayılar kare gibi işlemlerde uyarı",
+    "# vermeden taşar (int8'de 12**2 = -112), float32 hassasiyet kaybettirir.",
+    "# Bu yüzden tamsayılar int64'e, float32 sütunlar float64'e çevrilir.",
+    'tamsayi = veri.select_dtypes("integer").columns',
+    'veri[tamsayi] = veri[tamsayi].astype("int64")',
+    'kisa = veri.select_dtypes("float32").columns',
+    'veri[kisa] = veri[kisa].astype("float64")',
+)
+"""Üretilen koddaki .dta okuyucusunun sayı türü düzeltmesi (uygulama da hesabı float64 ile yapar)."""
 
 
 def _term(term: str) -> str:
@@ -294,27 +316,34 @@ class PythonGenerator(Generator):
         return term if self.is_effects(model) else _term(term)
 
     # --- Başlık ve yardımcılar ------------------------------------------
-    def imports(self, operations: tuple[Operation, ...]) -> list[str]:
+    def imports(self, operations: tuple[Operation, ...], *, script: bool = False) -> list[str]:
         ops = flatten(operations)
         functions = functions_used(operations)
         lines: list[str] = []
+        standard = ["import sys"] if script else []
         if any(isinstance(op, LoadHansen) for op in ops):
-            lines += ["import io", "import urllib.request", "import zipfile", ""]
-        if any(isinstance(op, (GroupMeanPlot, ProjectionPlot, Plot, Histogram, AverageProfile, ProfileCurves))
+            standard += ["import io", "import urllib.request", "import zipfile"]
+        if standard:
+            lines += sorted(standard) + [""]
+        if any(isinstance(op, (GroupMeanPlot, ProjectionPlot, Plot, Histogram, AverageProfile, ProfileCurves,
+                               CoefficientProfile, BandwidthCV))
                for op in ops):
             lines.append("import matplotlib.pyplot as plt")
         lines.append("import numpy as np")
         lines.append("import pandas as pd")
-        if any(isinstance(op, (OLS, BinaryChoice, QuantileRegression)) for op in ops):
+        if any(isinstance(op, (OLS, BinaryChoice)) for op in ops):
             lines.append("import statsmodels.formula.api as smf")
         if any(isinstance(op, IV) for op in ops):
             lines.append("from linearmodels.iv import IV2SLS")
         needs_stats = (
-            any(isinstance(op, (EffectTable, MarginalEffects, Tobit, TobitTargets, TobitFitCheck)) for op in ops)
+            any(isinstance(op, (EffectTable, MarginalEffects, Tobit, TobitTargets, TobitFitCheck, QuantileRegression,
+                                QuantileDifference)) for op in ops)
             or self.p_checks or bool(functions & {"normcdf", "normpdf"})
         )
         if needs_stats:
             lines.append("from scipy import stats")
+        if any(isinstance(op, QuantileRegression) for op in ops):
+            lines.append("from scipy.optimize import linprog")
         if "logistic" in functions or any(isinstance(op, MarginalEffects) for op in ops):
             lines.append("from scipy.special import expit")
         if any(isinstance(op, RegressionTable) for op in ops):
@@ -323,6 +352,15 @@ class PythonGenerator(Generator):
             lines.append("from statsmodels.stats.diagnostic import het_breuschpagan")
         lines.append("")
         return lines
+
+    def output_setup(self) -> list[str]:
+        return [
+            "# Windows'ta çıktı bir dosyaya ya da başka bir programa yönlendirildiğinde Python yerel kod",
+            "# sayfasını (ör. cp1254) kullanır ve τ, β̂ gibi karakterleri yazamaz; çıktı UTF-8 olsun.",
+            'if hasattr(sys.stdout, "reconfigure"):',
+            '    sys.stdout.reconfigure(encoding="utf-8")',
+            "",
+        ]
 
     def _loader_text(self) -> list[str]:
         return [
@@ -334,7 +372,9 @@ class PythonGenerator(Generator):
             '    """',
             "    if yerel_dosya:",
             '        if str(yerel_dosya).lower().endswith(".dta"):',
-            "            return pd.read_stata(yerel_dosya)",
+            "            veri = pd.read_stata(yerel_dosya, convert_categoricals=False)",
+            *["            " + line for line in STATA_NUMERIC_TYPES],
+            "            return veri",
             '        return pd.read_csv(yerel_dosya, sep=r"\\s+", header=None, names=sutunlar)',
             '    istek = urllib.request.Request(HANSEN_ARSIV, headers={"User-Agent": "Mozilla/5.0"})',
             "    with urllib.request.urlopen(istek, timeout=300) as yanit:",
@@ -352,13 +392,13 @@ class PythonGenerator(Generator):
             '    """Hansen\'in veri arşivinden bir Stata (.dta) dosyasını okur.',
             "",
             "    Değişken adları dosyada kayıtlıdır; Python, R ve Stata'da aynı olsun diye",
-            "    küçük harfe çevrilir. Yerel dosya olarak ders notlarının öğretim CSV'si de",
-            "    verilebilir.",
+            "    küçük harfe çevrilir. Değer etiketleri kategoriye dönüştürülmez. Yerel dosya",
+            "    olarak ders notlarının öğretim CSV'si de verilebilir.",
             '    """',
             '    if yerel_dosya and str(yerel_dosya).lower().endswith(".csv"):',
             "        veri = pd.read_csv(yerel_dosya)",
             "    elif yerel_dosya:",
-            "        veri = pd.read_stata(yerel_dosya)",
+            "        veri = pd.read_stata(yerel_dosya, convert_categoricals=False)",
             "    else:",
             '        istek = urllib.request.Request(HANSEN_ARSIV, headers={"User-Agent": "Mozilla/5.0"})',
             "        with urllib.request.urlopen(istek, timeout=300) as yanit:",
@@ -366,8 +406,9 @@ class PythonGenerator(Generator):
             '        adlar = [ad for ad in arsiv.namelist() if ad.lower().split("/")[-1] == dosya_adi.lower()]',
             "        if not adlar:",
             '            raise FileNotFoundError(f"{dosya_adi} Hansen arşivinde bulunamadı.")',
-            "        veri = pd.read_stata(io.BytesIO(arsiv.read(adlar[0])))",
+            "        veri = pd.read_stata(io.BytesIO(arsiv.read(adlar[0])), convert_categoricals=False)",
             "    veri.columns = [ad.lower() for ad in veri.columns]",
+            *["    " + line for line in STATA_NUMERIC_TYPES],
             "    return veri",
         ]
 
@@ -404,19 +445,37 @@ class PythonGenerator(Generator):
 
     def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
         ops = flatten(operations)
+        layers = [layer for op in ops if isinstance(op, Plot) for layer in op.layers]
         names: list[str] = []
         if any(isinstance(op, MarginalEffects) for op in ops):
             names.append("marjinal_etkiler")
         if any(isinstance(op, Tobit) for op in ops):
             names.append("tobit")
+        if any(isinstance(op, QuantileRegression) for op in ops):
+            names.append("kantil")
+        if any(isinstance(op, QuantileDifference) for op in ops):
+            names.append("kantil_farki")
+        if any(isinstance(op, (LocalLinear, LocalResidual)) for op in ops) or any(
+            isinstance(layer, LocalCurve) for layer in layers
+        ):
+            names.append("yerel")
+        if any(isinstance(op, BandwidthCV) for op in ops):
+            names.append("cv")
+        if any(isinstance(layer, BinMeans) for layer in layers):
+            names.append("aralik")
         return names
 
     def helper_code(self, name: str) -> list[str]:
-        if name == "marjinal_etkiler":
-            return _MARGINAL_EFFECTS_HELPER + ["", ""]
-        if name == "tobit":
-            return _TOBIT_HELPER + ["", ""]
-        return []
+        texts = {
+            "marjinal_etkiler": _MARGINAL_EFFECTS_HELPER,
+            "tobit": _TOBIT_HELPER,
+            "kantil": NP.QUANTILE_HELPER,
+            "kantil_farki": NP.DIFFERENCE_HELPER,
+            "yerel": NP.LOCAL_HELPER,
+            "cv": NP.CV_HELPER,
+            "aralik": NP.BINS_HELPER,
+        }
+        return texts[name] + ["", ""] if name in texts else []
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
@@ -426,6 +485,9 @@ class PythonGenerator(Generator):
         return lines
 
     def _operation(self, op: Operation) -> list[str]:
+        nonparametric = NP.operation(self, op)
+        if nonparametric is not None:
+            return nonparametric
         limited = self._limited_operation(op)
         if limited is not None:
             return limited
@@ -679,14 +741,6 @@ class PythonGenerator(Generator):
                 'tasarim.insert(0, "Intercept", 1.0)',
                 f'{op.name} = tobit_mle({op.frame}["{op.outcome}"], tasarim, sol={E.format_number(op.left)})',
                 f'print({op.name}.params[{self._shown(op)}].round(4), "sigma:", round({op.name}.sigma, 4))',
-            ]
-        if isinstance(op, QuantileRegression):
-            formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
-            fit = f".fit(q={E.format_number(op.q)}, max_iter=5000)"
-            return [
-                f"# Kantil regresyon, q = {E.format_number(op.q)}" + (" (medyan / LAD)" if op.q == 0.5 else ""),
-                *_fit_call(op.name, "smf.quantreg", formula, op.frame, fit),
-                f"print({op.name}.params[{self._shown(op)}].round(4))",
             ]
         if isinstance(op, ProfileCurves):
             return self._profile_curves(op)
@@ -962,6 +1016,21 @@ class PythonGenerator(Generator):
                 lines.append(
                     f'ax.axhline(0, color="{style.color}", linewidth=1, linestyle=":", label="{layer.label}")'
                 )
+            elif isinstance(layer, LocalCurve):
+                pattern = ', linestyle="--"' if style.dashed else ""
+                degree = "" if layer.degree == 1 else f", derece={layer.degree}"
+                lines += [
+                    f'ax.plot(izgara, yerel_dogrusal({frame}["{x}"], {frame}["{layer.y}"], izgara, '
+                    f'{E.format_number(layer.bandwidth)}{degree}),',
+                    f'        color="{style.color}", linewidth=2{pattern}, label="{layer.label}")',
+                ]
+            elif isinstance(layer, BinMeans):
+                name = f"aralik_{layer.y}"
+                lines += [
+                    f'{name} = aralik_ortalamalari({frame}["{x}"], {frame}["{layer.y}"], {layer.bins})',
+                    f'ax.scatter({name}["x"], {name}["y"], s=28, color="{style.color}", zorder=3,',
+                    f'           label="{layer.label}")',
+                ]
         lines += [
             f'ax.set_xlabel("{op.x_label}")',
             f'ax.set_ylabel("{op.y_label}")',

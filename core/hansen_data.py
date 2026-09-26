@@ -43,6 +43,7 @@ CPS09MAR_ROWS = 50742
 
 DDK2011_REQUIRED = (
     "totalscore", "tracking", "schoolid", "std_mark", "girl", "agetest", "sbm", "etpteacher", "lowstream",
+    "percentile",
 )
 CARD1995_REQUIRED = (
     "lwage76", "ed76", "nearc4", "age76", "black", "smsa76r", "reg76r", "smsa66r",

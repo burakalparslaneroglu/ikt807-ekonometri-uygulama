@@ -116,8 +116,8 @@ def test_generated_r_runs(experiment, tmp_path: Path) -> None:
     script = tmp_path / "deney.R"
     script.write_text(generator(experiment.spec(experiment.defaults()), "R").script(), encoding="utf-8")
     environment = dict(os.environ, LANG="C.UTF-8", LC_ALL="C.UTF-8")
-    result = subprocess.run(["Rscript", str(script)], cwd=tmp_path, capture_output=True, text=True,
-                            timeout=300, env=environment)
+    result = subprocess.run(["Rscript", str(script)], cwd=tmp_path, capture_output=True, encoding="utf-8",
+                            errors="replace", timeout=300, env=environment)
     assert result.returncode == 0, result.stderr[-2000:]
 
 

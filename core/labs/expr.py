@@ -65,7 +65,7 @@ COMPARISONS = {"le": "<=", "lt": "<", "ge": ">=", "gt": ">", "eq": "==", "ne": "
 """Karşılaştırma fonksiyonları: koşul sağlanırsa 1, değilse 0 (gösterge değişkeni)."""
 FUNCTIONS = (
     "log", "exp", "sqrt", "maximum", "minimum", "round", "floor", "positive",
-    "logistic", "normcdf", "normpdf", *COMPARISONS,
+    "logistic", "normcdf", "normpdf", "sin", "cos", *COMPARISONS,
 )
 _BINARY_FUNCTIONS = ("maximum", "minimum", *COMPARISONS)
 _PRECEDENCE = {"+": 1, "-": 1, "*": 2, "/": 2, "^": 3}
@@ -118,6 +118,16 @@ def exp(a) -> Call:
 
 def maximum(a, b) -> Call:
     return Call("maximum", (_wrap(a), _wrap(b)))
+
+
+def sin(a) -> Call:
+    """Sinüs (radyan): simülasyonlarda bilinen doğrusal olmayan koşullu ortalama için."""
+
+    return Call("sin", (_wrap(a),))
+
+
+def cos(a) -> Call:
+    return Call("cos", (_wrap(a),))
 
 
 def minimum(a, b) -> Call:
@@ -271,6 +281,10 @@ def evaluate(
             return stats.norm.cdf(values[0])
         if expr.fn == "normpdf":
             return stats.norm.pdf(values[0])
+        if expr.fn == "sin":
+            return np.sin(values[0])
+        if expr.fn == "cos":
+            return np.cos(values[0])
         if expr.fn in COMPARISONS:
             left, right = np.asarray(values[0]), np.asarray(values[1])
             outcome = {

@@ -36,6 +36,11 @@ from core.labs.runner import LabRun, run_lab, statsmodels_term
 from core.labs.spec import (
     IV,
     OLS,
+    BandwidthCV,
+    CoefficientProfile,
+    LocalLinear,
+    Plot,
+    QuantileDifference,
     AverageProfile,
     BinaryChoice,
     KeepIf,
@@ -440,15 +445,20 @@ def _profile_plot(op: AverageProfile, data: pd.DataFrame) -> None:
     show_figure(figure)
 
 
-def _curves(spec: LabSpec, op: ProfileCurves, state) -> None:
+def _curves(spec: LabSpec, op: ProfileCurves, state, plot: bool = True) -> None:
     table = state.tables[op.result].reset_index()
     labels = dict(op.models)
     table.columns = [op.x_label] + [labels[column] for column in table.columns[1:]]
-    st.markdown("**Seçilmiş düzeylerde tahmin (kontroller örneklem ortalamasında)**")
+    profile_terms = {"Intercept", op.variable, *(name for name, _ in op.derived)}
+    has_controls = any(set(state.models[model].params.index) - profile_terms for model, _ in op.models)
+    note = " (kontroller örneklem ortalamasında)" if has_controls else ""
+    st.markdown(f"**Seçilmiş düzeylerde tahmin**{note}")
     st.dataframe(
         table.style.format({column: "{:.2f}" for column in table.columns[1:]} | {op.x_label: "{:.0f}"}),
         hide_index=True, width="stretch",
     )
+    if not plot:
+        return
     data = state.plots[f"egriler:{op.result}"]
     figure = go.Figure()
     for index, (model, label) in enumerate(op.models):
@@ -463,12 +473,102 @@ def _curves(spec: LabSpec, op: ProfileCurves, state) -> None:
     show_figure(figure)
 
 
+def _decimal(value: float, decimals: int = 1) -> str:
+    return f"{value:.{decimals}f}".replace(".", ",")
+
+
+def _quantile_profile(spec: LabSpec, op: CoefficientProfile, state) -> None:
+    """Katsayının kantil profili, noktasal %95 güven bandı ve (varsa) OLS referans çizgisi."""
+
+    data = state.plots[f"kantil_profili:{op.term}"]
+    tau = data["tau"].to_numpy()
+    low = (data["katsayi"] - 1.96 * data["sh"]).to_numpy()
+    high = (data["katsayi"] + 1.96 * data["sh"]).to_numpy()
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=np.concatenate([tau, tau[::-1]]), y=np.concatenate([high, low[::-1]]), fill="toself",
+            fillcolor="rgba(16, 124, 137, 0.18)", line={"width": 0}, name="%95 güven bandı", hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=tau, y=data["katsayi"], mode="lines+markers", name="Kantil regresyon",
+            line={"color": _COLORS[0], "width": 3}, customdata=data[["sh"]],
+            hovertemplate="τ = %{x:.2f}<br>katsayı = %{y:.4f}<br>SH = %{customdata[0]:.4f}<extra></extra>",
+        )
+    )
+    if op.reference:
+        value = float(state.models[op.reference].params[statsmodels_term(op.term)])
+        figure.add_trace(
+            go.Scatter(
+                x=[tau.min(), tau.max()], y=[value, value], mode="lines", name=op.reference_label,
+                line={"color": _COLORS[1], "width": 2, "dash": "dash"},
+                hovertemplate=f"{op.reference_label}: %{{y:.4f}}<extra></extra>",
+            )
+        )
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
+    show_figure(figure)
+
+
+def _quantile_difference(op: QuantileDifference, state) -> None:
+    value, se = state.scalars[op.name], state.scalars[f"{op.name}_se"]
+    st.markdown(f"**{op.comment}**")
+    first, second, third, fourth = st.columns(4)
+    first.metric("Fark", _number(value))
+    second.metric("SH (ortak kovaryans)", _number(se))
+    third.metric("z", _number(state.scalars[f"{op.name}_z"], 2))
+    fourth.metric("p-değeri", _p_text(state.scalars[f"{op.name}_p"]))
+
+
+def _local_linear(spec: LabSpec, op: LocalLinear, state) -> None:
+    table = state.tables[op.result].reset_index()
+    labels = {column: f"Yerel doğrusal, h = {_decimal(h)}" for column, h in op.bandwidths}
+    x_label = spec.label(op.x)
+    table.columns = [x_label] + [labels[column] for column in table.columns[1:]]
+    st.markdown("**Yerel doğrusal tahmin, seçilmiş noktalarda** (Gauss çekirdeği; h çekirdeğin standart sapması)")
+    st.dataframe(
+        table.style.format({column: "{:.2f}" for column in table.columns[1:]} | {x_label: "{:g}"}),
+        hide_index=True, width="stretch",
+    )
+
+
+def render_bandwidth_cv(op: BandwidthCV, state, metrics: bool = True) -> None:
+    """CV(h) − en küçük CV eğrileri ve seçilen h; ``metrics=False`` iken yalnız grafik (Sezgi'de ölçüler ayrı)."""
+
+    table = state.tables[op.result]
+    step = op.grid[2]
+    decimals = 1 if float(round(step * 10, 9)).is_integer() else 2
+    chosen = state.scalars[f"{op.name}_h"]
+    series = [("cv", "Birini dışarıda bırak", _COLORS[0], chosen)]
+    if op.cluster:
+        series.append(("cv_kume", "Küme-silmeli", _COLORS[1], state.scalars[f"{op.name}_h_kume"]))
+    if metrics:
+        columns = st.columns(len(series))
+        titles = {"cv": "Birini dışarıda bırakan CV ile h", "cv_kume": "Küme-silmeli CV ile h"}
+        for column, (name, _, _, selected) in zip(columns, series):
+            column.metric(titles[name], _decimal(selected, decimals))
+    figure = go.Figure()
+    for column, label, color, selected in series:
+        values = table[column] - table[column].min()
+        figure.add_trace(
+            go.Scatter(
+                x=table.index, y=values, mode="lines", name=label, line={"color": color, "width": 3},
+                hovertemplate="h = %{x:.1f}<br>CV − en küçük = %{y:.4f}<extra>" + label + "</extra>",
+            )
+        )
+        figure.add_vline(x=selected, line={"color": color, "dash": "dot", "width": 1.5})
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title="CV(h) − en küçük CV", legend_title="")
+    show_figure(figure)
+
+
 def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     state = run.state
     has_table = any(isinstance(op, (RegressionTable, EffectTable)) for op in step.operations)
+    has_plot = any(isinstance(op, Plot) for op in step.operations)
     for op in step.operations:
         if isinstance(op, DropMissing):
-            before, after = state.samples[op.frame]
+            before, after = state.samples[op]
             st.markdown(
                 f"**Analiz örneklemi:** N = {_count(after)} "
                 f"(yüklenen veride {_count(before)} gözlem; eksik değeri olan {_count(before - after)} gözlem çıkarıldı)"
@@ -509,7 +609,7 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             )
             st.caption(_fit_caption(result))
         elif isinstance(op, KeepIf):
-            before, after = state.samples[op.frame]
+            before, after = state.samples[op]
             st.markdown(
                 f"**Analiz örneklemi:** N = {_count(after)} "
                 f"(yüklenen veride {_count(before)} gözlem; koşulu sağlamayan {_count(before - after)} gözlem çıkarıldı)"
@@ -523,12 +623,24 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             _compact_binary(spec, op, state.models[op.name])
         elif isinstance(op, Tobit):
             _compact_tobit(spec, op, state.models[op.name])
-        elif isinstance(op, QuantileRegression):
+        elif isinstance(op, QuantileRegression) and not has_table:
             result = state.models[op.name]
             st.markdown(
                 f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {len(op.regressors)} regresör · "
-                f"q = {_number(op.q, 2)} · N = {_count(result.nobs)}"
+                f"τ = {_number(op.q, 2)} · N = {_count(result.nobs)}"
             )
+        elif isinstance(op, QuantileDifference):
+            _quantile_difference(op, state)
+        elif isinstance(op, CoefficientProfile):
+            _quantile_profile(spec, op, state)
+        elif isinstance(op, LocalLinear):
+            _local_linear(spec, op, state)
+        elif isinstance(op, BandwidthCV):
+            render_bandwidth_cv(op, state)
+        elif isinstance(op, Plot):
+            from topics.sim_ui import layered_figure
+
+            show_figure(layered_figure(op, state.plots[f"grafik:{op.title}"]))
         elif isinstance(op, Summaries):
             table = state.tables[op.result]
             shown = pd.DataFrame({"": table.index, "Değer": [_summary_number(v) for v in table["Değer"]]})
@@ -536,7 +648,7 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
         elif isinstance(op, AverageProfile):
             _profile_plot(op, state.plots[f"profil:{op.name}"])
         elif isinstance(op, ProfileCurves):
-            _curves(spec, op, state)
+            _curves(spec, op, state, plot=not has_plot)
         elif isinstance(op, TobitTargets):
             table = state.tables[op.result].reset_index()
             table.columns = [spec.label(table.columns[0]), "Gizli ortalama m*(x)", "P(Y>0|x)",

@@ -1,9 +1,10 @@
 """Sınırlı bağımlı değişken tahmin edicileri: Logit/Probit, marjinal etkiler, Tobit, LAD ve profiller.
 
-Laboratuvar koşucusunun (``core.labs.runner``) kullandığı hesaplar. Logit/Probit ve LAD,
-üretilen Python koduyla aynı kütüphaneyle (statsmodels) tahmin edilir; marjinal etkiler,
-Tobit ve profil eğrileri burada numpy ile hesaplanır ve üretilen Python/R kodu aynı
-formülleri kullanır. Eşitlikler testlerle denetlenir.
+Laboratuvar koşucusunun (``core.labs.runner``) kullandığı hesaplar. Logit/Probit üretilen
+Python koduyla aynı kütüphaneyle (statsmodels) tahmin edilir; marjinal etkiler, Tobit ve profil
+eğrileri burada numpy ile hesaplanır ve üretilen Python/R kodu aynı formülleri kullanır. LAD
+(medyan regresyonu) ``core.labs.quantreg`` içindeki kesin doğrusal programlama çözümüyle
+tahmin edilir. Eşitlikler testlerle denetlenir.
 
 Terim adları dilden bağımsızdır: kategorik bir değişkenin düzeyi ``race4=2`` biçiminde
 yazılır; statsmodels'te ``C(race4)[T.2]``, R'de ``factor(race4)2``, Stata'da ``2.race4``.
@@ -372,14 +373,6 @@ def fit_tobit(op, frame: pd.DataFrame) -> TobitFit:
         left=op.left,
         covariance=pd.DataFrame(covariance[:k, :k], index=names, columns=names),
     )
-
-
-def fit_quantile(op, frame: pd.DataFrame):
-    """Kantil regresyon (statsmodels ``QuantReg``); üretilen Python koduyla aynı hesap."""
-
-    data = _complete(frame, list(dict.fromkeys([op.outcome, *op.regressors])))
-    formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
-    return smf.quantreg(formula, data=data).fit(q=op.q, max_iter=5000)
 
 
 # --- Profiller ---------------------------------------------------------------------------------
