@@ -5,8 +5,8 @@ kullanıcının yüklediği dosyayı okur. Hansen'in sayfası 2026'da ``~bhansen
 ``~behansen`` adresine yönleniyor; önce güncel adres, sonra eski adres denenir.
 
 Dosya biçimleri: ``cps09mar`` başlıksız ``.txt`` olarak okunur (değişken adları
-açıklama belgesindeki sırayla). ``DDK2011`` ve ``Card1995`` Stata ``.dta`` olarak
-okunur: adlar dosyada kayıtlıdır ve üç dilde aynı olsun diye küçük harfe çevrilir.
+açıklama belgesindeki sırayla). ``DDK2011``, ``Card1995`` ve ``CHJ2004`` Stata ``.dta``
+olarak okunur: adlar dosyada kayıtlıdır ve üç dilde aynı olsun diye küçük harfe çevrilir.
 """
 
 from __future__ import annotations
@@ -48,15 +48,25 @@ CARD1995_REQUIRED = (
     "lwage76", "ed76", "nearc4", "age76", "black", "smsa76r", "reg76r", "smsa66r",
     *(f"reg66{i}" for i in range(2, 10)),
 )
+CHJ2004_CONTROLS = (
+    "primary", "somesecondary", "secondary", "someuniversity", "university", "age", "married", "female",
+    "marriedf", "child1", "child7", "child15", "size", "bothwork", "notemployed",
+)
+CHJ2004_REQUIRED = ("tabroad", "tdomestic", "tinkind", "tgifts", "income", "transfers", *CHJ2004_CONTROLS)
 
-DATASET_MEMBERS = {"cps09mar": "cps09mar.txt", "ddk2011": "DDK2011.dta", "card1995": "Card1995.dta"}
+DATASET_MEMBERS = {
+    "cps09mar": "cps09mar.txt", "ddk2011": "DDK2011.dta", "card1995": "Card1995.dta", "chj2004": "CHJ2004.dta",
+}
 DATASET_COLUMNS = {"cps09mar": CPS09MAR_COLUMNS}
 """Başlıksız ``.txt`` dosyaları için değişken adları (açıklama belgesindeki sıra)."""
-DATASET_REQUIRED = {"cps09mar": CPS09MAR_REQUIRED, "ddk2011": DDK2011_REQUIRED, "card1995": CARD1995_REQUIRED}
-DATASET_COMPLETE = {"cps09mar": CPS09MAR_REQUIRED}
+DATASET_REQUIRED = {
+    "cps09mar": CPS09MAR_REQUIRED, "ddk2011": DDK2011_REQUIRED, "card1995": CARD1995_REQUIRED,
+    "chj2004": CHJ2004_REQUIRED,
+}
+DATASET_COMPLETE = {"cps09mar": CPS09MAR_REQUIRED, "chj2004": CHJ2004_REQUIRED}
 """Eksik değer içermemesi gereken sütunlar. DDK2011 ve Card1995'te eksik değerler olağandır;
 analiz örneklemi laboratuvar adımlarında açıkça kurulur."""
-DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613}
+DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613, "chj2004": 8684}
 
 
 class HansenDataError(RuntimeError):

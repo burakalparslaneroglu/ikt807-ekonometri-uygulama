@@ -15,12 +15,26 @@ from core.codegen.base import (
     flatten,
     histogram_styles,
     layer_styles,
+    link_of,
+    profile_others,
+    table_row_text,
 )
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    AverageProfile,
+    BinaryChoice,
+    KeepIf,
+    MarginalEffects,
+    ProfileCurves,
+    QuantileRegression,
+    Recode,
+    TableTarget,
+    Tobit,
+    TobitFitCheck,
+    TobitTargets,
     BreuschPagan,
     Check,
     ClusterDraw,
@@ -63,7 +77,23 @@ _REFERENCE_STYLES = (('"#07373D"', "2"), ('"#6B4C9A"', "3"))
 
 
 def _term(term: str) -> str:
-    return "(Intercept)" if term == E.INTERCEPT else term
+    """Dilden bağımsız terim adının R karşılığı: sabit ve ``değişken=düzey`` kuklaları."""
+
+    if term == E.INTERCEPT:
+        return "(Intercept)"
+    if "=" in term:
+        variable, level = term.split("=", 1)
+        return f"factor({variable}){level}"
+    return term
+
+
+_FUNCTIONS = {
+    "log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin",
+    "round": "round", "floor": "floor", "positive": "as.numeric({0} > 0)",
+    "logistic": "plogis", "normcdf": "pnorm", "normpdf": "dnorm",
+    **{name: f"as.numeric({{0}} {symbol} {{1}})" for name, symbol in E.COMPARISONS.items()},
+}
+_COLORS_HEX = ("#107C89", "#B3392F", "#2F9E6B", "#07373D")
 
 
 def _quoted(names) -> str:
@@ -107,6 +137,95 @@ def _formula_lines(formula: str, width: int = 78) -> list[str]:
     return lines
 
 
+def _r_values(values) -> str:
+    """Sayı listesinin R yazımı; ardışık tam sayılar ``a:b`` olarak."""
+
+    numbers = [float(v) for v in values]
+    if len(numbers) > 2 and all(v.is_integer() for v in numbers) and all(
+        b - a == 1 for a, b in zip(numbers, numbers[1:])
+    ):
+        return f"{int(numbers[0])}:{int(numbers[-1])}"
+    return "c(" + ", ".join(E.format_number(v) for v in numbers) + ")"
+
+
+_ROBUST_HELPER = [
+    "# Dayanıklı (sandviç) kovaryans, gözlenen Hessian ile: H⁻¹ (Σ sᵢsᵢ') H⁻¹, serbestlik düzeltmesiz.",
+    "# statsmodels (HC0) ve Stata (vce(robust); ayrıca n/(n−1) çarpanı) ile aynı tanım. Probit'te",
+    "# sandwich::sandwich() beklenen bilgi matrisini kullandığı için standart hatalar biraz farklı çıkar.",
+    "dayanikli_vcov <- function(model) {",
+    "  X <- model.matrix(model)",
+    "  y <- model$y",
+    "  z <- drop(X %*% coef(model))",
+    '  if (model$family$link == "logit") {',
+    "    p <- plogis(z)",
+    "    skor <- (y - p) * X",
+    "    w <- p * (1 - p)",
+    "  } else {",
+    "    q <- 2 * y - 1",
+    "    oran <- q * dnorm(q * z) / pnorm(q * z)",
+    "    skor <- oran * X",
+    "    w <- oran * (oran + z)",
+    "  }",
+    "  ekmek <- solve(crossprod(X, w * X))",
+    "  ekmek %*% crossprod(skor) %*% ekmek",
+    "}",
+]
+
+_MARGINAL_EFFECTS_HELPER = [
+    "# Ortalama marjinal etkiler (AME): sürekli terimde türevin, kategorik terimde referans düzeyine göre",
+    "# olasılık farkının örneklem ortalaması. SH delta yöntemiyle: sqrt(∇' V ∇).",
+    '# baglanti: "logit", "probit" veya "dogrusal" (doğrusal olasılık modeli: etki = katsayı).',
+    "# kesikli: kategorik tanımlanmamış 0/1 değişkenler; bunlarda da türev yerine 1 − 0 farkı alınır.",
+    "ortalama_marjinal_etkiler <- function(model, V, baglanti, terimler, kesikli = character()) {",
+    "  X <- model.matrix(model)",
+    "  b <- coef(model)[colnames(X)]",
+    "  V <- V[colnames(X), colnames(X)]",
+    '  if (baglanti == "logit") {',
+    "    G <- plogis; g <- dlogis; g1 <- function(v) dlogis(v) * (1 - 2 * plogis(v))",
+    '  } else if (baglanti == "probit") {',
+    "    G <- pnorm; g <- dnorm; g1 <- function(v) -v * dnorm(v)",
+    "  } else {",
+    "    G <- function(v) v; g <- function(v) rep(1, length(v)); g1 <- function(v) rep(0, length(v))",
+    "  }",
+    "  fark <- function(birler, sifirlar) {",
+    "    X1 <- X; X0 <- X",
+    "    X1[, sifirlar] <- 0; X0[, sifirlar] <- 0; X1[, birler] <- 1",
+    "    z1 <- drop(X1 %*% b); z0 <- drop(X0 %*% b)",
+    "    turev <- colMeans(g(z1) * X1 - g(z0) * X0)",
+    "    c(mean(G(z1) - G(z0)), sqrt(drop(t(turev) %*% V %*% turev)))",
+    "  }",
+    "  tahmin <- c(); sh <- c()",
+    "  for (terim in terimler) {",
+    '    onek <- paste0("factor(", terim, ")")',
+    "    gruplar <- colnames(X)[startsWith(colnames(X), onek)]",
+    "    if (length(gruplar) > 0) {",
+    "      for (sutun in gruplar) {",
+    '        ad <- paste0(terim, "=", substring(sutun, nchar(onek) + 1))',
+    "        sonuc <- fark(sutun, gruplar)",
+    "        tahmin[ad] <- sonuc[1]; sh[ad] <- sonuc[2]",
+    "      }",
+    "    } else if (terim %in% kesikli) {",
+    "      sonuc <- fark(terim, terim)",
+    "      tahmin[terim] <- sonuc[1]; sh[terim] <- sonuc[2]",
+    "    } else {",
+    "      z <- drop(X %*% b)",
+    "      tahmin[terim] <- mean(g(z)) * b[[terim]]",
+    "      turev <- mean(g(z)) * (colnames(X) == terim) + b[[terim]] * colMeans(g1(z) * X)",
+    "      sh[terim] <- sqrt(drop(t(turev) %*% V %*% turev))",
+    "    }",
+    "  }",
+    '  structure(list(coefficients = tahmin, se = sh, n = nrow(X)), class = "ame_sonucu")',
+    "}",
+    "coef.ame_sonucu <- function(object, ...) object$coefficients",
+    "vcov.ame_sonucu <- function(object, ...) {",
+    "  V <- diag(object$se^2, nrow = length(object$se))",
+    "  dimnames(V) <- list(names(object$se), names(object$se))",
+    "  V",
+    "}",
+    "nobs.ame_sonucu <- function(object, ...) object$n",
+]
+
+
 class RGenerator(Generator):
     language = "R"
     comment = "#"
@@ -114,17 +233,19 @@ class RGenerator(Generator):
     def dialect(self, frame: str) -> E.Dialect:
         return E.Dialect(
             variable=lambda name: f"{frame}${name}",
-            coefficient=lambda model, term: f'coef({model})[["{_term(term)}"]]',
-            functions={
-                "log": "log", "exp": "exp", "sqrt": "sqrt", "maximum": "pmax", "minimum": "pmin",
-                "round": "round", "floor": "floor", "positive": "as.numeric({0} > 0)",
-            },
+            coefficient=lambda model, term: f'coef({model})[["{self._key(model, term)}"]]',
+            functions=_FUNCTIONS,
             power="^",
             standard_error=self._standard_error,
         )
 
+    def _key(self, model: str, term: str) -> str:
+        """Etki sonuçlarında terim adı olduğu gibi (``race4=2``); modellerde R adı."""
+
+        return term if self.is_effects(model) else _term(term)
+
     def _standard_error(self, model: str, term: str) -> str:
-        return f'sqrt(diag({self.vcov(model)}))[["{_term(term)}"]]'
+        return f'sqrt(diag({self.vcov(model)}))[["{self._key(model, term)}"]]'
 
     def vcov(self, model: str, name: str | None = None) -> str:
         """Modelin kovaryans matrisi ifadesi; ``name`` verilirse o değişken adıyla yazılır."""
@@ -133,6 +254,10 @@ class RGenerator(Generator):
         settings = self.models.get(model)
         if isinstance(settings, IV):
             return f'sandwich::vcovHC({symbol}, type = "HC1")'
+        if isinstance(settings, BinaryChoice):
+            return f"dayanikli_vcov({symbol})" if settings.vcov == "robust" else f"vcov({symbol})"
+        if isinstance(settings, (Tobit, QuantileRegression, MarginalEffects)):
+            return f"vcov({symbol})"
         if settings is None or settings.vcov == "classic":
             return f"vcov({symbol})"
         if settings.vcov == "HC1":
@@ -152,15 +277,23 @@ class RGenerator(Generator):
         packages: list[str] = []
         if self._needs_sandwich(ops):
             packages += ["sandwich", "lmtest"]
+        elif any(isinstance(op, BinaryChoice) for op in ops) or any(
+            isinstance(op, ShowModel) and isinstance(self.models.get(op.model), BinaryChoice) for op in ops
+        ):
+            packages.append("lmtest")
         if any(isinstance(op, LoadHansen) and op.member.lower().endswith(".dta") for op in ops):
             packages.append("haven")
-        if any(isinstance(op, IV) for op in ops):
+        if any(isinstance(op, (IV, Tobit)) for op in ops):
             packages.append("AER")
+        if any(isinstance(op, QuantileRegression) for op in ops):
+            packages.append("quantreg")
         if not packages:
             return []
         lines = [f"# Gerekli paketler: install.packages(c({_quoted(packages)}))"]
         if "sandwich" in packages:
             lines += ["library(sandwich)", "library(lmtest)"]
+        elif "lmtest" in packages:
+            lines.append("library(lmtest)")
         return lines + [""]
 
     def helpers(self, operations: tuple[Operation, ...], *, with_checks: bool) -> list[str]:
@@ -223,12 +356,28 @@ class RGenerator(Generator):
                 "  tolerans <- 0.5 * 10^(-ondalik) + 1e-12",
                 "  durum <- if (abs(deger - beklenen) <= tolerans) \"OK  \" else \"HATA\"",
                 "  cat(sprintf(\"  %s %s: %.*f  (notlar: %s)\\n\", durum, etiket, ondalik, deger,",
-                "              format(beklenen)))",
+                "              sprintf(\"%.*f\", ondalik, beklenen)))",
                 "  if (abs(deger - beklenen) > tolerans) stop(etiket, \" notlarla uyuşmuyor.\")",
                 "}",
                 "",
             ]
         return lines
+
+    def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
+        ops = flatten(operations)
+        names: list[str] = []
+        if any(isinstance(op, BinaryChoice) and op.vcov == "robust" for op in ops):
+            names.append("dayanikli_vcov")
+        if any(isinstance(op, MarginalEffects) for op in ops):
+            names.append("marjinal_etkiler")
+        return names
+
+    def helper_code(self, name: str) -> list[str]:
+        if name == "dayanikli_vcov":
+            return _ROBUST_HELPER + [""]
+        if name == "marjinal_etkiler":
+            return _MARGINAL_EFFECTS_HELPER + [""]
+        return []
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
@@ -238,6 +387,9 @@ class RGenerator(Generator):
         return lines
 
     def _operation(self, op: Operation) -> list[str]:
+        limited = self._limited_operation(op)
+        if limited is not None:
+            return limited
         if isinstance(op, StandardErrorTable):
             t = op.term
             models = ", ".join(f"{m} = {m}" for m in op.models)
@@ -306,6 +458,11 @@ class RGenerator(Generator):
                 else f"runif(nrow({op.frame}), min = {a}, max = {b})"
             return [f"# {op.comment}", f"{op.frame}${op.name} <- {call}"]
         if isinstance(op, Predict):
+            if op.kind == "index":
+                settings = self.models.get(op.model)
+                kind = "lp" if isinstance(settings, Tobit) else "link"
+                return ["# Doğrusal indeks x'β (olasılık değil)",
+                        f'{op.frame}${op.name} <- predict({op.model}, type = "{kind}")']
             function = "fitted" if op.kind == "fitted" else "resid"
             return [f"{op.frame}${op.name} <- {function}({op.model})"]
         if isinstance(op, Summaries):
@@ -422,15 +579,184 @@ class RGenerator(Generator):
             ]
         raise TypeError(f"R üreticisi bu işlemi tanımıyor: {type(op).__name__}")
 
+    # --- Sınırlı bağımlı değişken işlemleri -------------------------------
+    def _limited_operation(self, op: Operation) -> list[str] | None:
+        if isinstance(op, KeepIf):
+            parts = " & ".join(
+                f"{op.frame}${variable} {operator} {E.format_number(value)}"
+                for variable, operator, value in op.conditions
+            )
+            return [
+                f"# {op.comment}",
+                f"{op.frame} <- {op.frame}[{parts}, ]",
+                f"print(nrow({op.frame}))  # analiz örneklemi",
+            ]
+        if isinstance(op, Recode):
+            expression = str(op.other)
+            for values, code in reversed(op.mapping):
+                if len(values) == 1:
+                    condition = f"{op.frame}${op.source} == {E.format_number(values[0])}"
+                else:
+                    condition = f"{op.frame}${op.source} %in% c({', '.join(E.format_number(v) for v in values)})"
+                expression = f"ifelse({condition}, {code}, {expression})"
+            return [
+                f"# {op.comment}",
+                f"{op.frame}${op.name} <- {expression}",
+                f"print(table({op.frame}${op.name}))",
+            ]
+        if isinstance(op, BinaryChoice):
+            terms = [f"factor({r})" if r in op.categorical else r for r in op.regressors]
+            formula = f"{op.outcome} ~ " + " + ".join(terms)
+            name = "Logit" if op.link == "logit" else "Probit"
+            lines = [
+                f"# {name} (MLE); " + ("dayanıklı kovaryans dayanikli_vcov() ile: gözlenen Hessian'lı sandviç"
+                                      if op.vcov == "robust" else "klasik kovaryans: ters bilgi matrisi"),
+            ]
+            call = self._call(op.name, "glm", formula, op.frame, f'family = binomial(link = "{op.link}")')
+            lines += call
+            shown = continuous_terms(op) if op.categorical else list(op.regressors)
+            if shown:
+                lines.append(
+                    f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({_quoted(shown)}), , drop = FALSE])"
+                )
+            return lines
+        if isinstance(op, MarginalEffects):
+            settings = self.models[op.model]
+            terms = f"c({_quoted(op.terms)})"
+            call = (f'{op.name} <- ortalama_marjinal_etkiler({op.model}, {self.vcov(op.model)}, '
+                    f'"{link_of(settings)}", {terms}')
+            if op.discrete:
+                call += f", kesikli = c({_quoted(op.discrete)})"
+            return [
+                "# Ortalama marjinal etkiler: sürekli değişkende türev, kategorik değişkende referans düzeyine",
+                "# göre olasılık farkı; standart hatalar delta yöntemiyle, modelin kovaryansıyla",
+                call + ")",
+                f"print(round(cbind(AME = coef({op.name}), SH = sqrt(diag(vcov({op.name})))), 4))",
+            ]
+        if isinstance(op, AverageProfile):
+            data = self.models[op.model].frame
+            values = _r_values(op.values)
+            return [
+                f"# {op.variable} bütün gözlemlerde sırayla aynı değere eşitlenir; diğer değişkenler gözlenen",
+                "# değerlerinde kalır. Her değerde tahmin edilen olasılıkların ortalaması alınır.",
+                f"degerler <- {values}",
+                f"{op.name} <- data.frame(olasilik = sapply(degerler, function(deger) {{",
+                f"  kopya <- {data}",
+                f"  kopya${op.variable} <- deger",
+                f'  mean(predict({op.model}, newdata = kopya, type = "response"))',
+                "}), row.names = degerler)",
+                f"print(round({op.name}, 4))",
+                f'plot(degerler, {op.name}$olasilik, type = "b", pch = 16, col = "#107C89",',
+                f'     xlab = "{op.x_label}", ylab = "{op.y_label}", main = "{op.title}")',
+            ]
+        if isinstance(op, Tobit):
+            formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
+            lines = [f"# Tobit: {op.outcome} soldan {E.format_number(op.left)} noktasında sansürlü; MLE "
+                     "(AER::tobit, survival::survreg üzerine)"]
+            call = self._call(op.name, "AER::tobit", formula, op.frame, f"left = {E.format_number(op.left)}")
+            lines += call
+            shown = ["(Intercept)", op.regressors[0]] if len(op.regressors) > 5 else ["(Intercept)", *op.regressors]
+            lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
+            lines.append(f'cat("sigma:", round({op.name}$scale, 4), "\\n")')
+            return lines
+        if isinstance(op, QuantileRegression):
+            formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
+            lines = [f"# Kantil regresyon, q = {E.format_number(op.q)}"
+                     + (" (medyan / LAD); çözüm tek olmayabilir, rq bunu uyarıyla bildirir" if op.q == 0.5 else "")]
+            call = self._call(op.name, "quantreg::rq", formula, op.frame, f"tau = {E.format_number(op.q)}")
+            lines += call
+            shown = ["(Intercept)", op.regressors[0]] if len(op.regressors) > 5 else ["(Intercept)", *op.regressors]
+            lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
+            return lines
+        if isinstance(op, ProfileCurves):
+            return self._profile_curves(op)
+        if isinstance(op, TobitTargets):
+            latent = f"{op.curves}${op.model}"
+            return [
+                "# Tobit'in üç hedefi: z = x'β/σ; P(Y>0|x) = Φ(z), m(x) = Φ(z)x'β + σφ(z), m#(x) = x'β + σφ(z)/Φ(z)",
+                f"s <- {op.model}$scale",
+                f"z <- {latent} / s",
+                f"{op.result} <- data.frame(",
+                f"  gizli = {latent},",
+                "  p_poz = pnorm(z),",
+                f"  gozlenen = pnorm(z) * {latent} + s * dnorm(z),",
+                f"  poz_ort = {latent} + s * dnorm(z) / pnorm(z),",
+                f"  row.names = rownames({op.curves})",
+                ")",
+                f"print(round({op.result}, 3))",
+            ]
+        if isinstance(op, TobitFitCheck):
+            settings = self.models[op.model]
+            left = E.format_number(settings.left)
+            y = f"{settings.frame}${settings.outcome}"
+            return [
+                "# Model kontrolü: Tobit'in ima ettiği P(Y>0) ve E[Y], örneklem üzerinde ortalanır",
+                f'xb <- predict({op.model}, type = "lp")',
+                f"z <- (xb - {left}) / {op.model}$scale",
+                f"{op.result} <- data.frame(",
+                f"  model = c(mean(pnorm(z)), mean({left} + pnorm(z) * (xb - {left}) + {op.model}$scale * dnorm(z))),",
+                f"  veri = c(mean({y} > {left}), mean({y})),",
+                '  row.names = c("p_poz", "ortalama")',
+                ")",
+                f"print(round({op.result}, 4))",
+            ]
+        return None
+
+    def _profile_curves(self, op: ProfileCurves) -> list[str]:
+        others = profile_others(op, self.models)
+        dialect = self.dialect("P")
+        values = _r_values(op.values)
+        lines = [
+            f"# Profil: {op.variable} ızgarasında x'β; türetilen terimler ızgaradan, diğer regresörler",
+            "# örneklem ortalamasında. OLS/LAD'de x'β tahmin edilen ortalama/medyan, Tobit'te gizli ortalama.",
+            "profil_tasarimi <- function(degerler) {",
+            f"  P <- data.frame({op.variable} = degerler)",
+        ]
+        for name, expression in op.derived:
+            lines.append(f"  P${name} <- {E.render(expression, dialect)}")
+        lines += _wrapped("  for (ad in c(", [f'"{name}"' for name in others], ")) {")
+        lines += [
+            f"    P[[ad]] <- mean({op.frame}[[ad]])",
+            "  }",
+            '  cbind("(Intercept)" = 1, as.matrix(P))',
+            "}",
+            "dogrusal_indeks <- function(m, P) drop(P[, names(coef(m))] %*% coef(m))",
+            f"degerler <- {values}",
+            "izgara <- profil_tasarimi(degerler)",
+            f"{op.result} <- data.frame(",
+        ]
+        for index, (model, _) in enumerate(op.models):
+            lines.append(f"  {model} = dogrusal_indeks({model}, izgara),")
+        lines += [
+            "  row.names = degerler",
+            ")",
+            f"print(round({op.result}, 2))",
+            f"ince <- profil_tasarimi(seq({E.format_number(op.plot_grid[0])}, {E.format_number(op.plot_grid[1])}, "
+            f"length.out = {int(op.plot_grid[2])}))",
+            f"egri <- cbind({', '.join(f'dogrusal_indeks({model}, ince)' for model, _ in op.models)})",
+        ]
+        colors = ", ".join(f'"{color}"' for color in _COLORS_HEX[: len(op.models)])
+        labels = ", ".join(f'"{label}"' for _, label in op.models)
+        lines += [
+            f'matplot(ince[, "{op.variable}"], egri, type = "l", lty = 1, lwd = 2, col = c({colors}),',
+            f'        xlab = "{op.x_label}", ylab = "{op.y_label}", main = "{op.title}")',
+            f'legend("topright", legend = c({labels}), col = c({colors}), lty = 1, lwd = 2, bty = "n")',
+        ]
+        return lines
+
     # --- Tahminler -------------------------------------------------------
     @staticmethod
-    def _call(name: str, function: str, formula: str, data: str) -> list[str]:
-        single = f"{name} <- {function}({formula}, data = {data})"
+    def _call(name: str, function: str, formula: str, data: str, extra: str = "") -> list[str]:
+        """``name <- function(formula, data = data[, extra])``; uzun formül satırlara bölünür."""
+
+        tail = f", {extra}" if extra else ""
+        single = f"{name} <- {function}({formula}, data = {data}{tail})"
         if len(formula) <= 120 and len(single) <= 160:
             return [single]
         body = _formula_lines(formula)
+        ending = [f"  data = {data},", f"  {extra}"] if extra else [f"  data = {data}"]
         return [f"{name} <- {function}(", *[f"  {line}" for line in body[:-1]], f"  {body[-1]},",
-                f"  data = {data}", ")"]
+                *ending, ")"]
 
     def _ols(self, op: OLS) -> list[str]:
         terms = [f"factor({r})" if r in op.categorical else r for r in op.regressors]
@@ -497,7 +823,7 @@ class RGenerator(Generator):
         ]
         for index, (label, model, term) in enumerate(op.rows):
             ending = "," if index < len(op.rows) - 1 else ""
-            call = f'satir({model}, "{_term(term)}", {self.vcov(model)}){ending}'
+            call = f'satir({model}, "{self._key(model, term)}", {self.vcov(model)}){ending}'
             entry = f'  "{label}" = {call}'
             if len(entry) > 100:
                 lines += [f'  "{label}" =', f"    {call}"]
@@ -594,7 +920,7 @@ class RGenerator(Generator):
         frame, x = op.frame, op.x
         grid = E.Dialect(
             variable=lambda name: "izgara",
-            coefficient=lambda model, term: f'coef({model})[["{_term(term)}"]]',
+            coefficient=lambda model, term: f'coef({model})[["{self._key(model, term)}"]]',
             functions=self.dialect(frame).functions,
             power="^",
         )
@@ -672,7 +998,7 @@ class RGenerator(Generator):
                 return f"sum(!is.na({values}))"
             return f"{_STAT[target.stat]}({values})"
         if isinstance(target, CoefTarget):
-            coefficient = f'coef({target.model})[["{_term(target.term)}"]]'
+            coefficient = f'coef({target.model})[["{self._key(target.model, target.term)}"]]'
             if target.quantity == "coef":
                 return coefficient
             if target.quantity == "se_hc1":
@@ -686,6 +1012,8 @@ class RGenerator(Generator):
             return f"nobs({target.model})"
         if isinstance(target, ScalarTarget):
             return target.name
+        if isinstance(target, TableTarget):
+            return f'{target.table}["{table_row_text(target.row)}", "{target.column}"]'
         raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
 
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:

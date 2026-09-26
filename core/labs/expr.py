@@ -12,6 +12,7 @@ from typing import Callable, Union
 
 import numpy as np
 import pandas as pd
+from scipy import special, stats
 
 
 INTERCEPT = "(sabit)"
@@ -60,8 +61,13 @@ class StdErr:
 Expr = Union[Var, Const, BinOp, Call, Coef, StdErr]
 
 BINARY_OPS = ("+", "-", "*", "/", "^")
-FUNCTIONS = ("log", "exp", "sqrt", "maximum", "minimum", "round", "floor", "positive")
-_BINARY_FUNCTIONS = ("maximum", "minimum")
+COMPARISONS = {"le": "<=", "lt": "<", "ge": ">=", "gt": ">", "eq": "==", "ne": "!="}
+"""Karşılaştırma fonksiyonları: koşul sağlanırsa 1, değilse 0 (gösterge değişkeni)."""
+FUNCTIONS = (
+    "log", "exp", "sqrt", "maximum", "minimum", "round", "floor", "positive",
+    "logistic", "normcdf", "normpdf", *COMPARISONS,
+)
+_BINARY_FUNCTIONS = ("maximum", "minimum", *COMPARISONS)
 _PRECEDENCE = {"+": 1, "-": 1, "*": 2, "/": 2, "^": 3}
 _ATOM = 4
 
@@ -132,6 +138,32 @@ def positive(a) -> Call:
     """Gösterge fonksiyonu: argüman sıfırdan büyükse 1, değilse 0."""
 
     return Call("positive", (_wrap(a),))
+
+
+def logistic(a) -> Call:
+    """Lojistik dağılım fonksiyonu Λ(a) = 1/(1 + e^(−a))."""
+
+    return Call("logistic", (_wrap(a),))
+
+
+def normcdf(a) -> Call:
+    """Standart normal dağılım fonksiyonu Φ(a)."""
+
+    return Call("normcdf", (_wrap(a),))
+
+
+def normpdf(a) -> Call:
+    """Standart normal yoğunluk φ(a)."""
+
+    return Call("normpdf", (_wrap(a),))
+
+
+def compare(name: str, a, b) -> Call:
+    """Gösterge: ``a`` ile ``b`` karşılaştırması doğruysa 1, değilse 0 (``name``: le, lt, ge, gt, eq, ne)."""
+
+    if name not in COMPARISONS:
+        raise ValueError(f"Desteklenmeyen karşılaştırma: {name}")
+    return Call(name, (_wrap(a), _wrap(b)))
 
 
 def coef(model: str, term: str) -> Coef:
@@ -233,6 +265,19 @@ def evaluate(
             return np.floor(values[0])
         if expr.fn == "positive":
             return np.where(np.asarray(values[0]) > 0, 1.0, 0.0)
+        if expr.fn == "logistic":
+            return special.expit(values[0])
+        if expr.fn == "normcdf":
+            return stats.norm.cdf(values[0])
+        if expr.fn == "normpdf":
+            return stats.norm.pdf(values[0])
+        if expr.fn in COMPARISONS:
+            left, right = np.asarray(values[0]), np.asarray(values[1])
+            outcome = {
+                "le": left <= right, "lt": left < right, "ge": left >= right,
+                "gt": left > right, "eq": left == right, "ne": left != right,
+            }[expr.fn]
+            return np.where(outcome, 1.0, 0.0)
         if expr.fn == "minimum":
             return np.minimum(values[0], values[1])
         return np.maximum(values[0], values[1])
@@ -362,6 +407,12 @@ def derivative(node: Expr, target: Coef) -> Expr:
                 return BinOp("/", d(a), a)
             if item.fn == "sqrt":
                 return BinOp("/", d(a), BinOp("*", Const(2.0), item))
+            if item.fn == "logistic":
+                return BinOp("*", BinOp("*", item, BinOp("-", Const(1.0), item)), d(a))
+            if item.fn == "normcdf":
+                return BinOp("*", Call("normpdf", (a,)), d(a))
+            if item.fn == "normpdf":
+                return BinOp("*", BinOp("*", BinOp("-", Const(0.0), a), item), d(a))
         raise ValueError(f"Delta yöntemi bu ifadeyi türevleyemez: {item}")
 
     return _simplify(d(node))

@@ -23,13 +23,26 @@ from core.codegen.base import (
     continuous_terms,
     histogram_styles,
     layer_styles,
+    profile_others,
     scalar_model,
+    table_row_text,
 )
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    AverageProfile,
+    BinaryChoice,
+    KeepIf,
+    MarginalEffects,
+    ProfileCurves,
+    QuantileRegression,
+    Recode,
+    TableTarget,
+    Tobit,
+    TobitFitCheck,
+    TobitTargets,
     BreuschPagan,
     Check,
     ClusterDraw,
@@ -75,7 +88,46 @@ _QUIET_PREFIXES = ("estimates table", "display", "describe", "summarize", "count
 
 
 def _term(term: str) -> str:
-    return "_cons" if term == E.INTERCEPT else term
+    """Dilden bağımsız terim adının Stata karşılığı: sabit ve ``değişken=düzey`` (→ ``düzey.değişken``)."""
+
+    if term == E.INTERCEPT:
+        return "_cons"
+    if "=" in term:
+        variable, level = term.split("=", 1)
+        return f"{level}.{variable}"
+    return term
+
+
+def _numlist(values) -> str:
+    """Stata sayı listesi; ardışık tam sayılar ``a(1)b`` olarak."""
+
+    numbers = [float(v) for v in values]
+    if len(numbers) > 2 and all(v.is_integer() for v in numbers) and all(
+        b - a == 1 for a, b in zip(numbers, numbers[1:])
+    ):
+        return f"{int(numbers[0])}(1){int(numbers[-1])}"
+    return " ".join(E.format_number(v) for v in numbers)
+
+
+def _cell(table: str, column: str, row) -> str:
+    """Tablo hücresini tutan Stata skalerinin adı (en çok 32 karakter)."""
+
+    text = table_row_text(row)
+    if not text.replace("_", "").isalnum() or text.startswith("-"):
+        raise ValueError(f"Stata skaler adına uygun olmayan satır: {row}")
+    name = f"{table}_{column}_{text}"
+    if len(name) > 32:
+        raise ValueError(f"Stata skaler adı çok uzun: {name}")
+    return name
+
+
+_FUNCTIONS = {
+    "log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min",
+    "round": "round", "floor": "floor", "positive": "({0} > 0)",
+    "logistic": "invlogit", "normcdf": "normal", "normpdf": "normalden",
+    **{name: f"({{0}} {symbol} {{1}})" for name, symbol in E.COMPARISONS.items()},
+}
+_LINE_COLORS = ("16 124 137", "179 57 47", "47 158 107", "7 55 61")
 
 
 def _vce(op: OLS) -> str:
@@ -120,7 +172,11 @@ def _without_repeated_restores(lines: list[str]) -> list[str]:
             if model == active:
                 continue
             active = model
-        elif stripped.startswith(("quietly regress", "regress", "quietly ivregress", "ivregress")):
+        elif stripped.startswith((
+            "quietly regress", "regress", "quietly ivregress", "ivregress", "logit", "probit", "quietly logit",
+            "quietly probit", "tobit", "quietly tobit", "qreg", "quietly qreg", "margins", "quietly margins",
+            "nlcom", "quietly nlcom",
+        )):
             active = None
         kept.append(line)
     return kept
@@ -134,10 +190,7 @@ class StataGenerator(Generator):
         return E.Dialect(
             variable=lambda name: name,
             coefficient=lambda model, term: f"_b[{_term(term)}]",
-            functions={
-                "log": "ln", "exp": "exp", "sqrt": "sqrt", "maximum": "max", "minimum": "min",
-                "round": "round", "floor": "floor", "positive": "({0} > 0)",
-            },
+            functions=_FUNCTIONS,
             power="^",
             standard_error=lambda model, term: f"_se[{_term(term)}]",
         )
@@ -282,6 +335,11 @@ class StataGenerator(Generator):
 
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
+        limited = self._limited_operation(op)
+        if limited is not None:
+            if self.quiet:
+                limited = [line for line in limited if not line.lstrip().startswith(_QUIET_PREFIXES)]
+            return limited
         lines = self._operation(op)
         if self.quiet:
             lines = [line for line in lines if not line.lstrip().startswith(_QUIET_PREFIXES)]
@@ -353,13 +411,15 @@ class StataGenerator(Generator):
             call = f"rnormal({a}, {b})" if op.distribution == "normal" else f"runiform({a}, {b})"
             return [f"* {op.comment}", f"generate double {op.name} = {call}"]
         if isinstance(op, Predict):
-            option = "xb" if op.kind == "fitted" else "residuals"
-            return [f"quietly estimates restore {op.model}", f"predict double {op.name}, {option}"]
+            option = "xb" if op.kind in ("fitted", "index") else "residuals"
+            lines = ["* Doğrusal indeks x'β (olasılık değil)"] if op.kind == "index" else []
+            return lines + [f"quietly estimates restore {op.model}", f"predict double {op.name}, {option}"]
         if isinstance(op, Summaries):
             lines = []
             for label, variable, stat in op.rows:
+                detail = ", detail" if stat == "median" else ""
                 lines += [
-                    f"quietly summarize {variable}",
+                    f"quietly summarize {variable}{detail}",
                     f'display as text "{label}: " as result %18.10f {_RESULT[stat]}',
                 ]
             return lines
@@ -457,6 +517,211 @@ class StataGenerator(Generator):
             ]
         raise TypeError(f"Stata üreticisi bu işlemi tanımıyor: {type(op).__name__}")
 
+    # --- Sınırlı bağımlı değişken işlemleri -------------------------------
+    def _limited_operation(self, op: Operation) -> list[str] | None:
+        if isinstance(op, KeepIf):
+            parts = " & ".join(
+                f"{variable} {operator} {E.format_number(value)}" for variable, operator, value in op.conditions
+            )
+            return [f"* {op.comment}", f"keep if {parts}", "count"]
+        if isinstance(op, Recode):
+            rules = " ".join(
+                f"({' '.join(E.format_number(v) for v in values)}={code})" for values, code in op.mapping
+            )
+            return [
+                f"* {op.comment}",
+                f"recode {op.source} {rules} (else={op.other}), generate({op.name})",
+                f"tabulate {op.name}",
+            ]
+        if isinstance(op, BinaryChoice):
+            regressors = " ".join(f"i.{r}" if r in op.categorical else r for r in op.regressors)
+            command = "logit" if op.link == "logit" else "probit"
+            vce = ", vce(robust)" if op.vcov == "robust" else ""
+            lines = []
+            if op.vcov == "robust":
+                lines.append("* vce(robust): gözlenen Hessian ile sandviç; Stata ayrıca n/(n−1) ile ölçekler")
+            lines += _command(f"quietly {command} {op.outcome} {regressors}{vce}")
+            lines.append(f"estimates store {op.name}")
+            shown = continuous_terms(op) if op.categorical else list(op.regressors)
+            if shown:
+                lines.append(f"estimates table {op.name}, keep({' '.join(shown)}) b(%9.4f) se(%9.4f)")
+            return lines
+        if isinstance(op, MarginalEffects):
+            return self._marginal_effects(op)
+        if isinstance(op, AverageProfile):
+            numbers = _numlist(op.values)
+            matrix = f"{op.name}_m"
+            return [
+                f"* {op.variable} bütün gözlemlerde sırayla aynı değere eşitlenir; diğer değişkenler gözlenen",
+                "* değerlerinde kalır (margins, at). Her değerde tahmin edilen olasılıkların ortalaması.",
+                f"quietly estimates restore {op.model}",
+                f"margins, at({op.variable}=({numbers}))",
+                f"matrix {matrix} = r(b)",
+                f'marginsplot, noci xtitle("{op.x_label}") ytitle("{op.y_label}") ///',
+                f'    title("{op.title}", size(medium))',
+                "local j = 0",
+                f"foreach deger of numlist {numbers} {{",
+                "    local ++j",
+                f"    scalar {op.name}_olasilik_`deger' = el({matrix}, 1, `j')",
+                "}",
+            ]
+        if isinstance(op, Tobit):
+            regressors = " ".join(op.regressors)
+            left = E.format_number(op.left)
+            return [
+                f"* Tobit: {op.outcome} soldan {left} noktasında sansürlü; MLE",
+                *_command(f"quietly tobit {op.outcome} {regressors}, ll({left})"),
+                f"estimates store {op.name}",
+                f"estimates table {op.name}, keep({op.regressors[0]}) b(%9.4f) se(%9.4f)",
+                "* σ: Stata 14 /sigma, Stata 15 ve sonrası var(e.bağımlı) olarak raporlar",
+                f"capture scalar {op.name}_sigma = _b[/sigma]",
+                f"if _rc != 0 scalar {op.name}_sigma = sqrt(_b[/var(e.{op.outcome})])",
+                f'display "sigma: " %9.4f scalar({op.name}_sigma)',
+            ]
+        if isinstance(op, QuantileRegression):
+            regressors = " ".join(op.regressors)
+            quantile = E.format_number(op.q)
+            return [
+                f"* Kantil regresyon, q = {quantile}" + (" (medyan / LAD)" if op.q == 0.5 else ""),
+                *_command(f"quietly qreg {op.outcome} {regressors}, quantile({quantile})"),
+                f"estimates store {op.name}",
+                f"estimates table {op.name}, keep({op.regressors[0]}) b(%9.4f)",
+            ]
+        if isinstance(op, ProfileCurves):
+            return self._profile_curves(op)
+        if isinstance(op, TobitTargets):
+            sigma = f"scalar({op.model}_sigma)"
+            numbers = _numlist(self._profile_values(op.curves))
+            return [
+                "* Tobit'in üç hedefi: z = x'β/σ; P(Y>0|x) = Φ(z), m(x) = Φ(z)x'β + σφ(z), m#(x) = x'β + σφ(z)/Φ(z)",
+                f"foreach g of numlist {numbers} {{",
+                f"    scalar t_xb = scalar({op.curves}_{op.model}_`g')",
+                f"    scalar t_z = scalar(t_xb) / {sigma}",
+                f"    scalar {op.result}_gizli_`g' = scalar(t_xb)",
+                f"    scalar {op.result}_p_poz_`g' = normal(scalar(t_z))",
+                f"    scalar {op.result}_gozlenen_`g' = normal(scalar(t_z))*scalar(t_xb) + {sigma}*normalden(scalar(t_z))",
+                f"    scalar {op.result}_poz_ort_`g' = scalar(t_xb) + {sigma}*normalden(scalar(t_z))/normal(scalar(t_z))",
+                f"    display %6.0f `g' %9.3f scalar({op.result}_gizli_`g') %9.3f scalar({op.result}_p_poz_`g') ///",
+                f"        %9.3f scalar({op.result}_gozlenen_`g') %9.3f scalar({op.result}_poz_ort_`g')",
+                "}",
+            ]
+        if isinstance(op, TobitFitCheck):
+            settings = self.models[op.model]
+            left = E.format_number(settings.left)
+            sigma = f"scalar({op.model}_sigma)"
+            return [
+                "* Model kontrolü: Tobit'in ima ettiği P(Y>0) ve E[Y], örneklem üzerinde ortalanır",
+                f"quietly estimates restore {op.model}",
+                "predict double t_xb, xb",
+                f"generate double t_p = normal((t_xb - {left}) / {sigma})",
+                f"generate double t_m = {left} + t_p*(t_xb - {left}) + {sigma}*normalden((t_xb - {left}) / {sigma})",
+                f"generate double t_poz = {settings.outcome} > {left}",
+                "quietly summarize t_p",
+                f"scalar {op.result}_model_p_poz = r(mean)",
+                "quietly summarize t_m",
+                f"scalar {op.result}_model_ortalama = r(mean)",
+                "quietly summarize t_poz",
+                f"scalar {op.result}_veri_p_poz = r(mean)",
+                f"quietly summarize {settings.outcome}",
+                f"scalar {op.result}_veri_ortalama = r(mean)",
+                f'display "P(Y>0): model " %6.4f scalar({op.result}_model_p_poz) "  veri " %6.4f scalar({op.result}_veri_p_poz)',
+                f'display "E[Y]:   model " %8.4f scalar({op.result}_model_ortalama) "  veri " %8.4f scalar({op.result}_veri_ortalama)',
+                "drop t_xb t_p t_m t_poz",
+            ]
+        return None
+
+    def _profile_values(self, name: str):
+        for step in self.spec.steps:
+            for op in step.operations:
+                if isinstance(op, ProfileCurves) and op.result == name:
+                    return op.values
+        raise ValueError(f"Profil tablosu bulunamadı: {name}")
+
+    def _marginal_effects(self, op: MarginalEffects) -> list[str]:
+        settings = self.models[op.model]
+        categorical = getattr(settings, "categorical", ())
+        lines = [
+            "* Ortalama marjinal etkiler (margins): sürekli değişkende türev, kategorik (i.) değişkende referans",
+            "* düzeyine göre olasılık farkı; standart hatalar delta yöntemiyle",
+            f"quietly estimates restore {op.model}",
+        ]
+        if op.discrete:
+            if any(term not in op.discrete or term in categorical for term in op.terms):
+                raise ValueError("Stata: kesikli etkiler ayrı bir MarginalEffects işleminde verilmelidir.")
+            for term in op.terms:
+                lines += [
+                    f"* {term}: türev yerine 1 − 0 farkı (herkes için {term}=1 ve {term}=0 senaryoları)",
+                    f"quietly margins, at({term}=0) at({term}=1) post",
+                    f"nlcom ({term}: _b[2._at] - _b[1._at]), post",
+                ]
+            lines.append(f"estimates store {op.name}")
+            return lines
+        lines += [
+            f"margins, dydx({' '.join(op.terms)}) post",
+            f"estimates store {op.name}",
+        ]
+        return lines
+
+    def _profile_curves(self, op: ProfileCurves) -> list[str]:
+        others = profile_others(op, self.models)
+        numbers = _numlist(op.values)
+        models = " ".join(model for model, _ in op.models)
+
+        def terms(variable_text: str) -> str:
+            dialect = E.Dialect(
+                variable=lambda name: variable_text if name == op.variable else name,
+                coefficient=lambda model, term: f"_b[{_term(term)}]",
+                functions=_FUNCTIONS,
+                power="^",
+            )
+            pieces = [f"_b[{op.variable}]*{variable_text}"]
+            pieces += [f"_b[{name}]*{E.render(expression, dialect)}" for name, expression in op.derived]
+            return " + ".join(pieces)
+
+        constant = " + ".join(["_b[_cons]"] + [f"_b[{name}]*scalar(ort_{name})" for name in others])
+        low, high, count = op.plot_grid
+        step = E.format_number((high - low) / (int(count) - 1))
+        lines = [
+            f"* Profil: {op.variable} ızgarasında x'β; türetilen terimler ızgaradan, diğer regresörler",
+            "* örneklem ortalamasında. OLS/LAD'de x'β tahmin edilen ortalama/medyan, Tobit'te gizli ortalama.",
+            *_command(f"foreach v of varlist {' '.join(others)} {{"),
+            "    quietly summarize `v'",
+            "    scalar ort_`v' = r(mean)",
+            "}",
+            f"foreach m in {models} {{",
+            "    quietly estimates restore `m'",
+            *[f"    {line}" for line in _command(f"scalar sabit_`m' = {constant}")],
+            f"    foreach g of numlist {numbers} {{",
+            *[f"        {line}" for line in _command(f"scalar {op.result}_`m'_`g' = scalar(sabit_`m') + " + terms("`g'"))],
+            "    }",
+            "}",
+            f"foreach g of numlist {numbers} {{",
+            "    display %6.0f `g' " + " ".join(f"%9.2f scalar({op.result}_{model}_`g')" for model, _ in op.models),
+            "}",
+            "* Eğriler: ince ızgarada aynı hesap",
+            "preserve",
+            "clear",
+            f"quietly set obs {int(count)}",
+            f"generate double {op.variable} = {E.format_number(low)} + (_n - 1)*{step}",
+            f"foreach m in {models} {{",
+            "    quietly estimates restore `m'",
+            *[f"    {line}" for line in _command(f"generate double egri_`m' = scalar(sabit_`m') + {terms(op.variable)}")],
+            "}",
+        ]
+        layers = [
+            f'(line egri_{model} {op.variable}, lcolor("{color}") lwidth(medthick))'
+            for (model, _), color in zip(op.models, _LINE_COLORS)
+        ]
+        legend = " ".join(f'{index} "{label}"' for index, (_, label) in enumerate(op.models, start=1))
+        lines += [
+            f"twoway {layers[0]} ///",
+            *[f"       {layer} ///" for layer in layers[1:]],
+            f"       , legend(order({legend})) ///",
+            f'       xtitle("{op.x_label}") ytitle("{op.y_label}") title("{op.title}", size(medium))',
+            "restore",
+        ]
+        return lines
+
     # --- Tahminler -------------------------------------------------------
     def _ols(self, op: OLS) -> list[str]:
         regressors = " ".join(f"i.{r}" if r in op.categorical else r for r in op.regressors)
@@ -500,9 +765,16 @@ class StataGenerator(Generator):
         terms = list(dict.fromkeys(_term(term) for _, _, term in op.rows))
         clustered = any(isinstance(self.models.get(m), OLS) and self.models[m].vcov == "cluster" for m in models)
         distribution = "küme SH'de t(G−1)" if clustered else "t(n−k)"
+        normal = [m for m in models if isinstance(self.models.get(m), (MarginalEffects, BinaryChoice, Tobit))]
         lines = [f"* {op.title}" if op.title else "* Tahminler yan yana"]
         lines += [f"*   {model}: {label}" for label, model, _ in op.rows]
-        lines.append(f"* p-değerleri Stata'nın kendi dağılımıyla ({distribution}); notlar normal yaklaşım kullanır")
+        if normal and len(normal) == len(models):
+            lines.append("* p-değerleri normal dağılımla (z); notlarla aynı yaklaşım")
+        elif normal:
+            lines.append(f"* p-değerleri: OLS satırlarında Stata'nın {distribution} dağılımı, marjinal etkilerde normal "
+                         "dağılım; notlar normal yaklaşım kullanır")
+        else:
+            lines.append(f"* p-değerleri Stata'nın kendi dağılımıyla ({distribution}); notlar normal yaklaşım kullanır")
         lines += _command(
             f"estimates table {' '.join(models)}, keep({' '.join(terms)}) b(%9.4f) se(%9.4f) p(%9.3f) stats(N)"
         )
@@ -583,13 +855,29 @@ class StataGenerator(Generator):
 
     def _plot(self, op: Plot) -> list[str]:
         x = op.x
+        stored: list[tuple[str, str]] = []
+
+        def local(model: str, term: str) -> str:
+            if (model, term) not in stored:
+                stored.append((model, term))
+            return f"`k_{model}_{_term(term).replace('.', '_')}'"
+
         grid = E.Dialect(
             variable=lambda name: "x",
-            coefficient=lambda model, term: f"_b[{_term(term)}]",
+            coefficient=local,
             functions=self.dialect().functions,
             power="^",
         )
+        for layer in op.layers:
+            if isinstance(layer, Curve):
+                E.render(layer.expr, grid)
         setup: list[str] = []
+        for model in dict.fromkeys(model for model, _ in stored):
+            setup.append(f"quietly estimates restore {model}")
+            setup += [
+                f"local k_{owner}_{_term(term).replace('.', '_')} = _b[{_term(term)}]"
+                for owner, term in stored if owner == model
+            ]
         layers: list[str] = []
         legend: list[str] = []
         for index, (layer, style) in enumerate(zip(op.layers, layer_styles(op.layers)), start=1):
@@ -666,6 +954,8 @@ class StataGenerator(Generator):
                 value_expr = "e(r2)" if target.quantity == "r2" else "e(N)"
             elif isinstance(target, ScalarTarget):
                 value_expr = f"scalar({target.name})"
+            elif isinstance(target, TableTarget):
+                value_expr = f"scalar({_cell(target.table, target.column, target.row)})"
             else:
                 raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
             lines.append(

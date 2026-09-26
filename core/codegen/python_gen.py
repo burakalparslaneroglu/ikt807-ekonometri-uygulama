@@ -8,14 +8,28 @@ from core.codegen.base import (
     categorical_comment,
     continuous_terms,
     flatten,
+    functions_used,
     histogram_styles,
     layer_styles,
+    link_of,
+    profile_others,
 )
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
+    AverageProfile,
+    BinaryChoice,
+    KeepIf,
+    MarginalEffects,
+    ProfileCurves,
+    QuantileRegression,
+    Recode,
+    TableTarget,
+    Tobit,
+    TobitFitCheck,
+    TobitTargets,
     BreuschPagan,
     Check,
     ClusterDraw,
@@ -53,11 +67,30 @@ from core.labs.spec import (
 )
 
 _STAT = {"count": "count", "sum": "sum", "mean": "mean", "sd": "std", "median": "median", "min": "min", "max": "max"}
+_FUNCTIONS = {
+    "log": "np.log", "exp": "np.exp", "sqrt": "np.sqrt", "maximum": "np.maximum",
+    "minimum": "np.minimum", "round": "np.rint", "floor": "np.floor",
+    "positive": "np.where({0} > 0, 1.0, 0.0)",
+    "logistic": "expit", "normcdf": "stats.norm.cdf", "normpdf": "stats.norm.pdf",
+    **{name: f"np.where({{0}} {symbol} {{1}}, 1.0, 0.0)" for name, symbol in E.COMPARISONS.items()},
+}
+_LINK_NAMES = {"logit": "Logit", "probit": "Probit"}
 _REFERENCE_STYLES = (("#07373D", '"--"'), ("#6B4C9A", '":"'))
 
 
 def _term(term: str) -> str:
-    return "Intercept" if term == E.INTERCEPT else term
+    """Dilden bağımsız terim adının statsmodels karşılığı: sabit ve ``değişken=düzey`` kuklaları."""
+
+    if term == E.INTERCEPT:
+        return "Intercept"
+    if "=" in term:
+        variable, level = term.split("=", 1)
+        return f"C({variable})[T.{level}]"
+    return term
+
+
+def _row(row) -> str:
+    return f'"{row}"' if isinstance(row, str) else E.format_number(row)
 
 
 def _quoted(names) -> list[str]:
@@ -108,6 +141,136 @@ def _fit_call(name: str, constructor: str, formula: str, data: str, fit: str) ->
             f"    data={data},", f"){fit}"]
 
 
+_MARGINAL_EFFECTS_HELPER = [
+    "class Etkiler:",
+    '    """Ortalama marjinal etkiler: tahminler (params), delta yöntemi SH\'leri (bse), gözlem sayısı."""',
+    "",
+    "    def __init__(self, params, bse, nobs):",
+    "        self.params, self.bse, self.nobs = params, bse, nobs",
+    "",
+    "",
+    "def ortalama_marjinal_etkiler(model, baglanti, terimler, kesikli=()):",
+    '    """AME: sürekli terimde türevin, kategorik terimde referans düzeyine göre olasılık farkının',
+    "    örneklem ortalaması. Standart hata delta yöntemiyle, modelin kendi kovaryansıyla: √(∇'V∇).",
+    "",
+    '    baglanti: "logit", "probit" veya "dogrusal" (doğrusal olasılık modeli: etki = katsayı).',
+    '    kesikli: kategorik tanımlanmamış 0/1 değişkenler; bunlarda da türev yerine 1 − 0 farkı alınır.',
+    '    """',
+    "    X = pd.DataFrame(model.model.exog, columns=model.model.exog_names)",
+    "    b = model.params[X.columns].to_numpy()",
+    "    V = model.cov_params().loc[X.columns, X.columns].to_numpy()",
+    '    if baglanti == "logit":',
+    "        G = expit",
+    "        g = lambda v: expit(v) * (1 - expit(v))",
+    "        g1 = lambda v: g(v) * (1 - 2 * expit(v))",
+    '    elif baglanti == "probit":',
+    "        G, g = stats.norm.cdf, stats.norm.pdf",
+    "        g1 = lambda v: -v * stats.norm.pdf(v)",
+    "    else:",
+    "        G, g, g1 = (lambda v: v), np.ones_like, np.zeros_like",
+    "    M = X.to_numpy()",
+    "    tahmin, sh = {}, {}",
+    "",
+    "    def fark(ad, birler, sifirlar):",
+    "        X1, X0 = M.copy(), M.copy()",
+    "        X1[:, sifirlar] = 0.0",
+    "        X0[:, sifirlar] = 0.0",
+    "        X1[:, birler] = 1.0",
+    "        z1, z0 = X1 @ b, X0 @ b",
+    "        tahmin[ad] = np.mean(G(z1) - G(z0))",
+    "        turev = (g(z1)[:, None] * X1 - g(z0)[:, None] * X0).mean(axis=0)",
+    "        sh[ad] = np.sqrt(turev @ V @ turev)",
+    "",
+    "    for terim in terimler:",
+    "        duzeyler = [(j, ad.split(\"[T.\")[1].rstrip(\"]\").removesuffix(\".0\"))",
+    "                    for j, ad in enumerate(X.columns) if ad.startswith(f\"C({terim})[T.\")]",
+    "        if duzeyler:  # kategorik: her düzey, referans düzeyine göre",
+    "            grup = [j for j, _ in duzeyler]",
+    "            for j, duzey in duzeyler:",
+    "                fark(f\"{terim}={duzey}\", [j], grup)",
+    "        elif terim in kesikli:  # 0/1 değişken: türev yerine 1 − 0 farkı",
+    "            j = list(X.columns).index(terim)",
+    "            fark(terim, [j], [j])",
+    "        else:  # sürekli: türevin örneklem ortalaması",
+    "            j = list(X.columns).index(terim)",
+    "            z = M @ b",
+    "            tahmin[terim] = np.mean(g(z)) * b[j]",
+    "            turev = np.mean(g(z)) * np.eye(len(b))[j] + b[j] * (g1(z)[:, None] * M).mean(axis=0)",
+    "            sh[terim] = np.sqrt(turev @ V @ turev)",
+    "    return Etkiler(pd.Series(tahmin), pd.Series(sh), int(model.nobs))",
+]
+
+_TOBIT_HELPER = [
+    "class TobitSonucu:",
+    '    """Tobit tahmini: params (β), bse, sigma, sigma_se, nobs, llf; statsmodels benzeri alanlar."""',
+    "",
+    "    def __init__(self, **alanlar):",
+    "        self.__dict__.update(alanlar)",
+    "",
+    "",
+    "def tobit_mle(y, X, sol=0.0):",
+    '    """Soldan `sol` noktasında sansürlü Tobit, maksimum olabilirlik.',
+    "",
+    "    Newton–Raphson, Olsen (1978) parametrelemesiyle: γ = β/σ, θ = 1/σ; bu parametrelemede",
+    "    log-olabilirlik içbükeydir. Standart hatalar ters gözlenen bilgi matrisinden (R AER::tobit",
+    "    ve Stata tobit ile aynı).",
+    '    """',
+    "    adlar = list(X.columns)",
+    "    x = X.to_numpy(dtype=float)",
+    "    yk = np.asarray(y, dtype=float) - sol",
+    "    poz = yk > 0",
+    "    xp, xs, yp = x[poz], x[~poz], yk[poz]",
+    "    b0 = np.linalg.lstsq(x, yk, rcond=None)[0]",
+    "    s0 = float(np.std(yk - x @ b0))",
+    "    g, t = b0 / s0, 1.0 / s0",
+    "",
+    "    def ll(g, t):",
+    "        return float(np.sum(np.log(t) + stats.norm.logpdf(t * yp - xp @ g)) + np.sum(stats.norm.logcdf(-(xs @ g))))",
+    "",
+    "    def turevler(g, t):",
+    "        r = t * yp - xp @ g",
+    "        zs = xs @ g",
+    "        oran = np.exp(stats.norm.logpdf(zs) - stats.norm.logcdf(-zs))",
+    "        grad = np.concatenate([xp.T @ r - xs.T @ oran, [poz.sum() / t - r @ yp]])",
+    "        h_gg = -(xp.T @ xp) - (xs * (oran * (oran - zs))[:, None]).T @ xs",
+    "        h_gt = xp.T @ yp",
+    "        h_tt = -poz.sum() / t**2 - yp @ yp",
+    "        return grad, np.block([[h_gg, h_gt[:, None]], [h_gt[None, :], np.array([[h_tt]])]])",
+    "",
+    "    deger = ll(g, t)",
+    "    for _ in range(200):",
+    "        grad, H = turevler(g, t)",
+    "        adim = np.linalg.solve(H, -grad)",
+    "        boy = 1.0",
+    "        while True:  # adım yarılama: log-olabilirlik azalmasın",
+    "            g1, t1 = g + boy * adim[:-1], t + boy * adim[-1]",
+    "            if t1 > 0:",
+    "                yeni = ll(g1, t1)",
+    "                if yeni >= deger - 1e-12:",
+    "                    break",
+    "            boy /= 2.0",
+    "        g, t, deger = g1, t1, yeni",
+    "        if np.max(np.abs(boy * adim)) < 1e-10:",
+    "            break",
+    "    _, H = turevler(g, t)",
+    "    k = len(adlar)",
+    "    J = np.zeros((k + 1, k + 1))  # (γ, θ) → (β, σ) dönüşümünün Jacobian'ı",
+    "    J[:k, :k] = np.eye(k) / t",
+    "    J[:k, k] = -g / t**2",
+    "    J[k, k] = -1.0 / t**2",
+    "    V = J @ np.linalg.inv(-H) @ J.T",
+    "    sh = np.sqrt(np.diag(V))",
+    "    beta = g / t",
+    "    beta[0] += sol",
+    "    params = pd.Series(beta, index=adlar)",
+    "    return TobitSonucu(",
+    "        params=params, bse=pd.Series(sh[:k], index=adlar), sigma=1.0 / t, sigma_se=float(sh[k]),",
+    "        nobs=len(yk), llf=deger, exog=X, endog=np.asarray(y, dtype=float), sol=sol,",
+    "        fittedvalues=pd.Series(x @ beta, index=X.index),",
+    "    )",
+]
+
+
 class PythonGenerator(Generator):
     language = "Python"
     comment = "#"
@@ -115,36 +278,45 @@ class PythonGenerator(Generator):
     def dialect(self, frame: str) -> E.Dialect:
         return E.Dialect(
             variable=lambda name: f'{frame}["{name}"]',
-            coefficient=lambda model, term: f'{model}.params["{_term(term)}"]',
-            functions={
-                "log": "np.log", "exp": "np.exp", "sqrt": "np.sqrt", "maximum": "np.maximum",
-                "minimum": "np.minimum", "round": "np.rint", "floor": "np.floor",
-                "positive": "np.where({0} > 0, 1.0, 0.0)",
-            },
+            coefficient=lambda model, term: f'{model}.params["{self._key(model, term)}"]',
+            functions=_FUNCTIONS,
             power="**",
             standard_error=self._standard_error,
         )
 
     def _standard_error(self, model: str, term: str) -> str:
         attribute = "std_errors" if self.is_iv(model) else "bse"
-        return f'{model}.{attribute}["{_term(term)}"]'
+        return f'{model}.{attribute}["{self._key(model, term)}"]'
+
+    def _key(self, model: str, term: str) -> str:
+        """Etki sonuçlarında terim adı olduğu gibi (``race4=2``); modellerde statsmodels adı."""
+
+        return term if self.is_effects(model) else _term(term)
 
     # --- Başlık ve yardımcılar ------------------------------------------
     def imports(self, operations: tuple[Operation, ...]) -> list[str]:
         ops = flatten(operations)
+        functions = functions_used(operations)
         lines: list[str] = []
         if any(isinstance(op, LoadHansen) for op in ops):
             lines += ["import io", "import urllib.request", "import zipfile", ""]
-        if any(isinstance(op, (GroupMeanPlot, ProjectionPlot, Plot, Histogram)) for op in ops):
+        if any(isinstance(op, (GroupMeanPlot, ProjectionPlot, Plot, Histogram, AverageProfile, ProfileCurves))
+               for op in ops):
             lines.append("import matplotlib.pyplot as plt")
         lines.append("import numpy as np")
         lines.append("import pandas as pd")
-        if any(isinstance(op, OLS) for op in ops):
+        if any(isinstance(op, (OLS, BinaryChoice, QuantileRegression)) for op in ops):
             lines.append("import statsmodels.formula.api as smf")
         if any(isinstance(op, IV) for op in ops):
             lines.append("from linearmodels.iv import IV2SLS")
-        if any(isinstance(op, EffectTable) for op in ops) or self.p_checks:
+        needs_stats = (
+            any(isinstance(op, (EffectTable, MarginalEffects, Tobit, TobitTargets, TobitFitCheck)) for op in ops)
+            or self.p_checks or bool(functions & {"normcdf", "normpdf"})
+        )
+        if needs_stats:
             lines.append("from scipy import stats")
+        if "logistic" in functions or any(isinstance(op, MarginalEffects) for op in ops):
+            lines.append("from scipy.special import expit")
         if any(isinstance(op, RegressionTable) for op in ops):
             lines.append("from statsmodels.iolib.summary2 import summary_col")
         if any(isinstance(op, BreuschPagan) for op in ops):
@@ -230,6 +402,22 @@ class PythonGenerator(Generator):
             ]
         return lines
 
+    def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
+        ops = flatten(operations)
+        names: list[str] = []
+        if any(isinstance(op, MarginalEffects) for op in ops):
+            names.append("marjinal_etkiler")
+        if any(isinstance(op, Tobit) for op in ops):
+            names.append("tobit")
+        return names
+
+    def helper_code(self, name: str) -> list[str]:
+        if name == "marjinal_etkiler":
+            return _MARGINAL_EFFECTS_HELPER + ["", ""]
+        if name == "tobit":
+            return _TOBIT_HELPER + ["", ""]
+        return []
+
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
         lines = self._operation(op)
@@ -238,6 +426,9 @@ class PythonGenerator(Generator):
         return lines
 
     def _operation(self, op: Operation) -> list[str]:
+        limited = self._limited_operation(op)
+        if limited is not None:
+            return limited
         if isinstance(op, StandardErrorTable):
             models = ", ".join(op.models)
             names = ", ".join(f'"{m}"' for m in op.models)
@@ -303,6 +494,8 @@ class PythonGenerator(Generator):
                 else f"rng.uniform({a}, {b}, size=len({op.frame}))"
             return [f"# {op.comment}", f'{op.frame}["{op.name}"] = {call}']
         if isinstance(op, Predict):
+            if op.kind == "index":
+                return [f"# Doğrusal indeks x'β (olasılık değil)", f'{op.frame}["{op.name}"] = {op.model}.fittedvalues']
             attribute = "fittedvalues" if op.kind == "fitted" else "resid"
             return [f'{op.frame}["{op.name}"] = {op.model}.{attribute}']
         if isinstance(op, Summaries):
@@ -413,6 +606,188 @@ class PythonGenerator(Generator):
             ]
         raise TypeError(f"Python üreticisi bu işlemi tanımıyor: {type(op).__name__}")
 
+    # --- Sınırlı bağımlı değişken işlemleri -------------------------------
+    def _limited_operation(self, op: Operation) -> list[str] | None:
+        if isinstance(op, KeepIf):
+            parts = " & ".join(
+                f'({op.frame}["{variable}"] {operator} {E.format_number(value)})'
+                for variable, operator, value in op.conditions
+            )
+            return [
+                f"# {op.comment}",
+                f"{op.frame} = {op.frame}[{parts}].copy()",
+                f"print(len({op.frame}))  # analiz örneklemi",
+            ]
+        if isinstance(op, Recode):
+            conditions = []
+            for values, _ in op.mapping:
+                if len(values) == 1:
+                    conditions.append(f'{op.frame}["{op.source}"] == {E.format_number(values[0])}')
+                else:
+                    listed = ", ".join(E.format_number(v) for v in values)
+                    conditions.append(f'{op.frame}["{op.source}"].isin([{listed}])')
+            codes = ", ".join(str(code) for _, code in op.mapping)
+            return [
+                f"# {op.comment}",
+                *_wrapped_list(f'{op.frame}["{op.name}"] = np.select([', conditions, "],"),
+                f"    [{codes}], default={op.other})",
+                f'print({op.frame}["{op.name}"].value_counts().sort_index())',
+            ]
+        if isinstance(op, BinaryChoice):
+            return self._binary(op)
+        if isinstance(op, MarginalEffects):
+            settings = self.models[op.model]
+            terms = ", ".join(f'"{t}"' for t in op.terms)
+            call = f'{op.name} = ortalama_marjinal_etkiler({op.model}, "{link_of(settings)}", [{terms}]'
+            if op.discrete:
+                call += f", kesikli=[{', '.join(_quoted(op.discrete))}]"
+            lines = [
+                "# Ortalama marjinal etkiler: sürekli değişkende türev, kategorik değişkende referans düzeyine",
+                "# göre olasılık farkı; standart hatalar delta yöntemiyle, modelin kovaryansıyla",
+                call + ")",
+                f'print(pd.DataFrame({{"AME": {op.name}.params, "SH": {op.name}.bse}}).round(4))',
+            ]
+            return lines
+        if isinstance(op, AverageProfile):
+            values = ", ".join(E.format_number(v) for v in op.values)
+            data = self.models[op.model].frame
+            return [
+                f"# {op.variable} bütün gözlemlerde sırayla aynı değere eşitlenir; diğer değişkenler gözlenen",
+                "# değerlerinde kalır. Her değerde tahmin edilen olasılıkların ortalaması alınır.",
+                f"degerler = [{values}]",
+                "olasiliklar = []",
+                "for deger in degerler:",
+                f"    kopya = {data}.copy()",
+                f'    kopya["{op.variable}"] = deger',
+                f"    olasiliklar.append({op.model}.predict(kopya).mean())",
+                f'{op.name} = pd.DataFrame({{"olasilik": olasiliklar}}, index=degerler)',
+                f"print({op.name}.round(4))",
+                "fig, ax = plt.subplots(figsize=(8, 5))",
+                f'ax.plot({op.name}.index, {op.name}["olasilik"], marker="o", color="#107C89")',
+                f'ax.set_xlabel("{op.x_label}")',
+                f'ax.set_ylabel("{op.y_label}")',
+                f'ax.set_title("{op.title}")',
+                "ax.grid(alpha=0.3)",
+                "plt.show()",
+            ]
+        if isinstance(op, Tobit):
+            regressors = f"regresorler_{op.name}"
+            return [
+                f"# Tobit: {op.outcome} soldan {E.format_number(op.left)} noktasında sansürlü; MLE (tobit_mle)",
+                *_wrapped_list(f"{regressors} = [", _quoted(op.regressors), "]"),
+                f"tasarim = {op.frame}[{regressors}].copy()",
+                'tasarim.insert(0, "Intercept", 1.0)',
+                f'{op.name} = tobit_mle({op.frame}["{op.outcome}"], tasarim, sol={E.format_number(op.left)})',
+                f'print({op.name}.params[{self._shown(op)}].round(4), "sigma:", round({op.name}.sigma, 4))',
+            ]
+        if isinstance(op, QuantileRegression):
+            formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
+            fit = f".fit(q={E.format_number(op.q)}, max_iter=5000)"
+            return [
+                f"# Kantil regresyon, q = {E.format_number(op.q)}" + (" (medyan / LAD)" if op.q == 0.5 else ""),
+                *_fit_call(op.name, "smf.quantreg", formula, op.frame, fit),
+                f"print({op.name}.params[{self._shown(op)}].round(4))",
+            ]
+        if isinstance(op, ProfileCurves):
+            return self._profile_curves(op)
+        if isinstance(op, TobitTargets):
+            latent = f'{op.curves}["{op.model}"]'
+            sigma = f"{op.model}.sigma"
+            return [
+                "# Tobit'in üç hedefi: z = x'β/σ; P(Y>0|x) = Φ(z), m(x) = Φ(z)x'β + σφ(z), m#(x) = x'β + σφ(z)/Φ(z)",
+                f"z = {latent} / {sigma}",
+                f"{op.result} = pd.DataFrame({{",
+                f'    "gizli": {latent},',
+                '    "p_poz": stats.norm.cdf(z),',
+                f'    "gozlenen": stats.norm.cdf(z) * {latent} + {sigma} * stats.norm.pdf(z),',
+                f'    "poz_ort": {latent} + {sigma} * stats.norm.pdf(z) / stats.norm.cdf(z),',
+                "})",
+                f"print({op.result}.round(3))",
+            ]
+        if isinstance(op, TobitFitCheck):
+            model = op.model
+            return [
+                "# Model kontrolü: Tobit'in ima ettiği P(Y>0) ve E[Y], örneklem üzerinde ortalanır",
+                f"xb = {model}.exog.to_numpy() @ {model}.params.to_numpy()",
+                f"z = (xb - {model}.sol) / {model}.sigma",
+                f"{op.result} = pd.DataFrame({{",
+                f'    "model": [stats.norm.cdf(z).mean(), np.mean({model}.sol + stats.norm.cdf(z) * (xb - {model}.sol)'
+                f" + {model}.sigma * stats.norm.pdf(z))],",
+                f'    "veri": [np.mean({model}.endog > {model}.sol), np.mean({model}.endog)],',
+                '}, index=["p_poz", "ortalama"])',
+                f"print({op.result}.round(4))",
+            ]
+        return None
+
+    def _shown(self, op) -> str:
+        shown = [op.regressors[0]] if len(op.regressors) > 5 else list(op.regressors)
+        return "[" + ", ".join(f'"{name}"' for name in ["Intercept", *shown]) + "]"
+
+    def _binary(self, op: BinaryChoice) -> list[str]:
+        terms = [f"C({r})" if r in op.categorical else r for r in op.regressors]
+        formula = f"{op.outcome} ~ " + " + ".join(terms)
+        if op.vcov == "robust":
+            comment = (f"# {_LINK_NAMES[op.link]} (MLE); dayanıklı kovaryans: HC0 = gözlenen Hessian ile "
+                       "sandviç H⁻¹(Σsᵢsᵢ')H⁻¹")
+            fit = '.fit(disp=False, cov_type="HC0")'
+        else:
+            comment = f"# {_LINK_NAMES[op.link]} (MLE); klasik kovaryans: ters gözlenen bilgi matrisi"
+            fit = ".fit(disp=False)"
+        builder = "smf.logit" if op.link == "logit" else "smf.probit"
+        lines = [comment, *_fit_call(op.name, builder, formula, op.frame, fit)]
+        shown = continuous_terms(op) if op.categorical else list(op.regressors)
+        if shown:
+            lines.append(f"print({op.name}.params[[{', '.join(_quoted(shown))}]].round(4))")
+        return lines
+
+    def _profile_curves(self, op: ProfileCurves) -> list[str]:
+        others = profile_others(op, self.models)
+        dialect = self.dialect("P")
+        values = ", ".join(E.format_number(v) for v in op.values)
+        pairs = ", ".join(f'("{model}", {model})' for model, _ in op.models)
+        lines = [
+            f"# Profil: {op.variable} ızgarasında x'β; türetilen terimler ızgaradan, diğer regresörler",
+            "# örneklem ortalamasında. OLS/LAD'de x'β tahmin edilen ortalama/medyan, Tobit'te gizli ortalama.",
+            "def profil_tasarimi(degerler):",
+            f'    P = pd.DataFrame({{"{op.variable}": np.asarray(degerler, dtype=float)}})',
+        ]
+        for name, expression in op.derived:
+            lines.append(f'    P["{name}"] = {E.render(expression, dialect)}')
+        lines += _wrapped_list("    for ad in [", _quoted(others), "]:")
+        lines += [
+            f"        P[ad] = {op.frame}[ad].mean()",
+            '    P.insert(0, "Intercept", 1.0)',
+            "    return P",
+            "",
+            "",
+            "def dogrusal_indeks(model, P):",
+            "    return P[model.params.index].to_numpy() @ model.params.to_numpy()",
+            "",
+            "",
+            f"degerler = [{values}]",
+            "izgara = profil_tasarimi(degerler)",
+            f"{op.result} = pd.DataFrame({{ad: dogrusal_indeks(m, izgara) for ad, m in [{pairs}]}}, index=degerler)",
+            f"print({op.result}.round(2))",
+            f"ince = profil_tasarimi(np.linspace({E.format_number(op.plot_grid[0])}, "
+            f"{E.format_number(op.plot_grid[1])}, {int(op.plot_grid[2])}))",
+            "fig, ax = plt.subplots(figsize=(8, 5))",
+        ]
+        colors = ("#107C89", "#B3392F", "#2F9E6B", "#07373D")
+        for (model, label), color in zip(op.models, colors):
+            lines.append(
+                f'ax.plot(ince["{op.variable}"], dogrusal_indeks({model}, ince), color="{color}", linewidth=2, '
+                f'label="{label}")'
+            )
+        lines += [
+            f'ax.set_xlabel("{op.x_label}")',
+            f'ax.set_ylabel("{op.y_label}")',
+            f'ax.set_title("{op.title}")',
+            "ax.legend()",
+            "ax.grid(alpha=0.3)",
+            "plt.show()",
+        ]
+        return lines
+
     # --- Tahminler -------------------------------------------------------
     def _ols(self, op: OLS) -> list[str]:
         terms = [f"C({r})" if r in op.categorical else r for r in op.regressors]
@@ -466,7 +841,7 @@ class PythonGenerator(Generator):
         lines = [f"# {op.title}" if op.title else "# Tahminler yan yana", "satirlar = ["]
         for label, model, term in op.rows:
             lines.append(
-                f'    ("{label}", {model}.params["{_term(term)}"], {self._standard_error(model, term)}, '
+                f'    ("{label}", {model}.params["{self._key(model, term)}"], {self._standard_error(model, term)}, '
                 f"int({model}.nobs)),"
             )
         lines += [
@@ -547,7 +922,7 @@ class PythonGenerator(Generator):
         frame, x = op.frame, op.x
         grid = E.Dialect(
             variable=lambda name: "izgara",
-            coefficient=lambda model, term: f'{model}.params["{_term(term)}"]',
+            coefficient=lambda model, term: f'{model}.params["{self._key(model, term)}"]',
             functions=self.dialect(frame).functions,
             power="**",
         )
@@ -610,7 +985,7 @@ class PythonGenerator(Generator):
                 )
             return f"{series}.{_STAT[target.stat]}()"
         if isinstance(target, CoefTarget):
-            coefficient = f'{target.model}.params["{_term(target.term)}"]'
+            coefficient = f'{target.model}.params["{self._key(target.model, target.term)}"]'
             if target.quantity == "coef":
                 return coefficient
             if target.quantity == "se":
@@ -624,6 +999,8 @@ class PythonGenerator(Generator):
             return f"{target.model}.rsquared" if target.quantity == "r2" else f"{target.model}.nobs"
         if isinstance(target, ScalarTarget):
             return target.name
+        if isinstance(target, TableTarget):
+            return f'{target.table}.loc[{_row(target.row)}, "{target.column}"]'
         raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
 
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:

@@ -36,16 +36,16 @@ def test_question_answer_and_new_question_state() -> None:
     """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
 
     app = _run_app()
-    app.radio(key="topic_selector").set_value("konu05").run()
+    app.radio(key="topic_selector").set_value("konu07").run()
     successes = len(app.success)
-    app.button(key="konu05_toggle_answer").click().run()
+    app.button(key="konu07_toggle_answer").click().run()
     assert not app.exception
-    assert app.session_state["konu05_answer_visible"] is True
+    assert app.session_state["konu07_answer_visible"] is True
     assert len(app.success) == successes + 1
 
-    app.button(key="konu05_new_question").click().run()
-    assert app.session_state["konu05_answer_visible"] is False
-    assert app.session_state["konu05_question_index"] == 1
+    app.button(key="konu07_new_question").click().run()
+    assert app.session_state["konu07_answer_visible"] is False
+    assert app.session_state["konu07_question_index"] == 1
     assert len(app.success) == successes
 
 
@@ -113,46 +113,40 @@ def test_topic_04_has_three_tabs_lab_and_experiments() -> None:
     assert any(metric.label == "LATE (DGP)" for metric in app.metric)
 
 
-def test_topic_05_binary_models_effects_and_cps_gate() -> None:
+def test_topic_05_has_three_tabs_lab_and_experiments() -> None:
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu05").run()
     assert not app.exception
-    assert app.slider(key="konu05_age_effect").value == 0.20
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu05_lab_step").value == 1
+    assert any("cps09mar.txt" in item.value for item in app.markdown)
     assert any(metric.label == "LPM sınır dışı tahmin" for metric in app.metric)
 
-    app.segmented_control(key="konu05_effect_target").set_value(
-        "Metropol: 0 → 1"
-    ).run()
+    app.slider(key="konu05_sezgi1_beta").set_value(0.5).run()
     assert not app.exception
-    assert any("kukla değişkendir" in item.value for item in app.warning)
+    assert any("Seçim araştırma hedefine bağlıdır" in item.value for item in app.info)
 
-    app.segmented_control(key="konu05_data_source").set_value(
-        "Hazırlanmış CPS CSV"
-    ).run()
-    assert any("CPS verisi lisans teyidi" in item.value for item in app.info)
+    app.segmented_control(key="konu05_sezgi_deney").set_value(3).run()
+    assert not app.exception
+    assert any(metric.label == "Sonlu fark (AME)" for metric in app.metric)
 
 
-def test_topic_06_tobit_selection_and_chj_gate() -> None:
+def test_topic_06_has_three_tabs_lab_and_experiments() -> None:
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu06").run()
     assert not app.exception
-    assert app.slider(key="konu06_sigma").value == 1.0
-    assert any(metric.label == "Sansürlenme oranı" for metric in app.metric)
-    assert any("Tobit MLE yakınsama" in item.value for item in app.success)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu06_lab_step").value == 1
+    assert any("CHJ2004.dta" in item.value for item in app.markdown)
+    tobit = next(metric for metric in app.metric if metric.label == "Tobit eğimi")
+    assert tobit.value == "1,002"
 
-    app.segmented_control(key="konu06_problem_type").set_value(
-        "Örneklem seçimi"
-    ).run()
-    assert any("sonuç yalnız seçilen" in item.value for item in app.info)
-
-    app.slider(key="konu06_exclusion_strength").set_value(0.0).run()
+    app.segmented_control(key="konu06_sezgi_deney").set_value(2).run()
     assert not app.exception
-    assert any("dışlanan değişken yok" in item.value for item in app.error)
-
-    app.segmented_control(key="konu06_data_source").set_value(
-        "Hazırlanmış CHJ CSV"
-    ).run()
-    assert any("CHJ verisi lisans teyidi" in item.value for item in app.info)
+    assert any(metric.label == "Heckman eğimi" for metric in app.metric)
+    app.slider(key="konu06_sezgi2_gz").set_value(0.0).run()
+    assert not app.exception
+    assert any("dışlama değişkeni seçimi etkilemiyor" in item.value for item in app.info)
 
 
 def test_topic_07_quantile_targets_and_cps_gate() -> None:

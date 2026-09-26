@@ -52,7 +52,7 @@ def test_each_topic_module_exports_render() -> None:
 
 
 # Uygulama + Sezgi yapısına geçmiş konular: kod üç dilde, tek tanımdan üretilir.
-MIGRATED_TOPICS = {"konu01", "konu02", "konu03", "konu04"}
+MIGRATED_TOPICS = {"konu01", "konu02", "konu03", "konu04", "konu05", "konu06"}
 
 
 def test_each_topic_exposes_code_downloads_in_all_four_sections() -> None:

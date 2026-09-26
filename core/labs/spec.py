@@ -46,6 +46,9 @@ REPRO_DESCRIPTIONS = {
 
 STATISTICS = ("count", "sum", "mean", "sd", "median", "min", "max")
 VCOV_TYPES = ("classic", "HC1", "cluster")
+BINARY_LINKS = ("logit", "probit")
+BINARY_VCOV_TYPES = ("classic", "robust")
+KEEP_OPERATORS = ("==", "!=", "<", "<=", ">", ">=")
 
 
 # --- İşlemler ---------------------------------------------------------------
@@ -245,11 +248,16 @@ class Scatter:
 
 @dataclass(frozen=True)
 class Curve:
-    """Grafik katmanı: x'in bilinen bir fonksiyonu (ör. DGP'deki gerçek koşullu ortalama)."""
+    """Grafik katmanı: x'in bilinen bir fonksiyonu (ör. DGP'deki gerçek koşullu ortalama).
+
+    ``color`` verilirse eğri rengi sıradan değil bu indeksle seçilir (aynı gruba ait gerçek ve
+    tahmin eğrileri aynı renkte, biri kesikli çizilsin diye).
+    """
 
     expr: Expr
     label: str
     dashed: bool = False
+    color: int | None = None
 
 
 @dataclass(frozen=True)
@@ -357,6 +365,158 @@ class IV:
 
 
 @dataclass(frozen=True)
+class KeepIf:
+    """Analiz örneklemi: bütün koşulları sağlayan gözlemler kalır.
+
+    Her koşul (değişken, işleç, değer) üçlüsüdür; işleç ``KEEP_OPERATORS`` içinden seçilir.
+    """
+
+    frame: str
+    conditions: tuple[tuple[str, str, float], ...]
+    comment: str
+
+
+@dataclass(frozen=True)
+class Recode:
+    """Bir değişkenin değerlerini yeni kategorilere toplar.
+
+    ``mapping`` (eski değerler, yeni değer) çiftleridir; listede olmayan değerler ``other`` olur.
+    """
+
+    frame: str
+    name: str
+    source: str
+    mapping: tuple[tuple[tuple[float, ...], int], ...]
+    other: int
+    comment: str
+
+
+@dataclass(frozen=True)
+class BinaryChoice:
+    """İkili sonuç için Logit veya Probit, maksimum olabilirlik.
+
+    ``vcov="robust"``: gözlenen Hessian ile sandviç H⁻¹(Σ sᵢsᵢ')H⁻¹, serbestlik düzeltmesi
+    olmadan (statsmodels ``HC0``). Stata ``vce(robust)`` ayrıca n/(n−1) ile çarpar; binlerce
+    gözlemde fark beşinci anlamlı basamaktadır. ``vcov="classic"``: ters gözlenen bilgi matrisi.
+    """
+
+    name: str
+    frame: str
+    outcome: str
+    regressors: tuple[str, ...]
+    link: str = "logit"
+    categorical: tuple[str, ...] = ()
+    vcov: str = "robust"
+
+
+@dataclass(frozen=True)
+class MarginalEffects:
+    """Ortalama marjinal etkiler (AME) ve delta yöntemiyle standart hataları.
+
+    Sürekli regresörde türevin (βⱼ·g(Xᵢ'β)), kategorik regresörde her düzey için referans
+    düzeyine göre olasılık farkının örneklem ortalaması. ``discrete`` içindeki kategorik
+    olmayan 0/1 değişkenlerde de türev yerine 1 − 0 farkı alınır. Doğrusal olasılık modelinde
+    (OLS) etkiler katsayıların kendisidir. Sonuç, katsayıları etkiler olan bir "model" gibi
+    saklanır; terim adları ``age`` veya ``race4=2`` biçimindedir.
+    """
+
+    model: str
+    name: str
+    terms: tuple[str, ...]
+    discrete: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AverageProfile:
+    """Bir regresör bütün gözlemlerde aynı değere eşitlendiğinde ortalama tahmin edilen olasılık.
+
+    Diğer regresörler gözlenen değerlerinde kalır (``margins, at()`` mantığı). Sonuç tablosu:
+    satırlar ``values``, tek sütun ``olasilik``.
+    """
+
+    model: str
+    name: str
+    variable: str
+    values: tuple[float, ...]
+    x_label: str
+    y_label: str
+    title: str
+
+
+@dataclass(frozen=True)
+class Tobit:
+    """Soldan ``left`` noktasında sansürlü Tobit, maksimum olabilirlik.
+
+    Standart hatalar ters gözlenen bilgi matrisinden (klasik); β bloğu σ'nın nasıl
+    parametrelendiğinden etkilenmez.
+    """
+
+    name: str
+    frame: str
+    outcome: str
+    regressors: tuple[str, ...]
+    left: float = 0.0
+
+
+@dataclass(frozen=True)
+class QuantileRegression:
+    """Kantil regresyon; ``q=0.5`` medyan (en küçük mutlak sapma, LAD) regresyonudur."""
+
+    name: str
+    frame: str
+    outcome: str
+    regressors: tuple[str, ...]
+    q: float = 0.5
+
+
+@dataclass(frozen=True)
+class ProfileCurves:
+    """Modellerin doğrusal indeksi x'β, bir değişkenin ızgarasında; diğer regresörler örneklem ortalamasında.
+
+    ``derived`` ızgara değişkeninden türetilen regresörlerdir (ör. spline terimleri). OLS ve
+    LAD'de x'β tahmin edilen koşullu ortalama/medyan, Tobit'te gizli ortalamadır. Sonuç
+    tablosu: satırlar ``values``, sütunlar model adları. ``plot_grid`` (alt, üst, nokta sayısı)
+    grafikteki eğriler içindir.
+    """
+
+    models: tuple[tuple[str, str], ...]
+    frame: str
+    variable: str
+    derived: tuple[tuple[str, Expr], ...]
+    values: tuple[float, ...]
+    result: str
+    plot_grid: tuple[float, float, int]
+    x_label: str
+    y_label: str
+    title: str
+
+
+@dataclass(frozen=True)
+class TobitTargets:
+    """Tobit'in üç hedefi, ``curves`` tablosundaki gizli ortalama x'β üzerinden.
+
+    P(Y>0|x) = Φ(z), m(x) = Φ(z)x'β + σφ(z), m#(x) = x'β + σφ(z)/Φ(z), z = x'β/σ. Sonuç
+    tablosunun sütunları: ``gizli``, ``p_poz``, ``gozlenen``, ``poz_ort`` (Stata skaler adları
+    32 karakteri aşmasın diye kısa).
+    """
+
+    model: str
+    curves: str
+    result: str
+
+
+@dataclass(frozen=True)
+class TobitFitCheck:
+    """Model kontrolü: Tobit'in ima ettiği P(Y>0) ve E[Y] örneklem ortalamaları, verideki karşılıklarıyla.
+
+    Sonuç tablosu: satırlar ``p_poz`` ve ``ortalama``, sütunlar ``model`` ve ``veri``.
+    """
+
+    model: str
+    result: str
+
+
+@dataclass(frozen=True)
 class MonteCarlo:
     """Bir işlem bloğunu ``reps`` kez yeni çekilişlerle tekrarlar ve seçilen sayıları toplar.
 
@@ -391,6 +551,16 @@ class Histogram:
 
 
 Operation = Union[
+    KeepIf,
+    Recode,
+    BinaryChoice,
+    MarginalEffects,
+    AverageProfile,
+    Tobit,
+    QuantileRegression,
+    ProfileCurves,
+    TobitTargets,
+    TobitFitCheck,
     DropMissing,
     EffectTable,
     IV,
@@ -452,7 +622,16 @@ class ScalarTarget:
     name: str
 
 
-Target = Union[StatTarget, CoefTarget, ModelTarget, ScalarTarget]
+@dataclass(frozen=True)
+class TableTarget:
+    """Bir sonuç tablosunun hücresi: satır (ör. ızgara değeri) ve sütun adı."""
+
+    table: str
+    row: float | str
+    column: str
+
+
+Target = Union[StatTarget, CoefTarget, ModelTarget, ScalarTarget, TableTarget]
 
 
 @dataclass(frozen=True)

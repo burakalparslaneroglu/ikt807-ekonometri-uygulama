@@ -8,7 +8,14 @@ from core.labs import expr as E
 from core.labs.spec import (
     IV,
     OLS,
+    AverageProfile,
+    BinaryChoice,
     Check,
+    Derive,
+    MarginalEffects,
+    ProfileCurves,
+    QuantileRegression,
+    Tobit,
     CoefTarget,
     Curve,
     LabSpec,
@@ -39,7 +46,7 @@ class LayerStyle:
 
 _LINE_COLORS = (("#B3392F", "179 57 47"), ("#2F9E6B", "47 158 107"), ("#6B4C9A", "107 76 154"))
 _POINT_COLORS = (("#107C89", "16 124 137"), ("#C98A1B", "201 138 27"))
-_CURVE_COLORS = (("#07373D", "7 55 61"), ("#6B4C9A", "107 76 154"))
+_CURVE_COLORS = (("#07373D", "7 55 61"), ("#6B4C9A", "107 76 154"), ("#C98A1B", "201 138 27"))
 _HISTOGRAM_COLORS = (("#107C89", "16 124 137"), ("#B3392F", "179 57 47"), ("#C98A1B", "201 138 27"))
 
 
@@ -60,7 +67,8 @@ def layer_styles(layers) -> list[LayerStyle]:
         elif isinstance(layer, Scatter):
             styles.append(LayerStyle("#9AA5A6", "154 165 166"))
         elif isinstance(layer, Curve):
-            color, rgb = _CURVE_COLORS[counts["curves"] % len(_CURVE_COLORS)]
+            position = counts["curves"] if layer.color is None else layer.color
+            color, rgb = _CURVE_COLORS[position % len(_CURVE_COLORS)]
             styles.append(LayerStyle(color, rgb, dashed=layer.dashed))
             counts["curves"] += 1
         elif isinstance(layer, ModelLine):
@@ -106,15 +114,90 @@ LANGUAGE_INFO = {
 }
 
 
-def model_settings(spec: LabSpec) -> dict[str, OLS | IV]:
-    """Her model adının son tahmin ayarları (tür, kovaryans, küme); döngü içindekiler dahil."""
+ESTIMATORS = (OLS, IV, BinaryChoice, Tobit, QuantileRegression)
 
-    settings: dict[str, OLS | IV] = {}
+
+def model_settings(spec: LabSpec) -> dict[str, object]:
+    """Her model adının son tahmin ayarları (tür, kovaryans, küme); döngü içindekiler dahil.
+
+    Marjinal etki sonuçları da katsayıları etkiler olan bir model gibi kaydedilir.
+    """
+
+    settings: dict[str, object] = {}
     for step in spec.steps:
         for op in flatten(step.operations):
-            if isinstance(op, (OLS, IV)):
+            if isinstance(op, ESTIMATORS):
+                settings[op.name] = op
+            elif isinstance(op, MarginalEffects):
                 settings[op.name] = op
     return settings
+
+
+def expressions(operations) -> list[E.Expr]:
+    """İşlemlerdeki bütün ifadeler (türetilmiş değişkenler, skalerler, grafik eğrileri, döngü çıktıları)."""
+
+    from core.labs.spec import Curve, Plot, Scalar as ScalarOp
+
+    found: list[E.Expr] = []
+    for op in flatten(operations):
+        if isinstance(op, Derive):
+            found.append(op.expr)
+        elif isinstance(op, ScalarOp):
+            found.append(op.expr)
+        elif isinstance(op, Plot):
+            found.extend(layer.expr for layer in op.layers if isinstance(layer, Curve))
+        elif isinstance(op, ProfileCurves):
+            found.extend(expression for _, expression in op.derived)
+        elif isinstance(op, MonteCarlo):
+            found.extend(expression for _, expression in op.collect)
+    return found
+
+
+def functions_used(operations) -> set[str]:
+    """İfadelerde geçen fonksiyon adları (ör. ``normcdf``): içe aktarmaları belirler."""
+
+    names: set[str] = set()
+
+    def visit(node: E.Expr) -> None:
+        if isinstance(node, E.Call):
+            names.add(node.fn)
+            for argument in node.args:
+                visit(argument)
+        elif isinstance(node, E.BinOp):
+            visit(node.left)
+            visit(node.right)
+
+    for expression in expressions(operations):
+        visit(expression)
+    return names
+
+
+def link_of(settings) -> str:
+    """Marjinal etkinin bağlantısı: Logit/Probit kendi bağlantısı, OLS doğrusal olasılık modeli."""
+
+    if isinstance(settings, BinaryChoice):
+        return settings.link
+    return "dogrusal"
+
+
+def profile_others(op: ProfileCurves, models: dict[str, object]) -> list[str]:
+    """Profil tasarımında örneklem ortalamasında tutulan regresörler (sıra korunur)."""
+
+    derived = {name for name, _ in op.derived}
+    others: list[str] = []
+    for model, _ in op.models:
+        for name in models[model].regressors:
+            if name != op.variable and name not in derived and name not in others:
+                others.append(name)
+    return others
+
+
+def table_row_text(row) -> str:
+    """Tablo satır adının metin biçimi (R satır adları, Stata skaler adları için)."""
+
+    if isinstance(row, str):
+        return row
+    return E.format_number(row)
 
 
 def coefficient_models(expression: E.Expr) -> list[str]:
@@ -158,6 +241,9 @@ class Generator:
     def is_iv(self, model: str) -> bool:
         return isinstance(self.models.get(model), IV)
 
+    def is_effects(self, model: str) -> bool:
+        return isinstance(self.models.get(model), MarginalEffects)
+
     def needs_sample(self, op: OLS) -> bool:
         """Tahmin örneklemini açıkça oluşturmak gerekir mi?
 
@@ -197,6 +283,24 @@ class Generator:
 
     def closing(self) -> list[str]:
         return []
+
+    def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
+        """İşlemlerin gerektirdiği yardımcı fonksiyonlar (ör. marjinal etkiler, Tobit)."""
+
+        return []
+
+    def helper_code(self, name: str) -> list[str]:
+        return []
+
+    def function_helpers(self, operations: tuple[Operation, ...], before: tuple[Operation, ...] = ()) -> list[str]:
+        """Yardımcı fonksiyon tanımları; ``before`` işlemlerinde zaten tanımlananlar tekrar yazılmaz."""
+
+        defined = set(self.helper_names(before))
+        lines: list[str] = []
+        for name in self.helper_names(operations):
+            if name not in defined:
+                lines.extend(self.helper_code(name))
+        return lines
 
     # --- Ortak yapı -------------------------------------------------------
     def banner(self, text: str) -> list[str]:
@@ -254,6 +358,7 @@ class Generator:
         elif number > 1 and self.spec.kind != "sezgi":
             lines.append(f"{self.comment} Önceki adımlar çalıştırılmış olmalıdır (veri ve modeller hazır).")
             lines.append("")
+        lines.extend(self.function_helpers(step.operations, self.spec.operations_through(number - 1)))
         lines.extend(self.render_operations(step.operations))
         return "\n".join(lines).rstrip() + "\n"
 
@@ -266,6 +371,7 @@ class Generator:
         lines = self.header()
         lines.extend(self.imports(operations))
         lines.extend(self.helpers(operations, with_checks=self.has_checks))
+        lines.extend(self.function_helpers(operations))
         for step in self.spec.steps:
             if not step.operations and not step.checks:
                 continue

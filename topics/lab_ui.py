@@ -36,6 +36,16 @@ from core.labs.runner import LabRun, run_lab, statsmodels_term
 from core.labs.spec import (
     IV,
     OLS,
+    AverageProfile,
+    BinaryChoice,
+    KeepIf,
+    ProfileCurves,
+    QuantileRegression,
+    Recode,
+    Summaries,
+    Tobit,
+    TobitFitCheck,
+    TobitTargets,
     BreuschPagan,
     DeltaMethod,
     DropMissing,
@@ -56,6 +66,9 @@ from core.labs.spec import (
 from topics.regression_ui import show_figure, style_figure
 
 CODE_LANGUAGE_KEY = "code_language"
+TEACHING_CSV_DATASETS = ("cps09mar", "ddk2011")
+"""Öğretim CSV'si laboratuvarın bütün ham değişkenlerini taşıyan veri setleri (Card1995 ve CHJ2004'te türetilen
+değişkenlerin kaynakları eksiktir; bu veri setlerinde Hansen'in .dta dosyası gerekir)."""
 DATA_PATH_ENV = "IKT807_HANSEN_{dataset}_PATH"
 LEGACY_CPS_ENV = "IKT807_CPS_PATH"
 _STAT_LABELS = {
@@ -153,8 +166,9 @@ def _render_data_panel(spec: LabSpec) -> LoadedData | None:
                     st.error(
                         f"İndirme başarısız: {error}\n\nDosyayı kendiniz indirip yandan yükleyebilirsiniz."
                     )
+        csv_note = " ya da ders notlarının öğretim CSV'si" if spec.dataset in TEACHING_CSV_DATASETS else ""
         uploaded = right.file_uploader(
-            f"veya dosya yükleyin ({member} ya da ders notlarının öğretim CSV'si)",
+            f"veya dosya yükleyin ({member}{csv_note})",
             type=("txt", "csv", "dta"),
             key=f"{spec.topic_key}_lab_upload",
         )
@@ -368,6 +382,87 @@ def _projection_plot(op: ProjectionPlot, data: pd.DataFrame, result) -> None:
     show_figure(figure)
 
 
+def _show_model_title(spec: LabSpec, model: str) -> str:
+    """Tanımda etiket yoksa ``m3`` → "Model (3)", ``m2_hc1`` → "Model (2), HC1"."""
+
+    label = spec.label(model)
+    if label != model:
+        return label
+    match = re.fullmatch(r"m(\d+)(?:_(\w+))?", model)
+    if match is None:
+        return model
+    suffix = f", {match.group(2).upper()}" if match.group(2) else ""
+    return f"Model ({match.group(1)}){suffix}"
+
+
+def _fit_caption(result) -> str:
+    if hasattr(result, "rsquared"):
+        return f"N = {int(result.nobs):,} · R² = {result.rsquared:.4f}".replace(",", ".")
+    if hasattr(result, "prsquared"):
+        return (f"N = {int(result.nobs):,} · log-olabilirlik = {result.llf:.2f} · "
+                f"McFadden sözde R² = {result.prsquared:.4f}").replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"N = {int(result.nobs):,}".replace(",", ".")
+
+
+def _summary_number(value: float) -> str:
+    if float(value).is_integer():
+        return _count(value)
+    return f"{value:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _compact_binary(spec: LabSpec, op: BinaryChoice, result) -> None:
+    shown = ", ".join(spec.label(r) for r in op.regressors)
+    st.markdown(
+        f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {shown} · N = {_count(result.nobs)} · "
+        f"log-olabilirlik = {_number(result.llf, 2)}"
+    )
+
+
+def _compact_tobit(spec: LabSpec, op: Tobit, result) -> None:
+    censored = int(np.sum(result.endog <= op.left))
+    st.markdown(
+        f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {len(op.regressors)} regresör, soldan "
+        f"{_number(op.left, 0)}'da sansürlü · N = {_count(result.nobs)} ({_count(censored)} sansürlü) · "
+        f"σ̂ = {_number(result.sigma, 2)} · log-olabilirlik = {_number(result.llf, 2)}"
+    )
+
+
+def _profile_plot(op: AverageProfile, data: pd.DataFrame) -> None:
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=data.index, y=data["olasilik"], mode="lines+markers", name="Ortalama tahmin edilen olasılık",
+            line={"color": _COLORS[0], "width": 3},
+            hovertemplate=f"{op.x_label}: %{{x}}<br>Olasılık: %{{y:.4f}}<extra></extra>",
+        )
+    )
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
+    show_figure(figure)
+
+
+def _curves(spec: LabSpec, op: ProfileCurves, state) -> None:
+    table = state.tables[op.result].reset_index()
+    labels = dict(op.models)
+    table.columns = [op.x_label] + [labels[column] for column in table.columns[1:]]
+    st.markdown("**Seçilmiş düzeylerde tahmin (kontroller örneklem ortalamasında)**")
+    st.dataframe(
+        table.style.format({column: "{:.2f}" for column in table.columns[1:]} | {op.x_label: "{:.0f}"}),
+        hide_index=True, width="stretch",
+    )
+    data = state.plots[f"egriler:{op.result}"]
+    figure = go.Figure()
+    for index, (model, label) in enumerate(op.models):
+        figure.add_trace(
+            go.Scatter(
+                x=data[op.variable], y=data[model], mode="lines", name=label,
+                line={"color": _COLORS[index % len(_COLORS)], "width": 3},
+                hovertemplate=f"{op.x_label}: %{{x:.0f}}<br>%{{y:.2f}}<extra>{label}</extra>",
+            )
+        )
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="Tahmin edici")
+    show_figure(figure)
+
+
 def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     state = run.state
     has_table = any(isinstance(op, (RegressionTable, EffectTable)) for op in step.operations)
@@ -403,7 +498,7 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             st.dataframe(table, hide_index=True, width="stretch")
         elif isinstance(op, ShowModel):
             result = state.models[op.model]
-            st.markdown("**Model (3) — yazılım çıktısı**")
+            st.markdown(f"**{_show_model_title(spec, op.model)} — yazılım çıktısı**")
             st.dataframe(
                 _model_output(spec, result).style.format(
                     {c: "{:.4f}" for c in ("Katsayı", "Std. hata", "%95 GA alt", "%95 GA üst")}
@@ -412,7 +507,54 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
                 hide_index=True,
                 width="stretch",
             )
-            st.caption(f"N = {int(result.nobs):,} · R² = {result.rsquared:.4f}".replace(",", "."))
+            st.caption(_fit_caption(result))
+        elif isinstance(op, KeepIf):
+            before, after = state.samples[op.frame]
+            st.markdown(
+                f"**Analiz örneklemi:** N = {_count(after)} "
+                f"(yüklenen veride {_count(before)} gözlem; koşulu sağlamayan {_count(before - after)} gözlem çıkarıldı)"
+            )
+        elif isinstance(op, Recode):
+            counts = state.frames[op.frame][op.name].value_counts().sort_index()
+            st.caption(
+                f"{spec.label(op.name)} dağılımı: " + " · ".join(f"{level}: {_count(n)}" for level, n in counts.items())
+            )
+        elif isinstance(op, BinaryChoice) and not has_table:
+            _compact_binary(spec, op, state.models[op.name])
+        elif isinstance(op, Tobit):
+            _compact_tobit(spec, op, state.models[op.name])
+        elif isinstance(op, QuantileRegression):
+            result = state.models[op.name]
+            st.markdown(
+                f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {len(op.regressors)} regresör · "
+                f"q = {_number(op.q, 2)} · N = {_count(result.nobs)}"
+            )
+        elif isinstance(op, Summaries):
+            table = state.tables[op.result]
+            shown = pd.DataFrame({"": table.index, "Değer": [_summary_number(v) for v in table["Değer"]]})
+            st.dataframe(shown, hide_index=True, width="stretch")
+        elif isinstance(op, AverageProfile):
+            _profile_plot(op, state.plots[f"profil:{op.name}"])
+        elif isinstance(op, ProfileCurves):
+            _curves(spec, op, state)
+        elif isinstance(op, TobitTargets):
+            table = state.tables[op.result].reset_index()
+            table.columns = [spec.label(table.columns[0]), "Gizli ortalama m*(x)", "P(Y>0|x)",
+                             "Gözlenen ortalama m(x)", "Pozitiflerde ortalama m#(x)"]
+            st.markdown("**Tobit'in üç hedefi (kontroller örneklem ortalamasında)**")
+            st.dataframe(
+                table.style.format({column: "{:.3f}" if column == "P(Y>0|x)" else "{:.2f}" for column in table.columns[1:]}
+                                   | {table.columns[0]: "{:.0f}"}),
+                hide_index=True, width="stretch",
+            )
+        elif isinstance(op, TobitFitCheck):
+            table = state.tables[op.result]
+            st.markdown("**Model kontrolü: Tobit'in ima ettiği ile verideki**")
+            left, middle, right, last = st.columns(4)
+            left.metric("P(Y>0), Tobit", _number(table.loc["p_poz", "model"], 3))
+            middle.metric("Pozitif payı, veri", _number(table.loc["p_poz", "veri"], 3))
+            right.metric("E[Y], Tobit", _number(table.loc["ortalama", "model"], 2))
+            last.metric("Ortalama, veri", _number(table.loc["ortalama", "veri"], 2))
     for op in step.operations:
         if isinstance(op, StandardErrorTable):
             table = state.tables[op.result].reset_index()

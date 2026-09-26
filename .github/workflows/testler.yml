@@ -19,7 +19,7 @@ jobs:
           use-public-rspm: true  # derlenmiş (binary) paketler: AER ve haven dakikalar yerine saniyelerde kurulur
 
       - name: R paketleri
-        run: Rscript -e 'install.packages(c("sandwich", "lmtest", "haven", "AER"), repos = "https://cloud.r-project.org")'
+        run: Rscript -e 'install.packages(c("sandwich", "lmtest", "haven", "AER", "quantreg"), repos = "https://cloud.r-project.org")'
 
       - name: Python bağımlılıkları
         run: python -m pip install -r requirements-dev.txt
@@ -31,7 +31,7 @@ jobs:
           import pathlib, zipfile
           bundle = zipfile.ZipFile("hansen.zip")
           pathlib.Path("veri").mkdir(exist_ok=True)
-          for member in ("cps09mar.txt", "DDK2011.dta", "Card1995.dta"):
+          for member in ("cps09mar.txt", "DDK2011.dta", "Card1995.dta", "CHJ2004.dta"):
               name = next(n for n in bundle.namelist() if n.lower().rsplit("/", 1)[-1] == member.lower())
               pathlib.Path("veri", member).write_bytes(bundle.read(name))
               print("Arşivdeki yol:", name)
@@ -40,6 +40,7 @@ jobs:
           echo "IKT807_HANSEN_CPS09MAR_PATH=$PWD/veri/cps09mar.txt" >> "$GITHUB_ENV"
           echo "IKT807_HANSEN_DDK2011_PATH=$PWD/veri/DDK2011.dta" >> "$GITHUB_ENV"
           echo "IKT807_HANSEN_CARD1995_PATH=$PWD/veri/Card1995.dta" >> "$GITHUB_ENV"
+          echo "IKT807_HANSEN_CHJ2004_PATH=$PWD/veri/CHJ2004.dta" >> "$GITHUB_ENV"
 
       - name: Testler (Python + R, notlardaki sayılarla)
         run: python -m pytest -q

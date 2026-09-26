@@ -2,7 +2,8 @@
 
 Yeni bir konu ``core/labs/registry.py``'ye eklendiğinde bu testler onu kendiliğinden kapsar.
 Gerçek veri gerektiren testler, veri setinin yolu verilmezse atlanır:
-IKT807_HANSEN_CPS09MAR_PATH, IKT807_HANSEN_DDK2011_PATH, IKT807_HANSEN_CARD1995_PATH.
+IKT807_HANSEN_CPS09MAR_PATH, IKT807_HANSEN_DDK2011_PATH, IKT807_HANSEN_CARD1995_PATH,
+IKT807_HANSEN_CHJ2004_PATH.
 """
 
 from __future__ import annotations
