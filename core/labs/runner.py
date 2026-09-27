@@ -10,6 +10,8 @@ denetlenir. R ve Stata sonuçları da testlerle eşlenir.
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -20,6 +22,7 @@ from scipy import stats
 
 from core.labs import expr as E
 from core.labs import limited as L
+from core.labs import penalized as P
 from core.labs import quantreg as Q
 from core.labs import rdd as RD
 from core.labs import resample as RS
@@ -29,7 +32,26 @@ from core.labs.spec import (
     IV,
     OLS,
     RDD,
+    THETA,
     VCOV_TYPES,
+    CoefPath,
+    ComplexityCurve,
+    CrossFitDML,
+    CVCurve,
+    Dictionary,
+    DMLSplits,
+    DotPlot,
+    DoubleSelection,
+    DrawColumns,
+    EstimatePlot,
+    GroupRank,
+    LinePlot,
+    ModelMetrics,
+    Penalized,
+    PostSelection,
+    RowNumber,
+    dml_fold_key,
+    penalized_key,
     Bootstrap,
     RDDCurve,
     RDDTable,
@@ -131,6 +153,9 @@ class LabState:
     çerçevesinde art arda ``KeepIf`` ve ``DropMissing`` olabilir."""
     links: dict[str, str] = field(default_factory=dict)
     """Olasılık modellerinin bağlantısı (logit, probit; OLS için linear), model adına göre."""
+    ops: dict[str, object] = field(default_factory=dict)
+    """Düzenlileştirilmiş ve DML modellerini üreten işlemler, model adına göre (Post-Lasso ve bölme duyarlılığı
+    kaynak modelin ayarlarını buradan okur)."""
 
 
 @dataclass
@@ -148,9 +173,9 @@ class LabRun:
 
 # --- OLS ------------------------------------------------------------------------
 
-def _formula(outcome: str, regressors: tuple[str, ...], categorical: tuple[str, ...] = ()) -> str:
+def _formula(outcome: str, regressors: tuple[str, ...], categorical: tuple[str, ...] = (), constant: bool = True) -> str:
     terms = [f"C({name})" if name in categorical else name for name in regressors]
-    return f"{outcome} ~ " + " + ".join(terms)
+    return f"{outcome} ~ " + " + ".join(terms) + ("" if constant else " - 1")
 
 
 def _complete_rows(data: pd.DataFrame, used: list[str]) -> pd.DataFrame:
@@ -182,10 +207,10 @@ def fit_ols(op: OLS, frame: pd.DataFrame):
         raise ValueError("Küme-dayanıklı kovaryans için küme değişkeni gerekir.")
     data = estimation_sample(op, frame)
     if op.categorical:
-        model = smf.ols(_formula(op.outcome, op.regressors, op.categorical), data=data)
+        model = smf.ols(_formula(op.outcome, op.regressors, op.categorical, op.constant), data=data)
     else:
         # Formül ayrıştırmadan aynı tasarım matrisi: Monte Carlo tekrarlarında hız için.
-        columns = {STATSMODELS_INTERCEPT: np.ones(len(data))}
+        columns = {STATSMODELS_INTERCEPT: np.ones(len(data))} if op.constant else {}
         columns.update({name: data[name].to_numpy(dtype=float) for name in op.regressors})
         design = pd.DataFrame(columns, index=data.index)
         model = sm.OLS(pd.Series(data[op.outcome].to_numpy(dtype=float), index=data.index, name=op.outcome), design)
@@ -340,7 +365,9 @@ def plot_range(op: Plot, frame: pd.DataFrame) -> tuple[float, float]:
 
 
 def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
-    frame = state.frames[op.frame]
+    if not op.frame and op.x_range is None:
+        raise ValueError("Veri çerçevesiz grafikte yatay aralık (x_range) gerekir.")
+    frame = state.frames[op.frame] if op.frame else pd.DataFrame({op.x: [float(op.x_range[0]), float(op.x_range[1])]})
     low, high = plot_range(op, frame)
     grid = pd.DataFrame({op.x: np.linspace(low, high, 200)})
     layers: list[PlotLayerData] = []
@@ -400,7 +427,8 @@ class _BatchFit:
 def _batch_ols(op: OLS, data: dict[str, np.ndarray], reps: int, nobs: int) -> _BatchFit:
     """Yığın OLS; ``where`` verilirse alt örneklem 0/1 ağırlıkla seçilir (her tekrarda farklı boyut)."""
 
-    x = np.stack([np.ones((reps, nobs))] + [np.broadcast_to(data[r], (reps, nobs)) for r in op.regressors], axis=2)
+    constant = [np.ones((reps, nobs))] if op.constant else []
+    x = np.stack(constant + [np.broadcast_to(data[r], (reps, nobs)) for r in op.regressors], axis=2)
     y = np.broadcast_to(data[op.outcome], (reps, nobs))
     if op.where is None:
         weight = np.ones((reps, nobs))
@@ -419,7 +447,7 @@ def _batch_ols(op: OLS, data: dict[str, np.ndarray], reps: int, nobs: int) -> _B
     else:
         meat = np.einsum("rni,rn,rnj->rij", x, weight * residual**2, x)
         covariance = inverse @ meat @ inverse * (size / (size - k))[:, None, None]
-    names = [STATSMODELS_INTERCEPT, *op.regressors]
+    names = ([STATSMODELS_INTERCEPT] if op.constant else []) + list(op.regressors)
     return _BatchFit(names, beta, np.sqrt(np.einsum("rii->ri", covariance)))
 
 
@@ -482,20 +510,68 @@ def _batchable(op: MonteCarlo) -> bool:
                 return False
         elif isinstance(inner, IV):
             continue
+        elif isinstance(inner, DrawColumns):
+            if inner.frame != op.frame:
+                return False
+        elif isinstance(inner, CrossFitDML):
+            # Yalnız EKK öğrenicili, kümesiz DML; dış katlar sıra numarasından türetilmiş olmalıdır (her tekrarda aynı).
+            if (inner.learner != "ols" or inner.cluster is not None or inner.residuals is not None
+                    or inner.outer is None or inner.frame != op.frame):
+                return False
         else:
             return False
     return sum(isinstance(inner, NewSample) for inner in op.body) == 1 and isinstance(op.body[0], NewSample)
 
 
+class _NotBatchable(Exception):
+    """Yığın hesabı bu tekrar bloğunda kullanılamaz (ör. dış katlar tekrardan tekrara değişiyor)."""
+
+
+def _batch_crossfit_ols(op: CrossFitDML, data: dict[str, np.ndarray], reps: int, nobs: int) -> _BatchFit:
+    """EKK öğrenicili DML2, bütün tekrarlar için birlikte: her dış kat k için yardımcı regresyonlar (sabit + özellikler)
+    k dışındaki gözlemlerde çözülür, k'de tahmin edilir; θ̂ = ΣV̂Û/ΣV̂², SH HC1 (``penalized.crossfit_dml`` ile aynı
+    formüller; EKK tahminleri ölçeklemeden bağımsız olduğu için özellikler ölçeklenmez, yalnız merkezlenir)."""
+
+    folds = np.broadcast_to(np.asarray(data[op.outer], dtype=float), (reps, nobs))
+    if not np.all(folds == folds[:1]):
+        raise _NotBatchable(op.name)
+    folds = folds[0]
+    features = np.stack([np.broadcast_to(data[name], (reps, nobs)) for name in op.features], axis=2)
+    targets = {name: np.broadcast_to(data[name], (reps, nobs)) for name in (op.outcome, op.treatment)}
+    fitted = {name: np.zeros((reps, nobs)) for name in targets}
+    for key in np.unique(folds):
+        evaluate = folds == key
+        train = ~evaluate
+        xa = features[:, train, :]
+        center = xa.mean(axis=1, keepdims=True)
+        xc, xb = xa - center, features[:, evaluate, :] - center
+        gram = np.einsum("rni,rnj->rij", xc, xc)
+        for name, target in targets.items():
+            ya = target[:, train]
+            mean = ya.mean(axis=1, keepdims=True)
+            beta = np.linalg.solve(gram, np.einsum("rni,rn->ri", xc, ya - mean)[..., None])[..., 0]
+            fitted[name][:, evaluate] = mean + np.einsum("rni,ri->rn", xb, beta)
+    u = targets[op.outcome] - fitted[op.outcome]
+    v = targets[op.treatment] - fitted[op.treatment]
+    denominator = np.einsum("rn,rn->r", v, v)
+    theta = np.einsum("rn,rn->r", v, u) / denominator
+    score = v * (u - theta[:, None] * v)
+    error = np.sqrt(np.einsum("rn,rn->r", score, score) * nobs / (nobs - 1)) / denominator
+    return _BatchFit([THETA], theta[:, None], error[:, None])
+
+
 def _monte_carlo_batch(op: MonteCarlo, rng: np.random.Generator) -> pd.DataFrame:
     nobs = op.body[0].nobs
-    draws = [inner for inner in op.body if isinstance(inner, Draw)]
-    chunk = max(1, min(op.reps, 250_000 // max(nobs, 1)))
+    # Her Draw bir, her DrawColumns ``count`` normal çekiliş bloğu (n gözlem) tüketir; döngüdeki sırayla aynı.
+    draws = sum(1 if isinstance(inner, Draw) else inner.count for inner in op.body
+                if isinstance(inner, (Draw, DrawColumns)))
+    width = max(nobs, sum(len(inner.features) for inner in op.body if isinstance(inner, CrossFitDML)) * nobs)
+    chunk = max(1, min(op.reps, 250_000 // max(width, 1)))
     collected: dict[str, list[np.ndarray]] = {name: [] for name, _ in op.collect}
     done = 0
     while done < op.reps:
         reps = min(chunk, op.reps - done)
-        normals = rng.standard_normal(size=(reps, len(draws), nobs))
+        normals = rng.standard_normal(size=(reps, draws, nobs))
         data: dict[str, np.ndarray] = {"id": np.arange(1, nobs + 1, dtype=float)}
         fits: dict[str, _BatchFit] = {}
         index = 0
@@ -503,6 +579,19 @@ def _monte_carlo_batch(op: MonteCarlo, rng: np.random.Generator) -> pd.DataFrame
             if isinstance(inner, Draw):
                 data[inner.name] = inner.first + inner.second * normals[:, index, :]
                 index += 1
+            elif isinstance(inner, DrawColumns):
+                previous = None
+                for column in range(1, inner.count + 1):
+                    draw = normals[:, index, :]
+                    index += 1
+                    if previous is None or inner.rho == 0:
+                        value = draw
+                    else:
+                        value = inner.rho * previous + np.sqrt(1 - inner.rho**2) * draw
+                    data[f"{inner.prefix}{column}"] = value
+                    previous = value
+            elif isinstance(inner, CrossFitDML):
+                fits[inner.name] = _batch_crossfit_ols(inner, data, reps, nobs)
             elif isinstance(inner, Derive):
                 data[inner.name] = np.broadcast_to(np.asarray(E.evaluate(inner.expr, data), dtype=float), (reps, nobs))
             elif isinstance(inner, OLS):
@@ -527,9 +616,13 @@ def _monte_carlo_batch(op: MonteCarlo, rng: np.random.Generator) -> pd.DataFrame
 def _monte_carlo(op: MonteCarlo, state: LabState, sources: dict[str, pd.DataFrame], batch: bool = True) -> None:
     rng = np.random.default_rng(op.seed)
     names = [name for name, _ in op.collect]
+    table = None
     if batch and _batchable(op):
-        table = _monte_carlo_batch(op, rng)
-    else:
+        try:
+            table = _monte_carlo_batch(op, rng)
+        except _NotBatchable:
+            rng = np.random.default_rng(op.seed)  # döngü aynı çekilişlerle baştan başlar
+    if table is None:
         rows: list[list[float]] = []
         for _ in range(op.reps):
             local = LabState(rngs={op.frame: rng})
@@ -624,7 +717,203 @@ def _compare(values: np.ndarray, operator: str, value: float) -> np.ndarray:
     raise ValueError(f"Desteklenmeyen karşılaştırma: {operator}")
 
 
+# --- Model seçimi, düzenlileştirme ve DML (Konu 11–12) -----------------------------------------------
+
+def _penalized_scalars(state: LabState, name: str, fit: P.PenalizedFit) -> None:
+    values = {
+        "test_mse": fit.test_mse, "egitim_mse": fit.train_mse, "sifirdan": float(fit.nonzero), "norm": fit.norm,
+        "lambda": fit.lam, "l1": fit.l1_ratio,
+    }
+    for quantity, value in values.items():
+        state.scalars[penalized_key(name, quantity)] = float(value)
+
+
+def _fit_penalized(op: Penalized, frame: pd.DataFrame) -> P.PenalizedFit:
+    if op.penalty != "ols" and (op.grid is None or op.folds is None):
+        raise ValueError("Cezalı model için ceza ızgarası ve CV katları gerekir.")
+    return P.fit_penalized(
+        frame, op.outcome, op.numeric, op.categorical, op.penalty,
+        P.grid_values(op.grid) if op.grid is not None else (0.0,),
+        sample=frame[op.sample].to_numpy() if op.sample else None,
+        folds=frame[op.folds].to_numpy() if op.folds else None,
+        rule=op.rule, l1_ratios=op.l1_ratios, standardize=op.standardize, keep_path=op.path,
+    )
+
+
+def _crossfit(op: CrossFitDML, frame: pd.DataFrame, outer=None) -> P.DMLFit:
+    folds = outer if outer is not None else (frame[op.outer].to_numpy() if op.outer else None)
+    return P.crossfit_dml(
+        frame, op.outcome, op.treatment, op.features, folds,
+        frame[op.inner].to_numpy() if op.inner else None,
+        P.grid_values(op.grid) if op.grid is not None else None,
+        op.rule, op.cluster, learner=op.learner,
+    )
+
+
+def _hc1_ols(frame: pd.DataFrame, outcome: str, regressors: list[str]):
+    design = pd.DataFrame({STATSMODELS_INTERCEPT: np.ones(len(frame))}, index=frame.index)
+    for name in regressors:
+        design[name] = frame[name].to_numpy(dtype=float)
+    target = pd.Series(frame[outcome].to_numpy(dtype=float), index=frame.index, name=outcome)
+    return sm.OLS(target, design).fit(cov_type="HC1")
+
+
+def _execute_selection(op: Operation, state: LabState) -> bool:
+    """Konu 11–12 işlemleri; işlemi tanımazsa ``False``."""
+
+    if isinstance(op, RowNumber):
+        frame = state.frames[op.frame]
+        frame[op.name] = np.arange(1, len(frame) + 1, dtype=float)
+    elif isinstance(op, GroupRank):
+        frame = state.frames[op.frame]
+        frame[op.name] = P.dense_rank(frame[op.source].to_numpy()).astype(float)
+    elif isinstance(op, Dictionary):
+        frame = state.frames[op.frame]
+        created: dict[str, np.ndarray] = {}
+        for name in op.powers:
+            values = frame[name].to_numpy(dtype=float)
+            for power in range(2, op.degree + 1):
+                created[f"{name}_{power}"] = values**power
+        if op.interactions:
+            for index, first in enumerate(op.base):
+                for second in op.base[index + 1:]:
+                    created[f"{first}_x_{second}"] = frame[first].to_numpy(dtype=float) * frame[second].to_numpy(dtype=float)
+        state.frames[op.frame] = pd.concat([frame, pd.DataFrame(created, index=frame.index)], axis=1)
+    elif isinstance(op, DrawColumns):
+        frame, rng = state.frames[op.frame], state.rngs[op.frame]
+        created = {}
+        previous = None
+        for index in range(1, op.count + 1):
+            draw = rng.normal(0, 1, size=len(frame))
+            if previous is None or op.rho == 0:
+                value = draw
+            else:
+                value = op.rho * previous + np.sqrt(1 - op.rho**2) * draw
+            created[f"{op.prefix}{index}"] = value
+            previous = value
+        state.frames[op.frame] = pd.concat([frame, pd.DataFrame(created, index=frame.index)], axis=1)
+    elif isinstance(op, Penalized):
+        fit = _fit_penalized(op, state.frames[op.frame])
+        state.models[op.name] = fit
+        state.ops[op.name] = op
+        _penalized_scalars(state, op.name, fit)
+    elif isinstance(op, PostSelection):
+        source_op = state.ops[op.source]
+        frame = state.frames[source_op.frame]
+        fit = P.post_selection_ols(
+            frame, source_op.outcome, state.models[op.source], source_op.numeric, source_op.categorical,
+            sample=frame[source_op.sample].to_numpy() if source_op.sample else None, standardize=source_op.standardize,
+        )
+        state.models[op.name] = fit
+        state.ops[op.name] = source_op
+        _penalized_scalars(state, op.name, fit)
+    elif isinstance(op, ModelMetrics):
+        rows = []
+        for model, label in op.rows:
+            fit = state.models[model]
+            penalized = fit.penalty in ("ridge", "lasso", "enet")
+            rows.append({
+                "model": model, "etiket": label, "test_mse": fit.test_mse, "sifirdan": float(fit.nonzero),
+                "norm": fit.norm, "lambda": fit.lam if penalized else float("nan"),
+            })
+        state.tables[op.result] = pd.DataFrame(rows).set_index("model")
+    elif isinstance(op, DotPlot):
+        table = state.tables[op.table]
+        labels = dict(op.labels)
+        state.plots[f"nokta:{op.table}:{op.column}"] = pd.DataFrame(
+            {"etiket": [labels.get(row, row) for row in table.index], "deger": table[op.column].to_numpy(dtype=float)}
+        )
+    elif isinstance(op, CVCurve):
+        fit = state.models[op.model]
+        cv = fit.cv.table()
+        state.plots[f"cv_egrisi:{op.model}"] = cv[cv["l1_orani"] == fit.cv.l1_ratio].reset_index(drop=True)
+    elif isinstance(op, CoefPath):
+        fit = state.models[op.model]
+        if fit.path is None:
+            raise ValueError("Katsayı yolu için model path=True ile tahmin edilmelidir.")
+        state.plots[f"yol:{op.model}"] = fit.path
+    elif isinstance(op, CrossFitDML):
+        frame = state.frames[op.frame]
+        fit = _crossfit(op, frame)
+        state.models[op.name] = fit
+        state.ops[op.name] = op
+        folds = fit.folds
+        state.tables[f"{op.name}_katlar"] = folds.set_index("kat")
+        for part in ("y", "d"):
+            counts = folds[f"sifirdan_{part}"].to_numpy(dtype=float)
+            state.scalars[dml_fold_key(op.name, part, "min")] = float(counts.min())
+            state.scalars[dml_fold_key(op.name, part, "max")] = float(counts.max())
+        if op.residuals is not None:
+            frame[op.residuals[0]] = fit.residuals["u"].to_numpy()
+            frame[op.residuals[1]] = fit.residuals["v"].to_numpy()
+    elif isinstance(op, DMLSplits):
+        source: CrossFitDML = state.ops[op.dml]
+        frame = state.frames[source.frame]
+        rank = frame[op.rank].to_numpy(dtype=float)
+        reference = frame[source.outer].to_numpy(dtype=float) if source.outer else None
+        partitions = [P.multiplier_folds(rank, multiplier, op.folds) for _, _, multiplier in op.rules]
+        pending = [index for index, folds in enumerate(partitions)
+                   if reference is None or not np.array_equal(folds, reference)]
+        # Bölmeler birbirinden bağımsızdır; iş parçacıkları sonucu değiştirmez, yalnız süreyi kısaltır.
+        with ThreadPoolExecutor(max_workers=max(1, min(len(pending), os.cpu_count() or 1))) as pool:
+            computed = dict(zip(pending, pool.map(lambda index: _crossfit(source, frame, partitions[index]), pending)))
+        rows = []
+        for index, (key, label, _) in enumerate(op.rules):
+            fit = computed.get(index, state.models[op.dml])  # aynı katlar: ana DML hesabı yeniden kullanılır
+            rows.append({"kural": key, "etiket": label, "theta": fit.theta, "sh": fit.se})
+        table = pd.DataFrame(rows).set_index("kural")
+        center, error = P.median_aggregate(table["theta"], table["sh"])
+        state.tables[op.result] = table
+        state.models[op.name] = P.DMLFit(center, error, pd.DataFrame(), pd.DataFrame(), len(frame))
+        state.scalars[f"{op.name}_min"] = float(table["theta"].min())
+        state.scalars[f"{op.name}_max"] = float(table["theta"].max())
+    elif isinstance(op, DoubleSelection):
+        frame = state.frames[op.frame]
+        chosen = P.double_selection_sets(
+            frame, op.outcome, op.treatment, op.controls, P.grid_values(op.grid), frame[op.folds].to_numpy(), op.rule
+        )
+        state.models[f"{op.name}_sonuc"] = _hc1_ols(frame, op.outcome, [op.treatment, *chosen.outcome])
+        state.models[op.name] = _hc1_ols(frame, op.outcome, [op.treatment, *chosen.union])
+        state.links[op.name] = state.links[f"{op.name}_sonuc"] = "linear"
+        tracked = set(op.track)
+        for suffix, names in (("ny", chosen.outcome), ("nd", chosen.treatment), ("n", chosen.union)):
+            state.scalars[f"{op.name}_{suffix}"] = float(len(names))
+            state.scalars[f"{op.name}_{suffix}_iz"] = float(len(tracked & set(names)))
+        state.tables[f"{op.name}_secim"] = pd.DataFrame(
+            {"secilen": [", ".join(chosen.outcome), ", ".join(chosen.treatment), ", ".join(chosen.union)]},
+            index=pd.Index(["sonuc", "tedavi", "birlesim"], name="denklem"),
+        )
+    elif isinstance(op, EstimatePlot):
+        rows = []
+        for label, model, term in op.rows:
+            result = state.models[model]
+            key = model_key(result, term)
+            estimate, error = float(result.params[key]), float(result.bse[key])
+            rows.append({"etiket": label, "tahmin": estimate, "sh": error, "alt": estimate - CI_MULTIPLIER * error,
+                         "ust": estimate + CI_MULTIPLIER * error})
+        table = pd.DataFrame(rows).set_index("etiket")
+        state.tables[op.result] = table
+        splits = state.tables[op.splits]["theta"].to_numpy(dtype=float) if op.splits else None
+        state.plots[f"tahminler:{op.result}"] = (table, splits)
+    elif isinstance(op, ComplexityCurve):
+        frame = state.frames[op.frame]
+        table = P.complexity_curve(frame, op.x, op.y, op.max_degree, frame[op.sample].to_numpy())
+        state.tables[op.result] = table
+        for column in table.columns:
+            state.scalars[f"{op.name}_d_{column}"] = float(table[column].idxmin())
+    elif isinstance(op, LinePlot):
+        table = state.tables[op.table][[column for column, _ in op.columns]].copy()
+        if op.relative:
+            table = table - table.min()
+        state.plots[f"cizgi:{op.table}:{op.title}"] = table
+    else:
+        return False
+    return True
+
+
 def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) -> None:
+    if _execute_selection(op, state):
+        return
     if isinstance(op, RDD):
         frame = state.frames[op.frame]
         state.models[op.name] = RD.rdd_fit(frame[op.x], frame[op.y], op.cutoff, op.bandwidth, op.kernel, op.scale)

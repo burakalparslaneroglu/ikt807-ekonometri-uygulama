@@ -32,23 +32,6 @@ def test_topic_switch_and_text_scale_are_independent() -> None:
     assert any("Araçsal Değişkenler" in item.value for item in app.markdown)
 
 
-def test_question_answer_and_new_question_state() -> None:
-    """Henüz yeni yapıya taşınmamış konularda eski soru-cevap kutusu."""
-
-    app = _run_app()
-    app.radio(key="topic_selector").set_value("konu11").run()
-    successes = len(app.success)
-    app.button(key="konu11_toggle_answer").click().run()
-    assert not app.exception
-    assert app.session_state["konu11_answer_visible"] is True
-    assert len(app.success) == successes + 1
-
-    app.button(key="konu11_new_question").click().run()
-    assert app.session_state["konu11_answer_visible"] is False
-    assert app.session_state["konu11_question_index"] == 1
-    assert len(app.success) == successes
-
-
 def test_topic_01_intuition_experiments_are_interactive() -> None:
     app = _run_app()
     assert not app.exception
@@ -232,40 +215,50 @@ def test_topic_10_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
     assert any(metric.label == "Küme bootstrap SH" for metric in app.metric)
 
 
-def test_topic_11_regularization_cv_and_cps_gate() -> None:
+def test_topic_11_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
+    # Veri yolu tanımlıysa laboratuvar açılışta CPS'de Ridge ve Lasso CV'si çalıştırır; bu test yalnız arayüzü sınar.
+    for name in ("IKT807_HANSEN_CPS09MAR_PATH", "IKT807_CPS_PATH"):
+        monkeypatch.delenv(name, raising=False)
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu11").run()
     assert not app.exception
-    assert app.slider(key="konu11_nfeatures").value == 30
-    assert app.segmented_control(key="konu11_lambda_rule").value == "lambda_1se"
-    assert any(metric.label == "lambda_min" for metric in app.metric)
-    assert any(metric.label == "lambda_1se" for metric in app.metric)
-    assert any("katın yalnız eğitim parçasında" in item.value for item in app.success)
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu11_lab_step").value == 1
+    assert any("cps09mar.txt" in item.value for item in app.markdown)
+    post = next(metric for metric in app.metric if metric.label == "Post-Lasso test MSE")
+    assert post.value == "2,164"
 
-    app.segmented_control(key="konu11_lambda_rule").set_value("lambda_min").run()
+    app.segmented_control(key="konu11_sezgi_deney").set_value(2).run()
     assert not app.exception
-    assert app.segmented_control(key="konu11_lambda_rule").value == "lambda_min"
+    assert any(metric.label == "BIC'in seçtiği d" for metric in app.metric)
 
-    app.segmented_control(key="konu11_data_source").set_value(
-        "Hazırlanmış CPS CSV"
-    ).run()
-    assert any("CPS verisi lisans teyidi" in item.value for item in app.info)
+    app.segmented_control(key="konu11_sezgi_deney").set_value(3).run()
+    assert not app.exception
+    assert any(metric.label == "Kapsama: seçim sonrası" for metric in app.metric)
+    app.slider(key="konu11_sezgi3_beta2").set_value(0.0).run()
+    assert not app.exception
+    assert any("kısa model doğrudur" in item.value for item in app.info)
 
 
-def test_topic_12_dml_cross_fitting_workflow_and_ddk_gate() -> None:
+def test_topic_12_has_three_tabs_lab_and_experiments(monkeypatch) -> None:
+    # Veri yolu tanımlıysa laboratuvar açılışta 11 bölmeli DML hesabı yapar; bu test yalnız arayüzü sınar.
+    monkeypatch.delenv("IKT807_HANSEN_DDK2011_PATH", raising=False)
     app = _run_app()
     app.radio(key="topic_selector").set_value("konu12").run()
     assert not app.exception
-    assert app.select_slider(key="konu12_folds").value == 5
-    assert app.selectbox(key="konu12_learner").value == "Ridge"
-    assert any(metric.label == "DML hedef katsayısı" for metric in app.metric)
-    assert any(metric.label == "Küme standart hata" for metric in app.metric)
-    assert any("yalnız kat-dışı artıkları" in item.value for item in app.success)
-    assert any("DDK verisi lisans teyidi" in item.value for item in app.info)
-    assert app.multiselect(key="konu12_workflow").value == [
-        "estimand", "identification", "data", "cross_fit", "estimate"
-    ]
+    assert [tab.label for tab in app.tabs][:3] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu12_lab_step").value == 1
+    assert any("DDK2011.dta" in item.value for item in app.markdown)
+    dml = next(metric for metric in app.metric if metric.label == "DML θ̂")
+    assert dml.value == "1,032"
 
-    app.number_input(key="konu12_seed").set_value(919).run()
+    app.segmented_control(key="konu12_sezgi_deney").set_value(2).run()
     assert not app.exception
-    assert app.number_input(key="konu12_seed").value == 919
+    assert any(metric.label == "Ortogonal yanlılık" for metric in app.metric)
+    app.slider(key="konu12_sezgi2_delta").set_value(0.0).run()
+    assert not app.exception
+    assert any("iki moment de yansızdır" in item.value for item in app.info)
+
+    app.segmented_control(key="konu12_sezgi_deney").set_value(3).run()
+    assert not app.exception
+    assert any(metric.label == "DML kapsama" for metric in app.metric)

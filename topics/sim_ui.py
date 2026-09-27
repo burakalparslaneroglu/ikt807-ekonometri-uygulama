@@ -33,6 +33,7 @@ from core.labs.spec import (
 from core.labs.sezgi import plain
 from topics.lab_ui import CODE_LANGUAGE_KEY, render_bandwidth_cv
 from topics.regression_ui import show_figure, style_figure
+from topics.selection_ui import experiment_table, render_plot
 
 
 @st.cache_resource(show_spinner=False, max_entries=48)
@@ -282,7 +283,10 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
 
     st.markdown("**Neye bakıyoruz?**")
     st.markdown("\n".join(f"- {line}" for line in experiment.look_at))
-    for op in experiment.build(parameters):
+    operations = experiment.build(parameters)
+    for op in operations:
+        if render_plot(op, state):
+            continue
         if isinstance(op, Plot):
             show_figure(layered_figure(op, state.plots[f"grafik:{op.title}"]))
         elif isinstance(op, Histogram):
@@ -297,9 +301,14 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
     for column, metric in zip(columns, metrics):
         column.metric(metric.label, metric.value, help=metric.help)
 
-    summaries = {op.result: op.decimals for op in experiment.build(parameters) if isinstance(op, ScalarTable)}
+    summaries = {op.result: op.decimals for op in operations if isinstance(op, ScalarTable)}
+    producers = {op.result: op for op in operations if hasattr(op, "result")}
     for name, title in experiment.tables:
         st.markdown(f"**{title}**")
+        special = experiment_table(producers[name], state, state.ops) if name in producers else None
+        if special is not None:
+            st.dataframe(special, hide_index=True, width="stretch")
+            continue
         if name in summaries:
             table = state.tables[name]
             shown = pd.DataFrame({"Büyüklük": table.index,

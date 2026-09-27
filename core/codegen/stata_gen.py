@@ -15,7 +15,9 @@ Bilinçli seçimler:
 
 from __future__ import annotations
 
+from core.codegen import python_pen as PN
 from core.codegen import stata_np as SNP
+from core.codegen import stata_pen as SPN
 from core.codegen import stata_rdd_boot as SRB
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
@@ -276,10 +278,13 @@ class StataGenerator(Generator):
             names.append("rdd")
         if any(isinstance(layer, RDDCurve) for layer in layers):
             names.append("rdd_egri")
-        return names
+        return names + [name for name in PN.helper_names(ops) if name in SPN.HELPERS]
+
+    def list_definition(self, name: str, values) -> list[str]:
+        return SPN.list_definition(name, values)
 
     def helper_code(self, name: str) -> list[str]:
-        texts = {**SNP.HELPERS, "rdd": SRB.RDD_HELPER, "rdd_egri": SRB.CURVE_HELPER}
+        texts = {**SNP.HELPERS, "rdd": SRB.RDD_HELPER, "rdd_egri": SRB.CURVE_HELPER, **SPN.HELPERS}
         return texts[name] + [""] if name in texts else []
 
     def _scalar_lines(self, name: str, expression: E.Expr) -> list[str]:
@@ -395,6 +400,8 @@ class StataGenerator(Generator):
     # --- İşlemler --------------------------------------------------------
     def operation(self, op: Operation) -> list[str]:
         lines = SNP.operation(self, op, _command)
+        if lines is None:
+            lines = SPN.operation(self, op, _command)
         if lines is None:
             lines = SRB.operation(self, op, _command)
         if lines is None:
@@ -789,7 +796,11 @@ class StataGenerator(Generator):
             condition = f" if {variable} == {E.format_number(value)}"
             lines.append(f"* Tahmin örneklemi: {variable} = {E.format_number(value)} olan gözlemler "
                          "(eksik değerli gözlemleri Stata kendisi dışarıda bırakır)")
-        lines += _command(f"quietly regress {op.outcome} {regressors}{condition}{_vce(op)}")
+        options = _vce(op)
+        if not op.constant:
+            options = f"{options} noconstant" if options else ", noconstant"
+            lines.append("* Sabit terimsiz regresyon (noconstant)")
+        lines += _command(f"quietly regress {op.outcome} {regressors}{condition}{options}")
         lines.append(f"estimates store {op.name}")
         if op.categorical:
             lines.insert(0, categorical_comment(op, "*"))

@@ -15,6 +15,7 @@ from core.codegen.base import (
     profile_others,
 )
 from core.codegen import python_np as NP
+from core.codegen import python_pen as PN
 from core.codegen import python_rdd_boot as RB
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key, uses_replicate_se
@@ -332,14 +333,14 @@ class PythonGenerator(Generator):
         if standard:
             lines += sorted(standard) + [""]
         if any(isinstance(op, (GroupMeanPlot, ProjectionPlot, Plot, Histogram, AverageProfile, ProfileCurves,
-                               CoefficientProfile, BandwidthCV, RDDTable))
+                               CoefficientProfile, BandwidthCV, RDDTable, *PN.PLOTS))
                for op in ops):
             lines.append("import matplotlib.pyplot as plt")
         lines.append("import numpy as np")
         lines.append("import pandas as pd")
         if any(isinstance(op, RDD) for op in ops):
             lines.append("import statsmodels.api as sm")
-        if any(isinstance(op, (OLS, BinaryChoice)) for op in ops):
+        if any(isinstance(op, (OLS, BinaryChoice, PN.DoubleSelection)) for op in ops):
             lines.append("import statsmodels.formula.api as smf")
         if any(isinstance(op, IV) for op in ops):
             lines.append("from linearmodels.iv import IV2SLS")
@@ -358,8 +359,13 @@ class PythonGenerator(Generator):
             lines.append("from statsmodels.iolib.summary2 import summary_col")
         if any(isinstance(op, BreuschPagan) for op in ops):
             lines.append("from statsmodels.stats.diagnostic import het_breuschpagan")
+        if PN.needs_enet(ops):
+            lines.append("from sklearn.linear_model import enet_path")
         lines.append("")
         return lines
+
+    def list_definition(self, name: str, values) -> list[str]:
+        return PN.list_definition(name, values)
 
     def output_setup(self) -> list[str]:
         return [
@@ -477,7 +483,7 @@ class PythonGenerator(Generator):
             names.append("rdd_egri")
         if any(isinstance(op, Bootstrap) and any(uses_replicate_se(e) for _, e in op.collect) for op in ops):
             names.append("hc1")
-        return names
+        return names + PN.helper_names(ops)
 
     def helper_code(self, name: str) -> list[str]:
         texts = {
@@ -491,6 +497,7 @@ class PythonGenerator(Generator):
             "rdd": RB.RDD_HELPER,
             "rdd_egri": RB.CURVE_HELPER,
             "hc1": RB.HC1_HELPER,
+            **PN.HELPERS,
         }
         return texts[name] + ["", ""] if name in texts else []
 
@@ -508,6 +515,9 @@ class PythonGenerator(Generator):
         resampling = RB.operation(self, op)
         if resampling is not None:
             return resampling
+        selection = PN.operation(self, op)
+        if selection is not None:
+            return selection
         limited = self._limited_operation(op)
         if limited is not None:
             return limited
@@ -865,8 +875,8 @@ class PythonGenerator(Generator):
     # --- Tahminler -------------------------------------------------------
     def _ols(self, op: OLS) -> list[str]:
         terms = [f"C({r})" if r in op.categorical else r for r in op.regressors]
-        formula = f"{op.outcome} ~ " + " + ".join(terms)
-        lines: list[str] = []
+        formula = f"{op.outcome} ~ " + " + ".join(terms) + ("" if op.constant else " - 1")
+        lines: list[str] = [] if op.constant else ["# Sabit terimsiz regresyon (- 1)"]
         data = op.frame
         if self.needs_sample(op):
             data = f"veri_{op.name}"

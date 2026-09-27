@@ -74,6 +74,7 @@ from core.labs.spec import (
     ShowModel,
 )
 from topics.regression_ui import show_figure, style_figure
+from topics.selection_ui import render_lab_op
 
 CODE_LANGUAGE_KEY = "code_language"
 TEACHING_CSV_DATASETS = ("cps09mar", "ddk2011", "lm2007")
@@ -625,6 +626,8 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     has_table = any(isinstance(op, (RegressionTable, EffectTable, RDDTable)) for op in step.operations)
     has_plot = any(isinstance(op, Plot) for op in step.operations)
     for op in step.operations:
+        if render_lab_op(spec, op, state, step.operations):
+            continue
         if isinstance(op, RDD) and not has_table:
             _rdd_compact(op, state.models[op.name])
         elif isinstance(op, RDDTable):

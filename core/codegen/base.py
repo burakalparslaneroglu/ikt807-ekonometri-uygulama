@@ -9,6 +9,13 @@ from core.labs.spec import (
     IV,
     OLS,
     RDD,
+    CrossFitDML,
+    Dictionary,
+    DMLSplits,
+    DoubleSelection,
+    Penalized,
+    PostSelection,
+    dictionary_terms,
     BinMeans,
     Bootstrap,
     LocalCurve,
@@ -55,6 +62,16 @@ _LINE_COLORS = (("#B3392F", "179 57 47"), ("#2F9E6B", "47 158 107"), ("#6B4C9A",
 _POINT_COLORS = (("#107C89", "16 124 137"), ("#C98A1B", "201 138 27"))
 _CURVE_COLORS = (("#07373D", "7 55 61"), ("#6B4C9A", "107 76 154"), ("#C98A1B", "201 138 27"))
 _HISTOGRAM_COLORS = (("#107C89", "16 124 137"), ("#B3392F", "179 57 47"), ("#C98A1B", "201 138 27"))
+
+
+SERIES_COLORS = (
+    ("#107C89", "16 124 137"), ("#B3392F", "179 57 47"), ("#2F9E6B", "47 158 107"), ("#6B4C9A", "107 76 154"),
+    ("#C98A1B", "201 138 27"),
+)
+"""Tablo grafiklerinin (CV eğrisi, katsayı yolu, nokta, tahmin ve çizgi grafikleri) seri renkleri; uygulamada ve üç
+dilde aynı."""
+GRAY = ("#9AA5A6", "154 165 166")
+DARK = ("#07373D", "7 55 61")
 
 
 def layer_styles(layers) -> list[LayerStyle]:
@@ -136,7 +153,7 @@ LANGUAGE_INFO = {
 }
 
 
-ESTIMATORS = (OLS, IV, BinaryChoice, Tobit, QuantileRegression, RDD)
+ESTIMATORS = (OLS, IV, BinaryChoice, Tobit, QuantileRegression, RDD, Penalized, PostSelection, CrossFitDML, DMLSplits)
 
 
 def model_settings(spec: LabSpec) -> dict[str, object]:
@@ -152,7 +169,33 @@ def model_settings(spec: LabSpec) -> dict[str, object]:
                 settings[op.name] = op
             elif isinstance(op, MarginalEffects):
                 settings[op.name] = op
+            elif isinstance(op, DoubleSelection):
+                settings[op.name] = op
+                settings[f"{op.name}_sonuc"] = op
     return settings
+
+
+def named_lists(spec: LabSpec) -> dict[tuple[str, ...], str]:
+    """Kodda adıyla tanımlanan değişken listeleri: sözlük terimleri ve modellerin sürekli/kategorik listeleri.
+
+    Aynı içerikteki liste bir kez tanımlanır ve sonraki işlemler adıyla kullanır (ör. Ridge ve Lasso zengin özellik
+    setini ``zengin_surekli`` adıyla).
+    """
+
+    names: dict[tuple[str, ...], str] = {}
+    for step in spec.steps:
+        for op in flatten(step.operations):
+            if isinstance(op, Dictionary):
+                names.setdefault(dictionary_terms(op), "sozluk")
+            elif isinstance(op, Penalized):
+                names.setdefault(tuple(op.numeric), f"{op.name}_surekli")
+                if op.categorical:
+                    names.setdefault(tuple(op.categorical), f"{op.name}_kategorik")
+            elif isinstance(op, CrossFitDML):
+                names.setdefault(tuple(op.features), f"{op.name}_ozellik")
+            elif isinstance(op, DoubleSelection):
+                names.setdefault(tuple(op.controls), f"{op.name}_kontrol")
+    return names
 
 
 def expressions(operations) -> list[E.Expr]:
@@ -175,6 +218,32 @@ def expressions(operations) -> list[E.Expr]:
         elif isinstance(op, ScalarTable):
             found.extend(expression for _, expression in op.rows)
     return found
+
+
+def referenced_scalars(spec: LabSpec) -> set[str]:
+    """Kontrollerin (``ScalarTarget``) ve ifadelerin (``E.ref``) başvurduğu skaler adları."""
+
+    from core.labs.spec import ScalarTarget
+
+    names: set[str] = set()
+
+    def visit(node) -> None:
+        if isinstance(node, E.Ref):
+            names.add(node.name)
+        elif isinstance(node, E.BinOp):
+            visit(node.left)
+            visit(node.right)
+        elif isinstance(node, E.Call):
+            for argument in node.args:
+                visit(argument)
+
+    for step in spec.steps:
+        for check in step.checks:
+            if isinstance(check.target, ScalarTarget):
+                names.add(check.target.name)
+        for expression in expressions(step.operations):
+            visit(expression)
+    return names
 
 
 def functions_used(operations) -> set[str]:
@@ -263,6 +332,27 @@ class Generator:
         """Monte Carlo döngüsü içinde ekrana yazdırma satırları üretilmez."""
         self.mc_checks = any(check.mc_tolerance is not None for step in spec.steps for check in step.checks)
         """Rastgele çekilişe dayanan, R ve Stata'da Monte Carlo toleransıyla denetlenen değer var mı?"""
+        self.lists = named_lists(spec)
+        self.scalar_refs = referenced_scalars(spec)
+        """Kontrollerin ve ifadelerin kullandığı skalerler; yalnız bunlar ayrı değişken olarak yazılır."""
+        self.defined_lists: set[str] = set()
+        """Bu üretimde tanımı yazılmış adlı listeler (her liste ilk kullanımda bir kez tanımlanır)."""
+
+    def list_definition(self, name: str, values) -> list[str]:
+        """Adlı listenin tanımı (dile özgü)."""
+
+        raise NotImplementedError
+
+    def use_list(self, values) -> tuple[list[str], str | None]:
+        """Adıyla tanımlanan listenin adı ve (ilk kullanımda) tanım satırları; adsız listede ``None``."""
+
+        name = self.lists.get(tuple(values))
+        if name is None:
+            return [], None
+        if name in self.defined_lists:
+            return [], name
+        self.defined_lists.add(name)
+        return self.list_definition(name, values), name
 
     def is_iv(self, model: str) -> bool:
         return isinstance(self.models.get(model), IV)

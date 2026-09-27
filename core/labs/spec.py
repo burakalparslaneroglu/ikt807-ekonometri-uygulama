@@ -114,6 +114,8 @@ class OLS:
     cluster: str | None = None
     categorical: tuple[str, ...] = ()
     where: tuple[str, float] | None = None
+    constant: bool = True
+    """``False``: sabit terimsiz regresyon (ör. artıkların artıklar üzerine regresyonu, Notlar §12.4)."""
 
 
 @dataclass(frozen=True)
@@ -327,7 +329,9 @@ Layer = Union[MeanPoints, Scatter, Curve, ModelLine, ZeroLine, LocalCurve, BinMe
 class Plot:
     """Katmanlardan oluşan grafik; üç dilde aynı katmanlarla çizilir.
 
-    ``x_range`` verilirse yatay eksen ve eğri ızgaraları bu aralıktadır; verilmezse verinin aralığı.
+    ``x_range`` verilirse yatay eksen ve eğri ızgaraları bu aralıktadır; verilmezse verinin aralığı. Yalnız
+    bilinen fonksiyonlar (``Curve``, ``ZeroLine``, ``VLine``) çizilen grafikte ``frame`` boş bırakılabilir; o zaman
+    ``x_range`` gerekir.
     """
 
     frame: str
@@ -762,7 +766,314 @@ class ScalarTable:
     decimals: int = 3
 
 
+# --- Model seçimi, düzenlileştirme ve DML (Konu 11–12) ------------------------------------------
+
+PENALTIES = ("ols", "ridge", "lasso", "enet")
+SELECTION_RULES = ("min", "1se")
+LEARNERS = ("lasso", "ols")
+
+
+@dataclass(frozen=True)
+class RowNumber:
+    """Gözlem sıra numarası 1, 2, …, n (verideki satır sırası); açık kat ve bölme kuralları için."""
+
+    frame: str
+    name: str
+    comment: str
+
+
+@dataclass(frozen=True)
+class GroupRank:
+    """Küme numaralarının küçükten büyüğe sıra numarası 1, 2, …, G (ör. okul numarasından okul sırası)."""
+
+    frame: str
+    name: str
+    source: str
+    comment: str
+
+
+@dataclass(frozen=True)
+class Dictionary:
+    """Aday terim sözlüğü: ``base`` değişkenleri, ``powers`` içindeki her değişkenin 2, …, ``degree`` kuvvetleri
+    (``{ad}_{k}``) ve ``interactions`` ise ``base`` değişkenlerinin bütün ikili çarpımları (``{a}_x_{b}``)."""
+
+    frame: str
+    base: tuple[str, ...]
+    powers: tuple[str, ...]
+    degree: int
+    interactions: bool
+    comment: str
+
+
+def dictionary_terms(op: Dictionary) -> tuple[str, ...]:
+    """Sözlüğün terimleri, üç dilde aynı sırayla: taban, kuvvetler, ikili etkileşimler."""
+
+    terms = list(op.base)
+    for name in op.powers:
+        terms += [f"{name}_{power}" for power in range(2, op.degree + 1)]
+    if op.interactions:
+        terms += [f"{a}_x_{b}" for index, a in enumerate(op.base) for b in op.base[index + 1:]]
+    return tuple(terms)
+
+
+@dataclass(frozen=True)
+class DrawColumns:
+    """``count`` adet standart normal sütun ``{prefix}1``, …: x₁ = z₁, xⱼ = ρ·xⱼ₋₁ + √(1 − ρ²)·zⱼ.
+
+    Corr(xⱼ, xₖ) = ρ^|j−k| ve her sütunun varyansı 1; ρ = 0 bağımsız sütunlardır. Üreteçten her sütun için sırayla
+    n normal çekiliş yapılır (Python kodu uygulamayla aynı çekilişleri yapar).
+    """
+
+    frame: str
+    prefix: str
+    count: int
+    rho: float
+    comment: str
+
+
+GridSpec = tuple[float, float, int]
+"""Ceza ızgarası (üst üs, alt üs, nokta sayısı): 10^üst'ten 10^alt'a logaritmik eşit aralıklı, büyükten küçüğe."""
+
+
+@dataclass(frozen=True)
+class Penalized:
+    """Doğrusal tahmin: cezasız (``ols``), Ridge, Lasso veya Elastic Net (Notlar §11.8–§11.11).
+
+    Ceza ölçekleri: Ridge ``(Y − Xβ)'(Y − Xβ) + λβ'β`` (Hansen'in SSE ölçeği); Lasso ve Elastic Net yazılım ölçeği
+    ``(1/(2n))‖Y − Xβ‖² + λ[r‖β‖₁ + (1 − r)/2·‖β‖²]``, r = L1 ağırlığı (Lasso r = 1). Sabit terim cezasızdır.
+    Sürekli değişkenler (``numeric``) ``standardize`` ise eğitim verisinin ortalaması ve (n'e bölünen) standart
+    sapmasıyla ölçeklenir; ``categorical`` değişkenlerin eğitim verisinde görülen düzeyleri göstergedir, ilk düzey
+    referanstır. ``sample`` eğitim satırlarında 1, test satırlarında 0 olan değişkendir (``None``: bütün örneklem).
+    Ceza ``folds`` katlarıyla (eğitim satırlarında 1, …, K) CV'de seçilir; ölçekleme ve göstergeler her katta yeniden
+    öğrenilir. ``rule``: ``min`` en küçük CV, ``1se`` en küçüğün bir SH'si içindeki en büyük ceza. ``grid``: ``GridSpec``.
+    ``path``: bütün eğitim örnekleminde ızgara boyunca katsayı yolu saklanır.
+
+    Skalerler (``penalized_key``): ``test_mse``, ``egitim_mse``, ``sifirdan`` (sıfırdan farklı katsayı sayısı), ``norm``
+    (‖β̂‖₂, sabit hariç), ``lambda`` (seçilen ceza), ``l1`` (seçilen L1 ağırlığı).
+    """
+
+    name: str
+    frame: str
+    outcome: str
+    numeric: tuple[str, ...]
+    categorical: tuple[str, ...] = ()
+    penalty: str = "ols"
+    grid: GridSpec | None = None
+    sample: str | None = None
+    folds: str | None = None
+    rule: str = "min"
+    l1_ratios: tuple[float, ...] = (1.0,)
+    standardize: bool = True
+    path: bool = False
+
+
+PENALIZED_SCALARS = ("test_mse", "egitim_mse", "sifirdan", "norm", "lambda", "l1")
+
+
+def penalized_key(model: str, quantity: str) -> str:
+    """Düzenlileştirilmiş model skalerinin adı; üç dilde aynı ad (Stata'da en çok 32 karakter)."""
+
+    if quantity not in PENALIZED_SCALARS:
+        raise ValueError(f"Desteklenmeyen nicelik: {quantity}")
+    return f"{model}_{quantity}"
+
+
+@dataclass(frozen=True)
+class PostSelection:
+    """Post-Lasso (Notlar §11.12): ``source`` modelinin sıfırdan farklı katsayılı terimleri üzerinde cezasız EKK; örneklem,
+    ölçekleme ve göstergeler kaynak modelinkilerle aynıdır. Skalerler ``Penalized`` ile aynı adlarla."""
+
+    name: str
+    source: str
+
+
+@dataclass(frozen=True)
+class ModelMetrics:
+    """Modellerin dış-örneklem karşılaştırması. ``rows`` (model, etiket) çiftleri; tablo satırları model adlarıdır.
+    Sütunlar: ``test_mse``, ``sifirdan``, ``norm``, ``lambda`` (cezasız modellerde boş)."""
+
+    rows: tuple[tuple[str, str], ...]
+    result: str
+
+
+@dataclass(frozen=True)
+class DotPlot:
+    """Yatay nokta grafiği: ``table`` tablosunun ``column`` sütunu, satır etiketleriyle. Farklar küçükken çubuk
+    grafiğin sıfırdan başlamayan ekseni yanıltır; nokta grafiği bu sorunu taşımaz."""
+
+    table: str
+    column: str
+    labels: tuple[tuple[str, str], ...]
+    x_label: str
+    title: str
+    decimals: int = 4
+
+
+@dataclass(frozen=True)
+class CVCurve:
+    """CV ölçütü ve ±1 SH bandı ceza ızgarası boyunca (logaritmik eksen); dikey çizgi seçilen ceza. Elastic Net'te
+    seçilen L1 ağırlığının eğrisi çizilir."""
+
+    model: str
+    x_label: str
+    title: str
+
+
+@dataclass(frozen=True)
+class CoefPath:
+    """Katsayı yolu: bütün eğitim örnekleminde ızgara boyunca katsayılar (``Penalized(path=True)``). ``highlight``
+    terimleri renkli, diğerleri gri; dikey çizgi CV ile seçilen ceza."""
+
+    model: str
+    highlight: tuple[str, ...]
+    highlight_label: str
+    other_label: str
+    x_label: str
+    title: str
+
+
+@dataclass(frozen=True)
+class CrossFitDML:
+    """Kısmen doğrusal model Y = θD + g(X) + ε için DML2 (Notlar §12.4, §12.7).
+
+    Her dış kat k için m_Y(X) = E[Y|X] ve m_D(X) = E[D|X] k dışındaki gözlemlerde öğrenilir, k'deki gözlemlerde artık
+    alınır: Û = Y − m̂_Y, V̂ = D − m̂_D. θ̂ = ΣV̂Û/ΣV̂² (sabitsiz artık regresyonu). ``outer`` dış kat değişkeni; ``None``
+    ise çapraz uyarlama yoktur (artıklaştırma: yardımcı modeller bütün örneklemde, §12.4). ``learner``: ``lasso``
+    (ceza ``inner`` katlarıyla eğitim satırlarında CV'de seçilir; ``grid``, ``rule``) veya ``ols``. Özellikler her
+    eğitim katında ölçeklenir. SH: HC1 (n/(n−1)); ``cluster`` verilirse skorlar küme içinde toplanır, G/(G−1).
+    ``residuals`` (Û, V̂) sütun adlarıdır. Terim ``theta``. Tablo ``{name}_katlar``: kat, lambda_y, sifirdan_y, lambda_d,
+    sifirdan_d. Skalerler ``{name}_sifirdan_y_min``, ``_y_max``, ``_d_min``, ``_d_max``.
+    """
+
+    name: str
+    frame: str
+    outcome: str
+    treatment: str
+    features: tuple[str, ...]
+    outer: str | None
+    inner: str | None = None
+    grid: GridSpec | None = None
+    rule: str = "min"
+    cluster: str | None = None
+    learner: str = "lasso"
+    residuals: tuple[str, str] | None = None
+
+
+THETA = "theta"
+"""DML modellerinde hedef katsayının terim adı."""
+
+
+def dml_fold_key(model: str, part: str, statistic: str) -> str:
+    """DML katlarındaki sıfırdan farklı katsayı sayısının özeti (``y``/``d``, ``min``/``max``)."""
+
+    return f"{model}_sifirdan_{part}_{statistic}"
+
+
+@dataclass(frozen=True)
+class DMLSplits:
+    """Bölme duyarlılığı (Notlar §12.14): ``dml`` modelinin hesabı, dış katlar ⌊K·{r·c}⌋ + 1 kuralıyla (r küme sıra
+    numarası, {·} kesirli kısım) her çarpan c için tekrarlanır. ``rules`` (anahtar, etiket, c) üçlüleridir. Birleştirme
+    (Chernozhukov vd., 2018): θ̂_med = medyan θ̂_s, σ̂²_med = medyan{σ̂²_s + (θ̂_s − θ̂_med)²}. Sonuç tablosu satırları
+    kural anahtarları, sütunları ``theta`` ve ``sh``; ``name`` modeli θ̂_med ve SH_med'i taşır (terim ``theta``).
+    Skalerler ``{name}_min`` ve ``{name}_max``."""
+
+    name: str
+    dml: str
+    rank: str
+    rules: tuple[tuple[str, str, float], ...]
+    folds: int
+    result: str
+
+
+@dataclass(frozen=True)
+class DoubleSelection:
+    """Yalnız-sonuç Post-Lasso (Notlar §12.2) ve double selection (§12.3).
+
+    S_Y: Y'nin X üzerindeki Lasso'suyla seçilen kontroller; D cezalandırılmasın diye Y ve her X önce [1, D] üzerinde
+    artıklaştırılır. S_D: D'nin X üzerindeki Lasso'su. Cezalar ``folds`` katlarıyla CV'de, ``rule`` kuralıyla seçilir.
+    Modeller (HC1): ``{name}_sonuc`` Y ~ D + S_Y, ``{name}`` Y ~ D + (S_Y ∪ S_D). Skalerler: ``{name}_ny``, ``{name}_nd``,
+    ``{name}_n`` (seçilen kontrol sayıları) ve ``track`` değişkenlerinden seçilenler ``{name}_ny_iz``, ``_nd_iz``, ``_n_iz``.
+    """
+
+    name: str
+    frame: str
+    outcome: str
+    treatment: str
+    controls: tuple[str, ...]
+    grid: GridSpec
+    folds: str
+    rule: str = "1se"
+    track: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class EstimatePlot:
+    """Tahminler ve %95 güven aralıkları (tahmin ± 1,96·SH), yatay. ``rows`` (etiket, model, terim); ``truth`` gerçek
+    değer (dikey kesikli çizgi); ``splits`` bir ``DMLSplits`` sonuç tablosu verilirse ``splits_row`` satırının yanında
+    bölme tahminleri gri noktalardır. ``result`` tablosu: satırlar etiketler; sütunlar tahmin, sh, alt, ust."""
+
+    rows: tuple[tuple[str, str, str], ...]
+    result: str
+    x_label: str
+    title: str
+    truth: float | None = None
+    truth_label: str = ""
+    splits: str | None = None
+    splits_row: int = 0
+
+
+@dataclass(frozen=True)
+class ComplexityCurve:
+    """Polinom derecesi boyunca model seçim ölçütleri (Notlar §11.2–§11.5).
+
+    Her d = 1, …, ``max_degree`` için Y'nin [1, X, …, X^d] üzerine OLS'si eğitim satırlarında (``sample`` = 1).
+    Sütunlar: ``egitim_mse`` (σ̂² = SSR/n), ``aic`` = n + n·log(2πσ̂²) + 2K, ``bic`` = n + n·log(2πσ̂²) + K·log n
+    (K = d + 2: d + 1 katsayı ve σ²), ``loocv`` (kaldıraçla kesin: ortalama [ê/(1 − h)]²), ``test_mse`` (``sample`` = 0).
+    Skalerler: her ölçütü en küçük yapan derece ``{name}_d_{sütun}``.
+    """
+
+    name: str
+    frame: str
+    x: str
+    y: str
+    max_degree: int
+    sample: str
+    result: str
+
+
+COMPLEXITY_COLUMNS = ("egitim_mse", "loocv", "test_mse", "aic", "bic")
+
+
+@dataclass(frozen=True)
+class LinePlot:
+    """Bir sonuç tablosunun sütunları, tablo satır değerleri (ör. polinom derecesi) boyunca çizgi ve nokta.
+    ``relative``: her sütundan kendi en küçük değeri çıkarılır (ör. AIC ve BIC farkları)."""
+
+    table: str
+    columns: tuple[tuple[str, str], ...]
+    x_label: str
+    y_label: str
+    title: str
+    relative: bool = False
+
+
 Operation = Union[
+    RowNumber,
+    GroupRank,
+    Dictionary,
+    DrawColumns,
+    Penalized,
+    PostSelection,
+    ModelMetrics,
+    DotPlot,
+    CVCurve,
+    CoefPath,
+    CrossFitDML,
+    DMLSplits,
+    DoubleSelection,
+    EstimatePlot,
+    ComplexityCurve,
+    LinePlot,
     RDD,
     RDDTable,
     Bootstrap,

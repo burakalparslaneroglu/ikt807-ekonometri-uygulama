@@ -11,7 +11,7 @@ Yeni yapıdaki her konu üç sekmeden oluşur:
 
 - **Kendini sına:** haftanın kavramlarını sınayan soru seti. Dört tür: çoktan seçmeli, doğru–yanlış, boşluk doldurma ve denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; yanlış cevaplara göre tekrar edilecek bölümler listelenir. Denklem sorularında yazılan formül anında önizlenir ve doğru cevaba eşdeğerliği sayısal olarak sınanır (`100(exp(b)-1)` ile `100*exp(b)-100` aynı kabul edilir).
 
-Yeni yapı şu an **Konu 1–10** için hazırdır:
+Yeni yapı **bütün konular (1–12)** için hazırdır:
 
 | Konu | Uygulama (notlardaki sayılar) | Sezgi deneyleri | Kendini sına |
 |---|---|---|---|
@@ -25,24 +25,26 @@ Yeni yapı şu an **Konu 1–10** için hazırdır:
 | 8 | §8.13, DDK2011, 18 kontrol: doğrusal model, birini-dışarıda-bırak ve okul-kümeli CV ile bant genişliği, kübik polinom, kübik spline, yerel doğrusal tahminler | bant genişliği ve yanlılık–varyans; sınırda Nadaraya–Watson ve yerel doğrusal; kısmen doğrusal model: doğrusal kontrol ve Robinson (Monte Carlo) | 24 soru |
 | 9 | §9.15, LM2007, 37 kontrol: tasarım satırları, beş bant genişliğinde keskin RDD (birim varyanslı üçgen çekirdek, HC1), eşikteki iki limit, dikdörtgen çekirdek ve bant genişliği ölçeği, güven bantlı RDD grafiği | yerel doğrusal ve global polinom (Monte Carlo); bant genişliği, yanlılık ve kapsama (Monte Carlo); bulanık RDD: yerel Wald oranı ve zayıf ilk aşama (Monte Carlo) | 24 soru |
 | 10 | §10.17, CPS (50.742 gözlem), 6 kontrol: HC1 ve 1.000 tekrarlı pairs bootstrap (SH, percentile aralığı) | heteroskedastik regresyon: analitik, pairs ve wild bootstrap (Tablo 10.1); doğrusal olmayan dönüşüm: delta yöntemi ve percentile aralığı; kümeli veride yeniden örnekleme birimi | 24 soru |
+| 11 | §11.15, CPS (50.742 gözlem; açık kuralla 38.055 eğitim / 12.687 test), 12 kontrol: basit ve zengin OLS, 5-katlı CV ile Ridge ve Lasso, test MSE, sıfırdan farklı katsayı, seçilen ceza ve ölçeği, CV eğrileri | Ridge, Lasso, Elastic Net ve Post-Lasso (Tablo 11.1); polinom derecesi: eğitim hatası, LOOCV, AIC, BIC ve test hatası; ön test sonrası güven aralığının kapsaması (Monte Carlo) | 24 soru |
+| 12 | §12.15, DDK2011 (108 okul, 5.135 öğrenci), 15 kontrol: ham fark, kovaryat ayarlı OLS, 27 terimli sözlükte Lasso yardımcı modelli ve okul-kümeli çapraz uyarlamalı DML, 11 kat kuralında duyarlılık ve medyan birleştirme | yalnız sonuç seçimi, double selection, artıklaştırma ve DML (Tablo 12.1); ortogonal moment: yardımcı parametre hatasına duyarlılık (Monte Carlo); gözlenmeyen karıştırıcı altında DML (Monte Carlo) | 24 soru |
 
-Diğer konular ikişerli bloklar halinde, ders sırasıyla taşınacaktır. Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
+Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
 
 ### Üç dilde aynı sayı sözleşmesi
 
 | Sınıf | Yöntemler | Beklenti |
 |---|---|---|
 | Birebir aynı | OLS, HC1, Logit/Probit ve Tobit katsayıları, AME, kantil regresyon katsayıları (kesin çözüm tekse), yerel doğrusal tahmin ve CV ile seçilen bant genişliği | Ondalık düzeyinde eşit |
-| Ayar sabitlenince aynı | Keskin RDD (çekirdek, bant genişliği ölçeği ve ağırlıklı EKK + HC1 kodda yazılı: Python `WLS(...).fit(cov_type="HC1")`, R `lm(weights = w)` + `vcovHC(type = "HC1")`, Stata `regress [aw = w], vce(robust)`; hazır RDD paketlerinin varsayılanları farklıdır), Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), Logit/Probit dayanıklı SH (gözlenen Hessian'lı sandviç: Python `HC0`, R `dayanikli_vcov()`, Stata `vce(robust)`; Stata ayrıca n/(n−1) ile çarpar), LAD (çözüm tek olmayabilir; eğriler aynı), kantil regresyon SH (Hendricks–Koenker: R `se = "nid"`; Python ve Stata'da kodda yazılı), Lasso λ | Paket varsayılanları farklı; kodda açıkça sabitlenir |
-| Yalnız dağılımda aynı | Bootstrap, çapraz doğrulama, DML bölmeleri | Diller farklı rastgele sayı üreteci kullanır; Python kodu uygulamanın çekilişini birebir yapar, R ve Stata betikleri bootstrap sayılarını Monte Carlo toleransıyla denetler |
+| Ayar sabitlenince aynı | Keskin RDD (çekirdek, bant genişliği ölçeği ve ağırlıklı EKK + HC1 kodda yazılı: Python `WLS(...).fit(cov_type="HC1")`, R `lm(weights = w)` + `vcovHC(type = "HC1")`, Stata `regress [aw = w], vce(robust)`; hazır RDD paketlerinin varsayılanları farklıdır), Küme SH ve p-değeri dağılımı, 2SLS dayanıklı SH (Python `debiased=True`, R `vcovHC(type = "HC1")`, Stata `vce(robust) small`), Logit/Probit dayanıklı SH (gözlenen Hessian'lı sandviç: Python `HC0`, R `dayanikli_vcov()`, Stata `vce(robust)`; Stata ayrıca n/(n−1) ile çarpar), LAD (çözüm tek olmayabilir; eğriler aynı), kantil regresyon SH (Hendricks–Koenker: R `se = "nid"`; Python ve Stata'da kodda yazılı), Ridge, Lasso ve Elastic Net (ceza ölçeği, ızgara, ölçekleme ve kat kuralı kodda yazılı: Python `enet_path(tol=1e-12)`, R `glmnet(standardize = FALSE, thresh = 1e-16)`, Stata Mata koordinat inişi), DML (yardımcı model, kat kuralı ve küme SH kodda yazılı) | Paket varsayılanları farklı; kodda açıkça sabitlenir. Konu 11–12'de eğitim/test bölmesi, CV katları ve DML bölmeleri rastgele sayıyla değil açık kuralla (ör. u = {iφ}) kurulduğu için üç dilde aynıdır |
+| Yalnız dağılımda aynı | Bootstrap ve Sezgi deneylerindeki simülasyonlar | Diller farklı rastgele sayı üreteci kullanır; Python kodu uygulamanın çekilişini birebir yapar, R ve Stata betikleri bootstrap sayılarını Monte Carlo toleransıyla denetler |
 
 Her adım hangi sınıfta olduğunu arayüzde gösterir.
 
 ### Öğrenci tarafında yazılım
 
-- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`; kantil regresyonun kesin çözümü için `scipy`.
-- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS ve Tobit için `AER`, kantil regresyon için `quantreg`.
-- **Stata:** 14 ve üstü. Konu 11–12'deki `lasso` ve çapraz uyarlamalı komutlar Stata 16 gerektirir.
+- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`; kantil regresyonun kesin çözümü için `scipy`; Lasso ve Elastic Net yolu için `scikit-learn`.
+- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS ve Tobit için `AER`, kantil regresyon için `quantreg`, Lasso ve Elastic Net için `glmnet`.
+- **Stata:** 14 ve üstü. Konu 11–12'de Ridge, Lasso, Elastic Net, çapraz doğrulama ve DML do-dosyasındaki Mata fonksiyonlarıyla hesaplanır; Stata 16'nın `lasso` komutları gerekmez.
 
 ## Teknik yapı
 

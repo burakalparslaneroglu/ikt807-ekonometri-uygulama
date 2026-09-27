@@ -19,7 +19,9 @@ from core.codegen.base import (
     profile_others,
     table_row_text,
 )
+from core.codegen import python_pen as PN
 from core.codegen import r_np as RNP
+from core.codegen import r_pen as RPN
 from core.codegen import r_rdd_boot as RRB
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key, uses_replicate_se
@@ -264,6 +266,10 @@ class RGenerator(Generator):
 
         symbol = name or model
         settings = self.models.get(model)
+        if isinstance(settings, (PN.CrossFitDML, PN.DMLSplits)):
+            return f"vcov({symbol})"
+        if isinstance(settings, PN.DoubleSelection):
+            return f'sandwich::vcovHC({symbol}, type = "HC1")'
         if isinstance(settings, (IV, RDD)):
             return f'sandwich::vcovHC({symbol}, type = "HC1")'
         if isinstance(settings, BinaryChoice):
@@ -281,9 +287,12 @@ class RGenerator(Generator):
     def _needs_sandwich(self, operations) -> bool:
         return any(
             (isinstance(op, OLS) and op.vcov != "classic")
-            or isinstance(op, (StandardErrorTable, BreuschPagan, IV, RDD, RDDTable))
+            or isinstance(op, (StandardErrorTable, BreuschPagan, IV, RDD, RDDTable, PN.DoubleSelection))
             for op in operations
         )
+
+    def list_definition(self, name: str, values) -> list[str]:
+        return RPN.list_definition(name, values)
 
     # --- Başlık ve yardımcılar ------------------------------------------
     def imports(self, operations: tuple[Operation, ...], *, script: bool = False) -> list[str]:
@@ -301,6 +310,7 @@ class RGenerator(Generator):
             packages.append("AER")
         if any(isinstance(op, QuantileRegression) for op in ops):
             packages.append("quantreg")
+        packages += RPN.packages(ops)
         if not packages:
             return []
         lines = [f"# Gerekli paketler: install.packages(c({_quoted(packages)}))"]
@@ -416,7 +426,7 @@ class RGenerator(Generator):
             names.append("rdd_egri")
         if any(isinstance(op, Bootstrap) and any(uses_replicate_se(e) for _, e in op.collect) for op in ops):
             names.append("hc1")
-        return names
+        return names + PN.helper_names(ops)
 
     def helper_code(self, name: str) -> list[str]:
         texts = {
@@ -429,6 +439,7 @@ class RGenerator(Generator):
             "rdd": RRB.RDD_HELPER,
             "rdd_egri": RRB.CURVE_HELPER,
             "hc1": RRB.HC1_HELPER,
+            **RPN.HELPERS,
         }
         return texts[name] + [""] if name in texts else []
 
@@ -443,6 +454,9 @@ class RGenerator(Generator):
         nonparametric = RNP.operation(self, op)
         if nonparametric is not None:
             return nonparametric
+        selection = RPN.operation(self, op)
+        if selection is not None:
+            return selection
         resampling = RRB.operation(self, op)
         if resampling is not None:
             return resampling
@@ -810,8 +824,8 @@ class RGenerator(Generator):
 
     def _ols(self, op: OLS) -> list[str]:
         terms = [f"factor({r})" if r in op.categorical else r for r in op.regressors]
-        formula = f"{op.outcome} ~ " + " + ".join(terms)
-        lines: list[str] = []
+        formula = f"{op.outcome} ~ " + " + ".join(terms) + ("" if op.constant else " - 1")
+        lines: list[str] = [] if op.constant else ["# Sabit terimsiz regresyon (- 1)"]
         data = op.frame
         if self.needs_sample(op):
             data = f"veri_{op.name}"
