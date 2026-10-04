@@ -99,6 +99,19 @@ başlığı ve dosya adı (`ikt807_konuNN_alternatif`, `ikt807_konuNN_kendi_veri
 tolerans büyük sayılar için göreli bir pay içerir. Notlardaki 12 laboratuvarın üç dildeki bütün kodunun özeti
 `tests/test_lab_variants.py::NOTES_MD5` ile kilitlidir.
 
+Konu 3–4 (Blok B) ile eklenenler: `GroupMean` (bir değişkenin grup ortalaması, isteğe bağlı bir koşulu sağlayan
+satırlardan, grubun bütün satırlarına yazılır; Python `where().groupby().transform("mean")`, R `ave(ifelse(...), FUN =
+mean(na.rm = TRUE))`, Stata `egen double ... = mean(cond(...)), by()`; eksik grup ya da koşul değeri dillerde farklı
+işlendiği için bu sütunlar eksiksiz olmalıdır, uygulama aksi hâlde hata verir), `IV.categorical` (2SLS'te kategorik
+dışsal kontroller; en küçük düzey referans: Python `C()`, R `factor()`, Stata `i.`), `Role.shared` (bir rolün sütunu
+ek sütun olarak da seçilebilir: seçilmiş grubun dayandığı başlangıç puanı denge tablosunda da yer alır) ve
+`CustomLab.suggest` (dosya ilk açıldığında konuya özgü rol önerileri; başka bir role önerilen sütun genel tahminlerde
+kullanılmaz). Büyük tasarımda (`runner.LARGE_DESIGN`: tasarım matrisi 3 milyon hücre ve üstü) OLS sonucu katsayı,
+standart hata (HC1 dahil), uyum değerleri ve artıkları önbelleğe aldıktan sonra tasarım matrisini ve sözde tersini
+bırakır (`runner._slim`); tasarımı yeniden isteyen işlemler (Breusch–Pagan, bootstrap) böyle bir modelde açık bir
+hatayla durur. Eşik yalnız AK1991'in 329.509 gözlemli modellerini etkiler: notlardaki laboratuvarların en büyük
+tasarımı 1,47 milyon hücredir (Konu 2), kendi verin en çok 10.000 satırdır.
+
 Öğrencinin dosyası, seçimleri ve ondan kurulan hesap yalnız oturum belleğindedir (`st.session_state`); ortak önbelleğe
 girmez. Kaynak seçimi, adım seçimi ve kendi verin paneli, Streamlit'in çizilmeyen widget durumunu silmesine karşı gölge
 anahtarlarla (`_kalici_`) korunur (`topics/kendi_veri_ui.py`): öğrenci kaynak ya da konu değiştirip döndüğünde ya da
@@ -151,7 +164,7 @@ Konu değiştiğinde `core/session_utils.py` önceki konunun soru indeksini ve c
 - Konu 09-10: Uygulama/Sezgi/Kendini sına sekmeleri; RDD'nin statsmodels WLS ve R `lm` + `sandwich::vcovHC` ile eşitliği; eğrinin noktasal ağırlıklı EKK ile ve eşikte RDD limitleriyle eşitliği; eksik değerli gözlemlerin atılması ve LM2007'nin CSV olarak yüklenmesi (değişken adları küçük harfe çevrilir); bootstrap çekiliş sırasının (pairs, wild, küme) üretilen Python koduyla aynı olması; Sezgi varsayılanlarının notlardaki Tablo 10.1'i birebir üretmesi; Sezgi deneylerinin kuramsal değerleri (global polinomun eşik yanlılığı, yerel doğrusal yanlılığın ≈ −2,4h² olması, bulanık RDD'de Wald oranı ve zayıf ilk aşama, percentile aralığının monoton dönüşüme uyumu, kümeli veride pairs bootstrap'ın belirsizliği küçümsemesi).
 - Konu 11-12: Uygulama/Sezgi/Kendini sına sekmeleri; Ridge, Lasso ve Elastic Net yolunun scikit-learn `Ridge`, `Lasso`, `ElasticNet` ile, CV'nin `Pipeline` + `GridSearchCV` + `PredefinedSplit` ile, artık regresyonunun statsmodels sabitsiz HC1 ve küme kovaryansıyla, AIC/BIC'in log-olabilirlikle ve LOOCV'nin açık dışarıda bırakma döngüsüyle eşitliği; Lasso KKT koşulu; çapraz uyarlamanın yalnız diğer katları kullanması ve artıklaştırmanın FWL ile eşitliği; R `glmnet` karşılığının notlardaki sayıları üretmesi; Sezgi varsayılanlarının notlardaki Tablo 11.1 ve 12.1'i birebir üretmesi; Sezgi deneylerinin kuramsal değerleri (eğitim hatasının monotonluğu, BIC'in AIC'den az parametre seçmesi, ön test sonrası kapsamanın düşmesi, naif ve ortogonal moment yanlılıkları, gözlenmeyen karıştırıcı altında DML yanlılığı κ²/(1 + κ²)).
 - Kod tarifi testi: 12 konunun dört bölümünü kapsayan 48 Python betiğinin derlenmesi ve dış veri olmadan çalışması; Colab JSON sözleşmesi.
-- Ek veri kaynakları (`test_lab_variants.py`, `test_lab_sources_ui.py`): notların kod özeti; alternatif örneğin notlarla aynı adımları, sayılarının bağımsız hesapla ve üretilen Python/R koduyla eşitliği, Stata kuralları; kendi verinde örnek dosya, Türkçe CSV (; ve ondalık virgül, cp1254), işaretli sütun adları, ayrılmış kod adları, tam uyum, logaritması alınamayan sonuç ve rol kurallarının iki dilde aynı sayıyı vermesi; AppTest ile kaynak seçimi, dosya yükleme ve seçimlerin korunması.
+- Ek veri kaynakları (`test_lab_variants.py`, `test_lab_sources_ui.py`): notların kod özeti; alternatif örneğin notlarla aynı adımları, sayılarının bağımsız hesapla ve üretilen Python/R koduyla eşitliği, Stata kuralları; kendi verinde örnek dosya, Türkçe CSV (; ve ondalık virgül, cp1254), işaretli sütun adları, ayrılmış kod adları, tam uyum, logaritması alınamayan sonuç ve rol kurallarının iki dilde aynı sayıyı vermesi; AppTest ile kaynak seçimi, dosya yükleme ve seçimlerin korunması. Konu 3–4 için ayrıca `test_lab_variants_konu03_04.py`: DS2004 ve AK1991 alternatiflerinin bütün kontrol değerlerinin ve metindeki sayılarının uygulamanın kodundan ayrı numpy hesabıyla (küme-dayanıklı ve HC1 sandviç, elle 2SLS) doğrulanması; `GroupMean`, kategorik kontrollü 2SLS ve `_slim` birim testleri; kendi verinde küme yokken HC1, az küme, birlikte seçilen roller, Adım 4'ün alt örneklemi, sıfır ilk aşama, zayıf araç, logaritmasız sonuç ve boş hücreli kontrol kurallarının iki dilde aynı sayıyı vermesi.
 
 ## Öğrenci kodu akışı
 

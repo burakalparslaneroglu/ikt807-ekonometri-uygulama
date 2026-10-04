@@ -4,8 +4,8 @@ Kayıttaki her konu kendiliğinden kapsanır:
 
 * notlardaki laboratuvarların üretilen kodu değişmez (``NOTES_MD5``);
 * alternatif örneğin adımları notlarla aynı numaralı ve aynı başlıklıdır, her kontrolün beklenen değeri vardır;
-* alternatif örneğin sayıları gerçek Card1995 verisiyle uygulamada, bağımsız bir hesapta (numpy) ve üretilen Python ve
-  R kodunda aynıdır (veri yolu verilmezse atlanır: ``IKT807_HANSEN_CARD1995_PATH``);
+* alternatif örneğin sayıları gerçek Hansen verisiyle uygulamada, bağımsız bir hesapta ve üretilen Python ve R kodunda
+  aynıdır (veri yolu verilmezse atlanır: ``IKT807_HANSEN_<VERİ>_PATH``, ör. ``IKT807_HANSEN_CARD1995_PATH``);
 * kendi verinde örnek dosya ve elle hazırlanmış dosyalar (Türkçe CSV, işaretli sütun adları, ayrılmış adlar, tam uyum,
   logaritması alınamayan sonuç) uygulamada ve iki dilde aynı sayıları verir; kullanılamayan seçimler açık bir iletiyle
   reddedilir. Excel okuyan R betikleri ``readxl`` ister; R ya da paket yoksa yalnız R adımları atlanır.
@@ -55,7 +55,16 @@ SAMPLE_CHOICES = {
     "konu02": CustomChoices(
         roles={"sonuc": "Saatlik ücret (TL)", "aciklayici": "Eğitim yılı", "grup": "Cinsiyet"},
         extra=("Deneyim (yıl)", "Evli (1/0)", "Kıdem (yıl)"), picks={"grup": "Kadın"}),
+    "konu03": CustomChoices(
+        roles={"sonuc": "Son sınav puanı", "tedavi": "Program", "atama": "Okul", "secilmis": "Düşük başlangıç grubu",
+               "secim": "Başlangıç puanı"},
+        extra=("Başlangıç puanı", "Kız öğrenci (1/0)", "Yaş"), picks={"tedavi": "Var", "secilmis": "Evet"}),
+    "konu04": CustomChoices(
+        roles={"sonuc": "Saatlik ücret (TL)", "icsel": "Eğitim yılı", "arac": "Üniversiteye yakınlık (1/0)"},
+        extra=("Deneyim (yıl)", "Kadın (1/0)", "Kentte yaşıyor (1/0)")),
 }
+WAGE_TOPICS = ("konu01", "konu02")
+"""Örnek dosyası kurgusal ücret verisi olan konular (Blok A); bu verinin sütunlarını kullanan testler bunlarla sınırlı."""
 XLSX = "ornek.xlsx"
 RSCRIPT = shutil.which("Rscript")
 
@@ -78,19 +87,30 @@ def _checks(spec: LabSpec) -> int:
     return sum(len(step.checks) for step in spec.steps)
 
 
-def _card_path() -> Path | None:
-    value = os.environ.get("IKT807_HANSEN_CARD1995_PATH")
+def _data_path(dataset: str) -> Path | None:
+    value = os.environ.get(f"IKT807_HANSEN_{dataset.upper()}_PATH")
     return Path(value) if value and Path(value).is_file() else None
+
+
+_LOADED: dict[str, pd.DataFrame] = {}
+
+
+def hansen_frame(dataset: str) -> pd.DataFrame:
+    """Gerçek Hansen verisi (ortam değişkeniyle verilen dosya); verilmezse test atlanır. Dosya bir kez okunur."""
+
+    if dataset not in _LOADED:
+        path = _data_path(dataset)
+        if path is None:
+            pytest.skip(f"Gerçek Hansen {DATASET_MEMBERS[dataset]} dosyası verilmedi.")
+        loaded = load_from_upload(dataset, path.read_bytes(), path.name)
+        assert loaded.matches_hansen
+        _LOADED[dataset] = loaded.frame
+    return _LOADED[dataset].copy()
 
 
 @pytest.fixture(scope="module")
 def card() -> pd.DataFrame:
-    path = _card_path()
-    if path is None:
-        pytest.skip("Gerçek Hansen Card1995 dosyası verilmedi.")
-    loaded = load_from_upload("card1995", path.read_bytes(), path.name)
-    assert loaded.matches_hansen
-    return loaded.frame
+    return hansen_frame("card1995")
 
 
 def _own(topic: str, frame: pd.DataFrame | None = None, choices: CustomChoices | None = None,
@@ -132,8 +152,8 @@ def _reproduces(spec: LabSpec, result: subprocess.CompletedProcess) -> None:
 
 # --- Kayıt ve notlar ------------------------------------------------------------------------------------------
 
-def test_registry_covers_block_a_with_the_approved_labels() -> None:
-    assert TOPICS == ["konu01", "konu02"]
+def test_registry_covers_the_approved_topics_and_labels() -> None:
+    assert TOPICS == ["konu01", "konu02", "konu03", "konu04"]
     assert SOURCE_LABELS == {"notlar": "Notlardaki örnek", "alternatif": "Alternatif örnek",
                              "kendi": "Kendi verini yükle"}
     for topic in TOPICS:
@@ -212,9 +232,9 @@ def test_alternative_stata_follows_conventions(topic: str) -> None:
 # --- Alternatif örnek: Card (1995) ----------------------------------------------------------------------------
 
 @pytest.mark.parametrize("topic", TOPICS)
-def test_app_reproduces_every_alternative_number(topic: str, card: pd.DataFrame) -> None:
+def test_app_reproduces_every_alternative_number(topic: str) -> None:
     spec = VARIANTS[topic].alternative()
-    run = run_lab(spec, {"card1995": card})
+    run = run_lab(spec, {spec.dataset: hansen_frame(spec.dataset)})
     failures = [f"{item.check.label}: {item.value}" for items in run.checks.values() for item in items
                 if not item.passed]
     assert not failures, failures
@@ -302,16 +322,18 @@ def test_konu02_alternative_numbers_follow_card1995(card: pd.DataFrame) -> None:
 
 
 @pytest.mark.parametrize("topic", TOPICS)
-def test_generated_python_reproduces_the_alternative(topic: str, card: pd.DataFrame, tmp_path: Path) -> None:
+def test_generated_python_reproduces_the_alternative(topic: str, tmp_path: Path) -> None:
     spec = VARIANTS[topic].alternative()
-    _reproduces(spec, _run(spec, "Python", tmp_path, local=_card_path()))
+    hansen_frame(spec.dataset)  # dosya yoksa atlanır
+    _reproduces(spec, _run(spec, "Python", tmp_path, local=_data_path(spec.dataset)))
 
 
 @pytest.mark.skipif(RSCRIPT is None, reason="Rscript bulunamadı.")
 @pytest.mark.parametrize("topic", TOPICS)
-def test_generated_r_reproduces_the_alternative(topic: str, card: pd.DataFrame, tmp_path: Path) -> None:
+def test_generated_r_reproduces_the_alternative(topic: str, tmp_path: Path) -> None:
     spec = VARIANTS[topic].alternative()
-    _reproduces(spec, _run(spec, "R", tmp_path, local=_card_path()))
+    hansen_frame(spec.dataset)
+    _reproduces(spec, _run(spec, "R", tmp_path, local=_data_path(spec.dataset)))
 
 
 # --- Kendi verin --------------------------------------------------------------------------------------------
@@ -319,7 +341,7 @@ def test_generated_r_reproduces_the_alternative(topic: str, card: pd.DataFrame, 
 @pytest.mark.parametrize("topic", TOPICS)
 def test_the_sample_file_runs_every_step_and_passes_its_checks(topic: str) -> None:
     spec, _ = _own(topic)
-    assert spec.source == "kendi" and _checks(spec) >= 15
+    assert spec.source == "kendi" and _checks(spec) >= 10
     run = run_lab(spec)
     assert all(item.passed for items in run.checks.values() for item in items)
     for step in spec.steps:
@@ -351,7 +373,7 @@ def _turkish_csv(frame: pd.DataFrame) -> bytes:
 def test_a_turkish_csv_gives_the_same_numbers_in_both_languages(topic: str, tmp_path: Path) -> None:
     frame = VARIANTS[topic].custom.sample()
     spec, data = _own(topic, file_name="veri.csv", data=_turkish_csv(frame))
-    read = next(op for op in spec.steps[1].operations if isinstance(op, ReadFile))
+    read = next(op for step in spec.steps for op in step.operations if isinstance(op, ReadFile))
     assert (read.separator, read.decimal, read.encoding) == (";", ",", "cp1254")
     excel, _ = _own(topic)
     assert [check.expected for step in spec.steps for check in step.checks] == \
@@ -393,7 +415,7 @@ def test_role_rules_are_enforced() -> None:
                                   extra=("Deneyim (yıl)", "Kıdem (yıl)", "Toplam"), picks={"grup": "Kadın"}))
 
 
-@pytest.mark.parametrize("topic", TOPICS)
+@pytest.mark.parametrize("topic", WAGE_TOPICS)
 def test_an_outcome_without_logarithm_skips_the_percent_steps(topic: str, tmp_path: Path) -> None:
     frame = VARIANTS[topic].custom.sample()
     frame["Saatlik ücret (TL)"] = frame["Saatlik ücret (TL)"] - 200  # negatif değerler: logaritma alınamaz
@@ -423,7 +445,7 @@ SPECIAL_CHOICES = {
 }
 
 
-@pytest.mark.parametrize("topic", TOPICS)
+@pytest.mark.parametrize("topic", WAGE_TOPICS)
 def test_user_names_are_escaped_in_texts_and_quoted_in_code(topic: str, tmp_path: Path) -> None:
     spec, data = _own(topic, SPECIAL, SPECIAL_CHOICES[topic])
     run = run_lab(spec)
@@ -447,7 +469,7 @@ def test_columns_named_like_the_apps_own_columns_keep_their_names(tmp_path: Path
     _reproduces(spec, _run(spec, "Python", tmp_path, data))
 
 
-@pytest.mark.parametrize("topic", TOPICS)
+@pytest.mark.parametrize("topic", WAGE_TOPICS)
 def test_an_exact_fit_drops_the_standard_error_checks_and_says_why(topic: str, tmp_path: Path) -> None:
     frame = VARIANTS[topic].custom.sample()
     women = (frame["Cinsiyet"] == "Kadın").astype(float)
@@ -495,7 +517,7 @@ def test_numbers_stored_as_text_in_excel_are_read_the_same_way_in_both_languages
         _reproduces(spec, _run(spec, "R", tmp_path, data))
 
 
-@pytest.mark.parametrize("topic", TOPICS)
+@pytest.mark.parametrize("topic", WAGE_TOPICS)
 def test_badly_scaled_variables_are_rejected_with_a_units_message(topic: str) -> None:
     """Milyonlarla ölçülen bir kontrolün karesi tasarım matrisini kötü koşullu yapar: statsmodels'in pinv çözümü
     katsayıları sessizce bozabilir. Uygulama hesaplamaz, birimi değiştirmeyi önerir."""
@@ -536,7 +558,7 @@ def test_a_year_and_its_square_are_rejected_but_a_linear_year_is_kept(label: str
         _reproduces(spec, _run(spec, "R", tmp_path, data))
 
 
-def test_alternative_scripts_do_not_offer_the_teaching_csv_for_card1995() -> None:
+def test_alternative_scripts_do_not_offer_the_teaching_csv() -> None:
     for topic in TOPICS:
         for language in LANGUAGES:
             assert "öğretim CSV" not in render_script(VARIANTS[topic].alternative(), language)

@@ -39,6 +39,7 @@ from core.labs.spec import (
     OLS,
     RDD,
     CompleteCases,
+    GroupMean,
     Indicator,
     ReadFile,
     BinMeans,
@@ -443,6 +444,12 @@ class StataGenerator(Generator):
                 *_command(f"drop if missing({', '.join(op.columns)})"),
                 "count",
             ]
+        if isinstance(op, GroupMean):
+            values = op.source
+            if op.condition is not None:
+                variable, operator, value = op.condition
+                values = f"cond({variable} {operator} {E.format_number(value)}, {op.source}, .)"
+            return [f"* {op.comment}", *_command(f"egen double {op.name} = mean({values}), by({op.by})")]
         if isinstance(op, Indicator):
             level = op.level.replace('"', "")
             return [
@@ -853,7 +860,7 @@ class StataGenerator(Generator):
         return lines
 
     def _iv(self, op: IV) -> list[str]:
-        exogenous = " ".join(op.exogenous)
+        exogenous = " ".join(f"i.{name}" if name in op.categorical else name for name in op.exogenous)
         instrumented = f"({' '.join(op.endogenous)} = {' '.join(op.instruments)})"
         command = f"quietly ivregress 2sls {op.outcome} {exogenous} {instrumented}, vce(robust) small"
         command = command.replace("  ", " ")

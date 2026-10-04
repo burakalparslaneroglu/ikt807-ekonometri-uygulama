@@ -48,13 +48,19 @@ Sekmenin üstündeki seçim varsayılan olarak notlardaki örnektir; notların l
   sayılarıyla karşılaştırır. İki dilin aynı sayıyı veremeyeceği seçimler açık bir iletiyle reddedilir: tam doğrusal
   bağlantı, neredeyse doğrusal bağlantı (ör. dar aralıkta yıl ve karesi; iletide yaşı ya da `yıl − 2015` gibi bir
   farkı kullanma önerilir) ve kötü ölçek (ör. milyonlarla ölçülen bir kontrolün karesi; iletide birimi değiştirme
-  önerilir). Örnek dosya kurgusal veriden bellekte üretilir. Okuma kuralları İKT 217 ve İKT 305 uygulamalarıyla
-  aynıdır.
+  önerilir). Konu 3'te kümelenmiş standart hata için her tahmin örnekleminde (denge satırları, kovaryat ayarlı model,
+  Adım 4) en az 4 küme gerekir. Konu 4'te kontroller sabitken endojen değişkenle ilişkisiz araç (sıfır ilk aşama) ve
+  araçla kontrollerin tam doğrusal fonksiyonu olan endojen değişken (tam uyumlu ilk aşama) reddedilir; ilk aşama F 10'un
+  altındaysa yorum zayıf aracı belirtir. Örnek
+  dosya kurgusal veriden bellekte üretilir (`core/labs/ornek_veri.py`: ücret verisi, okul deneyi, araç değişkeni
+  verisi; DGP'ler dosyada yazılıdır). Okuma kuralları İKT 217 ve İKT 305 uygulamalarıyla aynıdır.
 
 | Konu | Alternatif örnek | Kendi verinde roller |
 |---|---|---|
 | 1 | Card (1995), NLSYM 1976: 3.010 genç erkek; 39 kontrol (koşullu ortalamalar, projeksiyon, üç sütunlu tablo: eğitim; + deneyim profili; + siyahi göstergesi) | sonuç, az değerli açıklayıcı değişken (≤ 30 değer), karesiyle eklenen sürekli kontrol, iki kategorili grup |
 | 2 | Card (1995): 19 kontrol (M1–M3, klasik/HC1 SH, Breusch–Pagan, eğitim × siyahi etkileşimi, doğrusal birleşim, delta yöntemi) | sonuç, açıklayıcı değişken, iki kategorili grup (etkileşim), ek sayısal kontroller |
+| 3 | Di Tella ve Schargrodsky (2004), Buenos Aires: 1994 saldırısından sonra Yahudi kurumu bulunan 37 bloğa polis koruması; 876 blok, saldırı sonrası 4.380 blok-ay; 32 kontrol (denge tablosu, ham ve kovaryat ayarlı fark, seçilmiş grup ve ortalamaya dönüş; blok düzeyinde küme SH). Atama rastgele değildir; metinler dışsal atama varsayımını açıkça yazar | sonuç, iki kategorili tedavi, isteğe bağlı atama birimi (küme SH; seçilmezse HC1), tedavi öncesi başlangıç değişkenleri (denge tablosu ve kovaryat ayarı), birlikte seçilen seçilmiş grup göstergesi ve dayandığı başlangıç değişkeni |
+| 4 | Angrist ve Krueger (1991), 1980 nüfus sayımı: 1930–1939 doğumlu 329.509 erkek, araç yılın ilk çeyreğinde doğmuş olmak; 14 kontrol (OLS, ilk aşama, indirgenmiş biçim, 2SLS, ilk aşama F, dolaylı EKK oranı, kesin yüzde dönüşüm, elle ikinci aşama; doğum yılı ve bölge göstergeleri) | sonuç (isteğe bağlı logaritma), endojen açıklayıcı değişken, tek araç, dışsal kontroller |
 
 Diğer konular blok blok eklenecektir; her blokta alternatif veri seti ve roller önceden onaylanır.
 
@@ -119,6 +125,8 @@ $env:IKT807_HANSEN_DDK2011_PATH = "C:\veri\DDK2011.dta"
 $env:IKT807_HANSEN_CARD1995_PATH = "C:\veri\Card1995.dta"
 $env:IKT807_HANSEN_CHJ2004_PATH = "C:\veri\CHJ2004.dta"
 $env:IKT807_HANSEN_LM2007_PATH = "C:\veri\LM2007.dta"
+$env:IKT807_HANSEN_DS2004_PATH = "C:\veri\DS2004.dta"
+$env:IKT807_HANSEN_AK1991_PATH = "C:\veri\AK1991.dta"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
@@ -129,20 +137,22 @@ Stata lisans gerektirdiği için otomatik test edilemez; do-dosyası sonunda ken
 
 Ek veri kaynaklarının testleri `tests/test_lab_variants.py` (alternatif örneğin sayıları, kendi verinde örnek dosya,
 Türkçe CSV, işaretli sütun adları, tam uyum, logaritması alınamayan sonuç, notların kod özeti) ve
-`tests/test_lab_sources_ui.py` (Streamlit AppTest: kaynak seçimi, dosya yükleme, seçimlerin korunması) içindedir.
-Alternatif örneğin gerçek veri testleri `IKT807_HANSEN_CARD1995_PATH` ile çalışır; kendi verin testleri veri dosyası
-gerektirmez (örnek dosya kurgusaldır).
+`tests/test_lab_sources_ui.py` (Streamlit AppTest: kaynak seçimi, dosya yükleme, seçimlerin korunması) içindedir;
+Konu 3–4'ün bağımsız hesapları ve kendi veri kuralları `tests/test_lab_variants_konu03_04.py` içindedir. Alternatif
+örneklerin gerçek veri testleri `IKT807_HANSEN_CARD1995_PATH` (Konu 1–2), `IKT807_HANSEN_DS2004_PATH` (Konu 3) ve
+`IKT807_HANSEN_AK1991_PATH` (Konu 4) ile çalışır; kendi verin testleri veri dosyası gerektirmez (örnek dosyalar
+kurgusaldır).
 
 ## Veri politikası
 
 Ders notlarındaki uygulamalar Hansen'in *Econometrics* veri arşivine dayanır. Gerçek veri dosyaları depoya eklenmez. Uygulama sekmesi veriyi iki yoldan alır:
 
 1. **Hansen'in sayfasından çalışma anında indirme.** Arşiv (`Econometrics Data.zip`) sunucuda bir kez indirilir ve önbelleğe alınır; bütün oturumlar aynı kopyayı kullanır. Hansen'in sayfası `~bhansen` → `~behansen` adresine yönlenmektedir; önce güncel, sonra eski adres denenir.
-2. **Dosya yükleme.** Hansen'in dosyası (`cps09mar.txt`, `DDK2011.dta`, `Card1995.dta`, `CHJ2004.dta`, `LM2007.dta`) yüklenebilir; cps09mar, DDK2011 ve LM2007 için ders notlarının öğretim CSV'si de kabul edilir (Card1995 ve CHJ2004 öğretim CSV'lerinde laboratuvarın türettiği ham değişkenler yoktur). Dosya yalnız oturumda tutulur.
+2. **Dosya yükleme.** Hansen'in dosyası (`cps09mar.txt`, `DDK2011.dta`, `Card1995.dta`, `CHJ2004.dta`, `LM2007.dta`; alternatif örnekler için `DS2004.dta`, `AK1991.dta`) yüklenebilir; cps09mar, DDK2011 ve LM2007 için ders notlarının öğretim CSV'si de kabul edilir (Card1995 ve CHJ2004 öğretim CSV'lerinde laboratuvarın türettiği ham değişkenler yoktur). Dosya yalnız oturumda tutulur.
 
-`cps09mar` başlıksız `.txt` olarak okunur (değişken adları açıklama belgesindeki sırayla). DDK2011, Card1995 ve CHJ2004, değişken adlarını taşıyan `.dta` dosyalarından okunur; adlar üç dilde aynı olsun diye küçük harfe çevrilir. DDK2011 ve Card1995'te eksik değerler olağandır; analiz örneklemi laboratuvar adımlarında açıkça kurulur. CHJ2004, Hansen'in oluşturma dosyasının ham `urban.dta`'ya uygulanmış hâlidir (düzeltilmiş gelir, 8.684 hane). LM2007, Hansen'in `LM2007_create.do` dosyasıyla Ludwig ve Miller (2007) verisinden oluşturulmuştur: eşik değişkeni (`povrate60`) ve sonucu (`mort_age59_related_posths`) eksik olmayan 2.783 ilçe.
+`cps09mar` başlıksız `.txt` olarak okunur (değişken adları açıklama belgesindeki sırayla). DDK2011, Card1995 ve CHJ2004, değişken adlarını taşıyan `.dta` dosyalarından okunur; adlar üç dilde aynı olsun diye küçük harfe çevrilir. DDK2011 ve Card1995'te eksik değerler olağandır; analiz örneklemi laboratuvar adımlarında açıkça kurulur. CHJ2004, Hansen'in oluşturma dosyasının ham `urban.dta`'ya uygulanmış hâlidir (düzeltilmiş gelir, 8.684 hane). LM2007, Hansen'in `LM2007_create.do` dosyasıyla Ludwig ve Miller (2007) verisinden oluşturulmuştur: eşik değişkeni (`povrate60`) ve sonucu (`mort_age59_related_posths`) eksik olmayan 2.783 ilçe. DS2004 (Di Tella ve Schargrodsky 2004; 876 blok × Nisan–Aralık 1994 = 7.884 satır, Temmuz yalnız 1–17) ve AK1991 (Angrist ve Krueger 1991; 329.509 erkek) yalnız Uygulama sekmesinin alternatif örneklerinde kullanılır; ikisi de `.dta`'dan okunur, DS2004'te mahalle (`barrio`) metin sütunudur. AK1991'in modelleri büyük olduğu için tasarım matrisi bellekte tutulmaz (`docs/ARCHITECTURE.md`).
 
-Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH`, `IKT807_HANSEN_CARD1995_PATH`, `IKT807_HANSEN_CHJ2004_PATH` ve `IKT807_HANSEN_LM2007_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
+Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH`, `IKT807_HANSEN_CARD1995_PATH`, `IKT807_HANSEN_CHJ2004_PATH`, `IKT807_HANSEN_LM2007_PATH`, `IKT807_HANSEN_DS2004_PATH` ve `IKT807_HANSEN_AK1991_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
 
 Her veri setinin kaynağı, gözlem birimi, örneklem kısıtı, değişken birimi, küme/yeniden örnekleme birimi ve yeniden dağıtım durumu `core/data_registry.py` içinde kayıtlıdır.
 

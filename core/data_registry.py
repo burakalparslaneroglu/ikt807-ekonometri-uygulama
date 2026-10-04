@@ -157,6 +157,57 @@ DATASETS: tuple[DatasetMetadata, ...] = (
         expected_columns=("povrate60", "mort_age59_related_postHS"),
         allowed_topics=("konu09",),
     ),
+    DatasetMetadata(
+        dataset_id="ds2004",
+        title="DS2004 - Saldırı sonrası polis koruması ve araç hırsızlığı",
+        source="Di Tella ve Schargrodsky (2004); Hansen Econometrics kaynak veri paketi.",
+        observation_unit="Blok × ay",
+        sample_definition="Buenos Aires'in üç mahallesinde 876 blok, Nisan–Aralık 1994 (Temmuz yalnız 1–17); 7.884 satır. "
+                          "Uygulama sekmesinin alternatif örneği saldırı sonrası tam ayları (Ağustos–Aralık) kullanır.",
+        variables=tuple(
+            _variable(name, label, label, unit)
+            for name, label, unit in (
+                ("block", "Blok", "kimlik"),
+                ("barrio", "Mahalle", "kategori"),
+                ("sameblock", "Blokta Yahudi kurumu", "0/1"),
+                ("distance", "En yakın Yahudi kurumuna uzaklık", "blok"),
+                ("public", "Blokta kamu binası", "0/1"),
+                ("gasstation", "Blokta benzin istasyonu", "0/1"),
+                ("bank", "Blokta banka", "0/1"),
+                ("thefts", "Aylık araç hırsızlığı", "adet"),
+                ("month", "Ay", "ay"),
+                ("oneblock", "Bir blok uzakta Yahudi kurumu", "0/1"),
+            )
+        ),
+        expected_columns=("block", "barrio", "sameblock", "distance", "public", "gasstation", "bank", "thefts",
+                          "month", "oneblock"),
+        allowed_topics=("konu03",),
+        cluster_variable="block",
+    ),
+    DatasetMetadata(
+        dataset_id="ak1991",
+        title="AK1991 - Doğum çeyreği ve eğitim",
+        source="Angrist ve Krueger (1991); Hansen Econometrics kaynak veri paketi.",
+        observation_unit="Birey",
+        sample_definition="1980 nüfus sayımı, 1930–1939 doğumlu erkekler; 329.509 gözlem.",
+        variables=tuple(
+            _variable(name, label, label, unit)
+            for name, label, unit in (
+                ("logwage", "Log haftalık kazanç", "log dolar"),
+                ("edu", "Tamamlanan eğitim", "yıl"),
+                ("qob", "Doğum çeyreği", "1–4"),
+                ("yob", "Doğum yılı", "yıl"),
+                ("ageq", "Çeyrek dahil yaş", "yıl"),
+                ("black", "Siyah", "0/1"),
+                ("smsa", "Metropol alanda çalışıyor", "0/1"),
+                ("married", "Evli ve eşiyle yaşıyor", "0/1"),
+                ("region", "Bölge", "kategori"),
+                ("state", "Doğum eyaleti", "FIPS kodu"),
+            )
+        ),
+        expected_columns=("logwage", "edu", "qob", "yob", "ageq", "black", "smsa", "married", "region", "state"),
+        allowed_topics=("konu04",),
+    ),
 )
 
 DATASETS_BY_ID = {dataset.dataset_id: dataset for dataset in DATASETS}

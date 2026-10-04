@@ -1,6 +1,7 @@
 """Uygulama sekmesindeki veri kaynağı seçimi (Streamlit AppTest): notlardaki örnek, alternatif örnek, kendi verin.
 
-Gerçek Card1995 verisi gerektiren test, veri yolu verilmezse atlanır (``IKT807_HANSEN_CARD1995_PATH``).
+Gerçek Hansen verisi gerektiren test, veri yolu verilmezse atlanır (``IKT807_HANSEN_<VERİ>_PATH``, ör.
+``IKT807_HANSEN_CARD1995_PATH``).
 """
 
 from __future__ import annotations
@@ -11,24 +12,38 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from core.hansen_data import DATASET_MEMBERS
 from core.labs import kendi_veri as K
 from core.labs.ornekler import VARIANTS
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 START = "Başlamak için bir dosya yükleyin."
-STEPS = {"konu01": 9, "konu02": 7}
+STEPS = {"konu01": 9, "konu02": 7, "konu03": 5, "konu04": 5}
+STATA_STEP = {"konu01": 5, "konu02": 5, "konu03": 2, "konu04": 2}
+"""Kendi verinde Stata seçilince bilgi kutusunun denetlendiği adım (kodu olan bir adım)."""
+SAMPLE_ROLES = {
+    "konu01": {"rol_aciklayici": "Eğitim yılı", "kategori_grup": "Kadın"},
+    "konu02": {"rol_aciklayici": "Eğitim yılı", "kategori_grup": "Kadın"},
+    "konu03": {"rol_sonuc": "Son sınav puanı", "rol_tedavi": "Program", "rol_atama": "Okul",
+               "rol_secilmis": "Düşük başlangıç grubu", "rol_secim": "Başlangıç puanı", "kategori_tedavi": "Var",
+               "kategori_secilmis": "Evet"},
+    "konu04": {"rol_sonuc": "Saatlik ücret (TL)", "rol_icsel": "Eğitim yılı",
+               "rol_arac": "Üniversiteye yakınlık (1/0)"},
+}
+"""Örnek dosya yüklenince önerilen roller (``_guess`` ve konunun ``suggest`` önerileri)."""
 
 
-def _app(monkeypatch, card: bool = False) -> AppTest:
-    for name in ("IKT807_HANSEN_CPS09MAR_PATH", "IKT807_CPS_PATH", "IKT807_HANSEN_CARD1995_PATH"):
-        if not (card and name == "IKT807_HANSEN_CARD1995_PATH"):
-            monkeypatch.delenv(name, raising=False)
-    return AppTest.from_file(APP_PATH, default_timeout=120).run()
+def _app(monkeypatch, keep: tuple[str, ...] = ()) -> AppTest:
+    for dataset in DATASET_MEMBERS:
+        if dataset not in keep:
+            monkeypatch.delenv(f"IKT807_HANSEN_{dataset.upper()}_PATH", raising=False)
+    monkeypatch.delenv("IKT807_CPS_PATH", raising=False)
+    return AppTest.from_file(APP_PATH, default_timeout=300).run()
 
 
-def _card_path() -> str | None:
-    value = os.environ.get("IKT807_HANSEN_CARD1995_PATH")
+def _data_path(dataset: str) -> str | None:
+    value = os.environ.get(f"IKT807_HANSEN_{dataset.upper()}_PATH")
     return value if value and Path(value).is_file() else None
 
 
@@ -68,8 +83,8 @@ def test_source_selector_opens_on_the_notes(monkeypatch) -> None:
         assert len(selector.options) == 3
         assert "ders notlarındaki" in _markdown(app) and "henüz yüklenmedi" in _markdown(app)
         assert not app.exception
-    _topic(app, "konu03")
-    assert "konu03_lab_kaynak" not in {item.key for item in app.segmented_control}
+    _topic(app, "konu05")
+    assert "konu05_lab_kaynak" not in {item.key for item in app.segmented_control}
 
 
 def test_alternative_shows_steps_and_code_before_its_data_is_loaded(monkeypatch) -> None:
@@ -83,21 +98,29 @@ def test_alternative_shows_steps_and_code_before_its_data_is_loaded(monkeypatch)
     keys = {item.key for item in app.download_button}
     assert {f"konu01_lab_download_alternatif_{language}" for language in ("Python", "R", "Stata")} <= keys
     assert not app.exception
+    _topic(app, "konu04")
+    _source(app, "konu04", "alternatif")
+    assert any("`AK1991.dta` dosyası henüz yüklenmedi" in item.value for item in app.markdown)
+    app.segmented_control(key="konu04_lab_step").set_value(2).run()
+    assert "[edu ~ q1]" in "\n".join(block.value for block in app.code)
+    assert not app.exception
 
 
-@pytest.mark.skipif(_card_path() is None, reason="Gerçek Hansen Card1995 dosyası verilmedi.")
-def test_every_alternative_step_renders_with_card1995(monkeypatch) -> None:
-    app = _app(monkeypatch, card=True)
-    for topic in STEPS:
-        _topic(app, topic)
-        _source(app, topic, "alternatif")
-        _all_steps(app, topic, ("Python", "R", "Stata"), f"{topic} alternatif")
-        assert not [frame for frame in app.dataframe if "Durum" in frame.value.columns]  # notlarla karşılaştırma yok
-    _topic(app, "konu01")
-    app.segmented_control(key="konu01_lab_step").set_value(6).run()
-    metrics = {metric.label: metric.value for metric in app.metric}
-    assert metrics["Model (3) eğitim katsayısının kesin yüzde karşılığı"] == "%8,52"
-    assert metrics["Model (3) siyahi göstergesinin kesin yüzde karşılığı"] == "%−20,70"
+@pytest.mark.parametrize("topic", sorted(STEPS))
+def test_every_alternative_step_renders_with_the_real_data(monkeypatch, topic: str) -> None:
+    dataset = VARIANTS[topic].alternative().dataset
+    if _data_path(dataset) is None:
+        pytest.skip(f"Gerçek Hansen {DATASET_MEMBERS[dataset]} dosyası verilmedi.")
+    app = _app(monkeypatch, keep=(dataset,))
+    _topic(app, topic)
+    _source(app, topic, "alternatif")
+    _all_steps(app, topic, ("Python", "R", "Stata"), f"{topic} alternatif")
+    assert not [frame for frame in app.dataframe if "Durum" in frame.value.columns]  # notlarla karşılaştırma yok
+    if topic == "konu01":
+        app.segmented_control(key="konu01_lab_step").set_value(6).run()
+        metrics = {metric.label: metric.value for metric in app.metric}
+        assert metrics["Model (3) eğitim katsayısının kesin yüzde karşılığı"] == "%8,52"
+        assert metrics["Model (3) siyahi göstergesinin kesin yüzde karşılığı"] == "%−20,70"
 
 
 def test_the_sample_file_runs_every_step_and_offers_python_and_r(monkeypatch) -> None:
@@ -107,18 +130,33 @@ def test_the_sample_file_runs_every_step_and_offers_python_and_r(monkeypatch) ->
         _source(app, topic, "kendi")
         assert any(START in item.value for item in app.info)
         _upload(app, topic)
-        assert not app.exception and not app.error
-        assert app.selectbox(key=f"{topic}_kendi_rol_aciklayici").value == "Eğitim yılı"
-        assert app.selectbox(key=f"{topic}_kendi_kategori_grup").value == "Kadın"
+        assert not app.exception and not app.error, [item.value for item in app.error]
+        for key, value in SAMPLE_ROLES[topic].items():
+            assert app.selectbox(key=f"{topic}_kendi_{key}").value == value, (topic, key)
         _all_steps(app, topic, ("Python", "R"), f"{topic} kendi")
         keys = {item.key for item in app.download_button}
         assert {f"{topic}_lab_download_kendi_Python", f"{topic}_lab_download_kendi_R"} <= keys
         assert f"{topic}_lab_download_kendi_Stata" not in keys
-        app.segmented_control(key=f"{topic}_lab_step").set_value(5).run()
+        app.segmented_control(key=f"{topic}_lab_step").set_value(STATA_STEP[topic]).run()
         app.segmented_control(key="code_language").set_value("Stata").run()
         assert any("Python ve R'da üretilir" in item.value for item in app.info)
         assert not app.exception and not app.error
         app.segmented_control(key="code_language").set_value("Python").run()
+
+
+def test_the_konu03_sample_offers_its_baseline_variables_as_balance_columns(monkeypatch) -> None:
+    """Seçilmiş grubun dayandığı başlangıç puanı aynı zamanda denge tablosunun bir değişkenidir (``Role.shared``)."""
+
+    app = _app(monkeypatch)
+    _topic(app, "konu03")
+    _source(app, "konu03", "kendi")
+    _upload(app, "konu03")
+    extras = app.multiselect(key="konu03_kendi_ek")
+    assert list(extras.value) == ["Başlangıç puanı", "Kız öğrenci (1/0)", "Yaş"]
+    assert "Okul" not in extras.options and "Program" not in extras.options
+    app.segmented_control(key="konu03_lab_step").set_value(3).run()
+    assert not app.exception and not app.error
+    assert any("1.030 → 969" in item.value for item in app.info)  # adımın sonuç notu
 
 
 def test_source_file_and_choices_survive_switches_and_removing_the_file_clears_them(monkeypatch) -> None:

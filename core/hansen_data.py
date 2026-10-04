@@ -5,8 +5,9 @@ kullanıcının yüklediği dosyayı okur. Hansen'in sayfası 2026'da ``~bhansen
 ``~behansen`` adresine yönleniyor; önce güncel adres, sonra eski adres denenir.
 
 Dosya biçimleri: ``cps09mar`` başlıksız ``.txt`` olarak okunur (değişken adları
-açıklama belgesindeki sırayla). ``DDK2011``, ``Card1995``, ``CHJ2004`` ve ``LM2007`` Stata ``.dta``
-olarak okunur: adlar dosyada kayıtlıdır ve üç dilde aynı olsun diye küçük harfe çevrilir.
+açıklama belgesindeki sırayla). ``DDK2011``, ``Card1995``, ``CHJ2004``, ``LM2007`` ve uygulama sekmesinin alternatif
+örneklerinde kullanılan ``DS2004`` ile ``AK1991`` Stata ``.dta`` olarak okunur: adlar dosyada kayıtlıdır ve üç dilde aynı
+olsun diye küçük harfe çevrilir.
 """
 
 from __future__ import annotations
@@ -55,21 +56,29 @@ CHJ2004_CONTROLS = (
 )
 CHJ2004_REQUIRED = ("tabroad", "tdomestic", "tinkind", "tgifts", "income", "transfers", *CHJ2004_CONTROLS)
 LM2007_REQUIRED = ("povrate60", "mort_age59_related_posths")
+DS2004_REQUIRED = ("block", "sameblock", "distance", "public", "gasstation", "bank", "thefts", "month", "oneblock")
+AK1991_REQUIRED = ("ageq", "edu", "logwage", "married", "state", "qob", "black", "smsa", "yob", "region")
 
 DATASET_MEMBERS = {
     "cps09mar": "cps09mar.txt", "ddk2011": "DDK2011.dta", "card1995": "Card1995.dta", "chj2004": "CHJ2004.dta",
-    "lm2007": "LM2007.dta",
+    "lm2007": "LM2007.dta", "ds2004": "DS2004.dta", "ak1991": "AK1991.dta",
 }
 DATASET_COLUMNS = {"cps09mar": CPS09MAR_COLUMNS}
 """Başlıksız ``.txt`` dosyaları için değişken adları (açıklama belgesindeki sıra)."""
 DATASET_REQUIRED = {
     "cps09mar": CPS09MAR_REQUIRED, "ddk2011": DDK2011_REQUIRED, "card1995": CARD1995_REQUIRED,
-    "chj2004": CHJ2004_REQUIRED, "lm2007": LM2007_REQUIRED,
+    "chj2004": CHJ2004_REQUIRED, "lm2007": LM2007_REQUIRED, "ds2004": DS2004_REQUIRED, "ak1991": AK1991_REQUIRED,
 }
-DATASET_COMPLETE = {"cps09mar": CPS09MAR_REQUIRED, "chj2004": CHJ2004_REQUIRED}
+DATASET_TEXT = {"ds2004": ("barrio",)}
+"""Varlığı denetlenen fakat sayıya çevrilmeyen metin sütunları (DS2004'te mahalle adı)."""
+DATASET_COMPLETE = {"cps09mar": CPS09MAR_REQUIRED, "chj2004": CHJ2004_REQUIRED, "ds2004": DS2004_REQUIRED,
+                    "ak1991": AK1991_REQUIRED}
 """Eksik değer içermemesi gereken sütunlar. DDK2011 ve Card1995'te eksik değerler olağandır;
 analiz örneklemi laboratuvar adımlarında açıkça kurulur."""
-DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613, "chj2004": 8684, "lm2007": 2783}
+DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613, "chj2004": 8684, "lm2007": 2783,
+                "ds2004": 7884, "ak1991": 329509}
+TEACHING_CSV = ("cps09mar", "ddk2011", "lm2007")
+"""Ders notlarının öğretim CSV'si laboratuvarın bütün ham değişkenlerini taşıyan veri setleri."""
 DATASET_SAMPLE = {"lm2007": LM2007_REQUIRED}
 """Tam örneklemi bu sütunlarda eksiksiz satır sayısıyla denetlenen veri setleri. Hansen'in LM2007.dta dosyası
 (LM2007_create.do) eşik değişkeni veya sonuç değişkeni eksik ilçeleri çıkarır: 2.783 ilçe. Kaynak
@@ -172,11 +181,12 @@ def validate(dataset: str, frame: pd.DataFrame) -> bool:
     """Gerekli sütunları denetler; Hansen'in tam örneklemi mi olduğunu döndürür."""
 
     required = DATASET_REQUIRED[dataset]
-    missing = [column for column in required if column not in frame.columns]
+    missing = [column for column in (*required, *DATASET_TEXT.get(dataset, ())) if column not in frame.columns]
     if missing:
+        teaching = " veya ders notlarının öğretim CSV'sini" if dataset in TEACHING_CSV else ""
         raise HansenDataError(
             "Dosyada beklenen sütunlar yok: " + ", ".join(missing)
-            + f". Hansen'in {DATASET_MEMBERS[dataset]} dosyasını veya ders notlarının öğretim CSV'sini yükleyin."
+            + f". Hansen'in {DATASET_MEMBERS[dataset]} dosyasını{teaching} yükleyin."
         )
     for column in required:
         frame[column] = pd.to_numeric(frame[column], errors="raise")

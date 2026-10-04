@@ -148,10 +148,11 @@ def _guess(role, table: K.UploadedTable, used: set[str]) -> str:
 
 def _render_roles(topic_key: str, custom: CustomLab, table: K.UploadedTable) -> CustomChoices:
     options = [NONE, *table.columns]
-    used: set[str] = set()
+    taken: set[str] = set()  # ek sütun listesinden düşülenler: ek sütun da olabilen roller (``Role.shared``) hariç
     roles: dict[str, str | None] = {}
     columns = st.columns(2)
     hints = dict(custom.suggest(table)) if custom.suggest is not None else {}
+    used: set[str] = set(hints.values())  # öneriler başka bir role önerilmiş sütunu seçmez
     for index, role in enumerate(custom.roles):
         key = f"{topic_key}_kendi_rol_{role.key}"
         restore(key)
@@ -169,11 +170,13 @@ def _render_roles(topic_key: str, custom: CustomLab, table: K.UploadedTable) -> 
         roles[role.key] = None if value == NONE else value
         if value != NONE:
             used.add(value)
+            if not role.shared:
+                taken.add(value)
     extra: tuple[str, ...] = ()
     if custom.extra_columns:
         key = f"{topic_key}_kendi_ek"
         restore(key)
-        remaining = [column for column in table.columns if column not in used]
+        remaining = [column for column in table.columns if column not in taken]
         if key in st.session_state:
             st.session_state[key] = [column for column in st.session_state[key] if column in remaining]
         else:  # ilk açılışta kullanılabilir sayısal sütunlar (gözlem numarası ya da dönem gibi görünenler hariç)

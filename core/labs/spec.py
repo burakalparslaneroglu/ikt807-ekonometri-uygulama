@@ -138,6 +138,25 @@ class Indicator:
 
 
 @dataclass(frozen=True)
+class GroupMean:
+    """``source`` değişkeninin ``by`` gruplarındaki ortalaması, grubun bütün satırlarına yazılır (ör. her bloğun
+    saldırıdan önceki aylık ortalaması). ``condition`` (değişken, işleç, değer) verilirse ortalama yalnız koşulu sağlayan
+    satırlarla alınır; işleç ``KEEP_OPERATORS`` içinden seçilir. Koşulu sağlayan dolu değeri olmayan grupta eksik.
+    ``by`` ve koşul değişkeni eksiksiz olmalıdır (eksik anahtar dillerde farklı işlenir; uygulama hata verir)."""
+
+    frame: str
+    name: str
+    source: str
+    by: str
+    comment: str
+    condition: tuple[str, str, float] | None = None
+
+    def __post_init__(self) -> None:
+        if self.condition is not None and self.condition[1] not in KEEP_OPERATORS:
+            raise ValueError(f"Desteklenmeyen işleç: {self.condition[1]}")
+
+
+@dataclass(frozen=True)
 class Derive:
     """Yeni bir değişken türetir."""
 
@@ -479,7 +498,8 @@ class EffectTable:
 class IV:
     """İki aşamalı en küçük kareler (2SLS).
 
-    ``vcov="HC1"`` heteroskedastisiteye dayanıklı sandviçtir ve n/(n−k) ile ölçeklenir.
+    ``vcov="HC1"`` heteroskedastisiteye dayanıklı sandviçtir ve n/(n−k) ile ölçeklenir. ``categorical``: dışsal
+    kontrollerden kategorik olanlar (her düzey için bir kukla, ilk düzey referans; ``OLS.categorical`` gibi).
     """
 
     name: str
@@ -489,6 +509,11 @@ class IV:
     instruments: tuple[str, ...]
     exogenous: tuple[str, ...] = ()
     vcov: str = "HC1"
+    categorical: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if any(name not in self.exogenous for name in self.categorical):
+            raise ValueError("Kategorik kontroller dışsal değişkenler arasında olmalı.")
 
 
 @dataclass(frozen=True)
@@ -1134,6 +1159,7 @@ Operation = Union[
     ReadFile,
     CompleteCases,
     Indicator,
+    GroupMean,
     RowNumber,
     GroupRank,
     Dictionary,

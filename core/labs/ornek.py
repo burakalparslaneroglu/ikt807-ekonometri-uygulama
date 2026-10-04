@@ -328,6 +328,9 @@ class Role:
     """Seçilirse sütunda boş hücre olamaz."""
     unique: bool = False
     """Seçilirse sütundaki değerler birbirinden farklı olmalı (kimlik sütunu)."""
+    shared: bool = False
+    """Bu rolün sütunu ek sütunlardan biri olarak da seçilebilir (ör. seçilmiş grubun dayandığı başlangıç puanı, denge
+    tablosunda da yer alır)."""
 
 
 @dataclass(frozen=True)
@@ -430,10 +433,12 @@ def _selections(custom: CustomLab, table, choices: CustomChoices):
         raise K.UploadError(f"En çok {custom.max_extra} ek sütun seçilebilir.")
     uses: dict[str, str] = {}
     required: dict[str, bool] = {}
+    shared: dict[str, bool] = {}
     for role in custom.roles:
         original = choices.roles.get(role.key)
         if not original:
             continue
+        shared[original] = shared.get(original, True) and role.shared
         if original not in table.columns:
             raise K.UploadError(f"“{original}” sütunu dosyada yok.")
         previous = uses.get(original)
@@ -446,6 +451,9 @@ def _selections(custom: CustomLab, table, choices: CustomChoices):
         if original not in table.columns:
             raise K.UploadError(f"“{original}” sütunu dosyada yok.")
         if original in uses:
+            if shared.get(original) and uses[original] == custom.extra_use:
+                required[original] = required[original] or custom.extra_required
+                continue
             raise K.UploadError(f"“{original}” sütunu hem bir rol için hem ek sütun olarak seçildi.")
         uses[original] = custom.extra_use
         required[original] = custom.extra_required

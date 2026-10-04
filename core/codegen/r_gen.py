@@ -30,6 +30,7 @@ from core.labs.spec import (
     OLS,
     RDD,
     CompleteCases,
+    GroupMean,
     Indicator,
     ReadFile,
     Bootstrap,
@@ -618,6 +619,15 @@ class RGenerator(Generator):
                 f"{op.frame}${op.name} <- as.numeric({op.frame}${op.source} == {_text(op.level)})",
                 f"print(table({op.frame}${op.name}, useNA = \"ifany\"))",
             ]
+        if isinstance(op, GroupMean):
+            values = f"{op.frame}${op.source}"
+            lines = [f"# {op.comment}"]
+            if op.condition is not None:
+                variable, operator, value = op.condition
+                values = f"ifelse({op.frame}${variable} {operator} {E.format_number(value)}, {values}, NA)"
+            lines += _wrapped(f"{op.frame}${op.name} <- ave(",
+                              [values, f"{op.frame}${op.by}", "FUN = function(x) mean(x, na.rm = TRUE)"], ")")
+            return lines
         if isinstance(op, LoadHansen):
             if op.member.lower().endswith(".dta"):
                 return [
@@ -1022,8 +1032,9 @@ class RGenerator(Generator):
         return lines
 
     def _iv(self, op: IV) -> list[str]:
-        structural = " + ".join((*op.endogenous, *op.exogenous))
-        instruments = " + ".join((*op.instruments, *op.exogenous))
+        exogenous = tuple(f"factor({name})" if name in op.categorical else name for name in op.exogenous)
+        structural = " + ".join((*op.endogenous, *exogenous))
+        instruments = " + ".join((*op.instruments, *exogenous))
         formula = f"{op.outcome} ~ {structural} | {instruments}"
         lines = [
             f"# 2SLS: {', '.join(op.endogenous)} içsel, araç {', '.join(op.instruments)}; "
@@ -1031,6 +1042,8 @@ class RGenerator(Generator):
                else "'|' işaretinden sonra araçlar"),
             '# Kovaryans: vcovHC(type = "HC1") → Python (debiased=True) ve Stata (small) ile aynı standart hata',
         ]
+        if op.categorical:
+            lines.insert(1, categorical_comment(op, "#"))
         lines += self._call(op.name, "AER::ivreg", formula, op.frame)
         lines.append(
             f"print(coeftest({op.name}, vcov. = {self.vcov(op.name)})[c({_quoted(self.shown_terms(op))}), , drop = FALSE])"

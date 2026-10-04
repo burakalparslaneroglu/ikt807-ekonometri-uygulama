@@ -53,9 +53,9 @@ _R_RESERVED = {
 }
 RESERVED_CODES = frozenset((
     # genel uygulamaların türettiği sütunlar (ör. log sonuç, gösterge, etkileşim, kontrolün karesi)
-    "log_sonuc", "grup01", "etkilesim", "kontrol_kare_100", "veri", "ham",
+    "log_sonuc", "grup01", "etkilesim", "kontrol_kare_100", "veri", "ham", "tedavi01", "secilmis01", "icsel_hat",
     # notlardaki ve alternatif örneklerdeki türetilmiş adlar (kodlar yan yana okunurken karışmasın)
-    "hrwage", "lwage", "experience", "experience2_100", "edu_female", "ed_black",
+    "hrwage", "lwage", "experience", "experience2_100", "edu_female", "ed_black", "onceki", "yuksek", "q1", "edu_hat",
     # sonuç tablolarının sütunları ve ekranda Türkçe etiketi sabit olan adlar (``topics.lab_ui``)
     "n", "ort_sonuc", "ort_duzey", "medyan_duzey", "ortalama", "gozlem", "katsayi", "klasik_sh", "hc1_sh", "r2",
     "model", "terim", "deger", "tahmin", "sh", "p", "alt", "ust", "count", "mean", "std", "sd", "median", "min",

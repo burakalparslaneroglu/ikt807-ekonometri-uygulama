@@ -10,7 +10,7 @@ from core.data_registry import (
 from core.topic_registry import list_topics
 
 
-def test_registry_contains_five_hansen_dataset_families() -> None:
+def test_registry_contains_the_hansen_dataset_families() -> None:
     datasets = list_datasets()
     assert [dataset.dataset_id for dataset in datasets] == [
         "cps09mar",
@@ -18,6 +18,8 @@ def test_registry_contains_five_hansen_dataset_families() -> None:
         "card1995",
         "chj2004",
         "lm2007",
+        "ds2004",
+        "ak1991",
     ]
     assert all(
         dataset.redistribution_status == "license_review_required"

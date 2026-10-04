@@ -367,7 +367,11 @@ def _effect_table(spec: LabSpec, op: EffectTable, table: pd.DataFrame) -> None:
             "N": [_count(v) for v in table["n"]],
         }
     )
-    st.dataframe(shown, hide_index=True, width="stretch")
+    # Satır adı sütunu içeriğe göre otomatik boyutlanırken uzun adları kesiyor; genişlik en uzun ada göre verilir.
+    widest = max((len(str(label)) for label in table.index), default=0)
+    label_width = int(min(480, max(120, 7.5 * widest + 24)))
+    st.dataframe(shown, hide_index=True, width="stretch",
+                 column_config={"": st.column_config.TextColumn(width=label_width)})
 
 
 def _compact_iv(spec: LabSpec, op: IV, result) -> None:

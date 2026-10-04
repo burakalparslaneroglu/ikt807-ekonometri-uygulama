@@ -604,7 +604,8 @@ def languages_for(spec: LabSpec) -> tuple[str, ...]:
 def categorical_comment(op, comment: str) -> str:
     """Kategorik regresörler için doğru açıklama: doymuş model mi, kukla kontroller mi."""
 
-    if op.categorical and all(r in op.categorical for r in op.regressors):
+    regressors = getattr(op, "regressors", ())  # 2SLS'te içsel değişken hep var: doymuş model olamaz
+    if op.categorical and regressors and all(r in op.categorical for r in regressors):
         return f"{comment} Doymuş model: {', '.join(op.categorical)} değişkeninin her değeri için ayrı bir kukla"
     names = ", ".join(op.categorical)
     return f"{comment} {names} kategorik: her düzey için bir kukla, ilk düzey referans"

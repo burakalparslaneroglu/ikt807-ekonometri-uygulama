@@ -24,6 +24,7 @@ from core.labs.spec import (
     OLS,
     RDD,
     CompleteCases,
+    GroupMean,
     Indicator,
     ReadFile,
     Bootstrap,
@@ -671,6 +672,15 @@ class PythonGenerator(Generator):
                 f'.where({op.frame}["{op.source}"].notna())',
                 f'print({op.frame}["{op.name}"].value_counts().sort_index())',
             ]
+        if isinstance(op, GroupMean):
+            values = f'{op.frame}["{op.source}"]'
+            lines = [f"# {op.comment}"]
+            if op.condition is not None:
+                variable, operator, value = op.condition
+                lines.append(f'secili = {op.frame}["{variable}"] {operator} {E.format_number(value)}')
+                values += ".where(secili)"
+            lines.append(f'{op.frame}["{op.name}"] = {values}.groupby({op.frame}["{op.by}"]).transform("mean")')
+            return lines
         if isinstance(op, LoadHansen):
             if op.member.lower().endswith(".dta"):
                 return [
@@ -1058,13 +1068,15 @@ class PythonGenerator(Generator):
         return lines
 
     def _iv(self, op: IV) -> list[str]:
-        exogenous = " + ".join(("1", *op.exogenous))
+        exogenous = " + ".join(("1", *(f"C({name})" if name in op.categorical else name for name in op.exogenous)))
         formula = f"{op.outcome} ~ {exogenous} + [{' + '.join(op.endogenous)} ~ {' + '.join(op.instruments)}]"
         comment = (
             f"# 2SLS: {', '.join(op.endogenous)} içsel, araç {', '.join(op.instruments)}; "
             + ("dışsal kontroller iki aşamada da yer alır" if op.exogenous else "yalnız sabit terim dışsal")
         )
         lines = [comment, "# debiased=True: HC1 ölçeği n/(n−k); R ve Stata ile aynı standart hata"]
+        if op.categorical:
+            lines.insert(1, categorical_comment(op, "#"))
         lines += _fit_call(op.name, "IV2SLS.from_formula", formula, op.frame, '.fit(cov_type="robust", debiased=True)')
         lines.append(f"print({op.name}.params[[{', '.join(_quoted(self.shown_terms(op)))}]].round(4))")
         return lines

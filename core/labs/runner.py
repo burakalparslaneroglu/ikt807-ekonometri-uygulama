@@ -30,6 +30,7 @@ from core.labs import smoothing as S
 from core.labs.spec import (
     BOOT,
     CompleteCases,
+    GroupMean,
     Indicator,
     ReadFile,
     IV,
@@ -203,6 +204,33 @@ def estimation_sample(op: OLS, frame: pd.DataFrame) -> pd.DataFrame:
     return _complete_rows(data, used)
 
 
+LARGE_DESIGN = 3_000_000
+"""Tasarım matrisinin hücre sayısı bu eşiği aşarsa (ör. AK1991: 329.509 gözlem × 21 sütun) OLS sonucunda yalnız sonraki
+işlemlerin okuduğu alanlar tutulur. statsmodels sonucu tasarım matrisini ve sözde tersini saklar: bu boyutta model
+başına yaklaşık 100 MB. Laboratuvar birkaç modeli birlikte tuttuğu için bellek sınırlı sunucularda (Streamlit Community
+Cloud) uygulama düşebilir."""
+
+
+def _slim(result):
+    """Büyük tasarımda katsayı, standart hata (HC1 dahil), uyum değerleri ve artıklar önbelleğe alınır; tasarım
+    matrisi ve sözde tersi bırakılır. Tasarım matrisine yeniden ihtiyaç duyan işlemler (Breusch–Pagan, bootstrap) böyle
+    bir modelde açık bir hatayla durur."""
+
+    model = result.model
+    if getattr(model, "exog", None) is None or model.exog.size < LARGE_DESIGN:
+        return result
+    _ = (result.params, result.bse, result.tvalues, result.pvalues, result.rsquared, result.rsquared_adj,
+         result.resid, result.fittedvalues, result.nobs, result.df_resid, result.ssr, result.centered_tss,
+         result.fvalue, result.f_pvalue, result.HC1_se)
+    _ = (model.exog_names, model.data.param_names, model.data.xnames)
+    for name in ("pinv_wexog", "wexog", "exog"):
+        model.__dict__.pop(name, None)
+    model.data.exog = None
+    model.data.orig_exog = None
+    model.slim = True
+    return result
+
+
 def fit_ols(op: OLS, frame: pd.DataFrame):
     if op.vcov not in VCOV_TYPES:
         raise ValueError(f"Desteklenmeyen kovaryans türü: {op.vcov}")
@@ -218,10 +246,10 @@ def fit_ols(op: OLS, frame: pd.DataFrame):
         design = pd.DataFrame(columns, index=data.index)
         model = sm.OLS(pd.Series(data[op.outcome].to_numpy(dtype=float), index=data.index, name=op.outcome), design)
     if op.vcov == "classic":
-        return model.fit()
+        return _slim(model.fit())
     if op.vcov == "HC1":
-        return model.fit(cov_type="HC1")
-    return model.fit(cov_type="cluster", cov_kwds={"groups": data[op.cluster].to_numpy()})
+        return _slim(model.fit(cov_type="HC1"))
+    return _slim(model.fit(cov_type="cluster", cov_kwds={"groups": data[op.cluster].to_numpy()}))
 
 
 # --- 2SLS -----------------------------------------------------------------------
@@ -270,11 +298,22 @@ def fit_iv(op: IV, frame: pd.DataFrame) -> IVFit:
     used = list(dict.fromkeys([op.outcome, *op.endogenous, *op.instruments, *op.exogenous]))
     data = _complete_rows(frame, used)
     nobs = len(data)
-    exogenous = [np.ones(nobs)] + [data[name].to_numpy(dtype=float) for name in op.exogenous]
+    exogenous = [np.ones(nobs)]
+    exogenous_names: list[str] = []
+    for name in op.exogenous:
+        if name in op.categorical:
+            # Her düzey için bir kukla, ilk (en küçük) düzey referans: patsy C(), R factor() ve Stata i. ile aynı.
+            values = data[name]
+            for level in sorted(values.unique())[1:]:
+                exogenous.append((values == level).to_numpy(dtype=float))
+                exogenous_names.append(f"C({name})[T.{level}]")
+        else:
+            exogenous.append(data[name].to_numpy(dtype=float))
+            exogenous_names.append(name)
     x = np.column_stack(exogenous + [data[name].to_numpy(dtype=float) for name in op.endogenous])
     z = np.column_stack(exogenous + [data[name].to_numpy(dtype=float) for name in op.instruments])
     y = data[op.outcome].to_numpy(dtype=float)
-    names = [STATSMODELS_INTERCEPT, *op.exogenous, *op.endogenous]
+    names = [STATSMODELS_INTERCEPT, *exogenous_names, *op.endogenous]
 
     # İşlem sırası linearmodels ile aynıdır; sonuçlar makine duyarlığında örtüşür.
     pinv_z = np.linalg.pinv(z)
@@ -659,8 +698,14 @@ def bootstrap_key(result: str, column: str, statistic: str) -> str:
     return f"{result}_{column}_{statistic}"
 
 
+def _require_design(result, name: str) -> None:
+    if getattr(result.model, "slim", False):
+        raise ValueError(f"'{name}' modelinin tasarım matrisi bellekte tutulmadı (büyük veri); bu işlem yapılamaz.")
+
+
 def _bootstrap(op: Bootstrap, state: LabState) -> None:
     model = state.models[op.model]
+    _require_design(model, op.model)
     design = np.asarray(model.model.exog, dtype=float)
     y = np.asarray(model.model.endog, dtype=float)
     names = list(model.model.exog_names)
@@ -1001,6 +1046,7 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         from statsmodels.stats.diagnostic import het_breuschpagan
 
         result = state.models[op.model]
+        _require_design(result, op.model)
         lm, p_value, _, _ = het_breuschpagan(result.resid, result.model.exog)
         state.scalars[f"{op.name}_lm"] = float(lm)
         state.scalars[f"{op.name}_p"] = float(p_value)
@@ -1031,6 +1077,19 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         frame = state.frames[op.frame]
         values = frame[op.source]
         frame[op.name] = np.where(values.isna(), np.nan, (values == op.level).to_numpy(dtype=float))
+    elif isinstance(op, GroupMean):
+        frame = state.frames[op.frame]
+        keys = [op.by] + ([op.condition[0]] if op.condition is not None else [])
+        incomplete = [name for name in keys if frame[name].isna().any()]
+        if incomplete:
+            # Eksik grup ya da koşul değeri dillerde farklı işlenir (R ave satırın kendi değerini tutar, Stata egen eksik
+            # anahtarı ayrı grup sayar): bu sütunlar eksiksiz olmalı.
+            raise ValueError("Grup ortalaması için şu sütunlarda eksik değer olmamalı: " + ", ".join(incomplete))
+        values = frame[op.source].astype(float)
+        if op.condition is not None:
+            variable, operator, value = op.condition
+            values = values.where(_compare(frame[variable].to_numpy(dtype=float), operator, value))
+        frame[op.name] = values.groupby(frame[op.by]).transform("mean")
     elif isinstance(op, LoadHansen):
         if op.dataset not in sources:
             raise ValueError(f"'{op.dataset}' verisi yüklenmemiş.")
