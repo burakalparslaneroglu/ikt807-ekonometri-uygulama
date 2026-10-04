@@ -38,6 +38,9 @@ from core.labs.spec import (
     IV,
     OLS,
     RDD,
+    CompleteCases,
+    Indicator,
+    ReadFile,
     BinMeans,
     Bootstrap,
     LocalCurve,
@@ -232,7 +235,25 @@ class StataGenerator(Generator):
     # --- Yardımcılar -----------------------------------------------------
     def helpers(self, operations: tuple[Operation, ...], *, with_checks: bool) -> list[str]:
         lines: list[str] = []
-        if with_checks and self.mc_checks:
+        if with_checks and self.spec.source != "notlar":
+            optional = " tolerans" if self.mc_checks else ""
+            default = ["    if \"`tolerans'\" == \"\" {", "        local tolerans = 0.5 * 10^(-`ondalik') + 1e-12", "    }"] \
+                if self.mc_checks else ["    local tolerans = 0.5 * 10^(-`ondalik') + 1e-12"]
+            lines += [
+                "* Hesaplanan değeri uygulamanın aynı veriyle verdiği değerle karşılaştırır.",
+                "capture program drop kontrol_et",
+                "program define kontrol_et",
+                f"    args deger beklenen ondalik etiket{optional}",
+                *default,
+                "    if abs(`deger' - `beklenen') > `tolerans' {",
+                "        display as error \"  HATA `etiket': \" %12.`ondalik'f `deger' \"  (uygulama: `beklenen')\"",
+                "        exit 9",
+                "    }",
+                "    display as text \"  OK   `etiket': \" %12.`ondalik'f `deger' \"  (uygulama: `beklenen')\"",
+                "end",
+                "",
+            ]
+        elif with_checks and self.mc_checks:
             lines += [
                 "* Rastgele çekilişe dayanan değerlerde beşinci argüman Monte Carlo toleransıdır: Stata'nın",
                 "* rastgele sayı üreteci Python'dakinden farklıdır, aynı tohum aynı çekilişi vermez.",
@@ -374,7 +395,8 @@ class StataGenerator(Generator):
         if member.lower().endswith(".dta"):
             return lines + [
                 "* Değişken adları dosyada kayıtlıdır; Python ve R ile aynı olsun diye küçük harfe çevrilir.",
-                "* Ders notlarının öğretim CSV'si de yerel dosya olarak verilebilir.",
+                *(["* Ders notlarının öğretim CSV'si de yerel dosya olarak verilebilir."]
+                  if self.spec.source == "notlar" else []),
                 "if lower(substr(`\"`yerel_dosya'\"', -4, .)) == \".csv\" {",
                 "    import delimited \"`yerel_dosya'\", clear",
                 "}",
@@ -413,6 +435,21 @@ class StataGenerator(Generator):
         return lines
 
     def _operation(self, op: Operation) -> list[str]:
+        if isinstance(op, ReadFile):
+            raise ValueError("Kendi veriniz için Stata kodu üretilmez; Python ya da R kodunu kullanın.")
+        if isinstance(op, CompleteCases):
+            return [
+                f"* {op.comment}",
+                *_command(f"drop if missing({', '.join(op.columns)})"),
+                "count",
+            ]
+        if isinstance(op, Indicator):
+            level = op.level.replace('"', "")
+            return [
+                f"* {op.comment}",
+                f'generate double {op.name} = ({op.source} == "{level}") if !missing({op.source})',
+                f"tabulate {op.name}, missing",
+            ]
         if isinstance(op, StandardErrorTable):
             lines = ["* Aynı modeller HC1 ile: katsayılar değişmez, yalnız standart hatalar değişir"]
             names: list[str] = []
@@ -1059,7 +1096,7 @@ class StataGenerator(Generator):
 
     # --- Notlarla karşılaştırma -----------------------------------------
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:
-        lines = ['display as text "Notlarla karşılaştırma:"']
+        lines = [f'display as text "{self.reference[0]}"']
         restored: str | None = None
         for check in checks:
             target = check.target
@@ -1102,4 +1139,4 @@ class StataGenerator(Generator):
         return lines
 
     def closing(self) -> list[str]:
-        return ['display as result _newline "Bütün değerler ders notlarıyla uyuşuyor."']
+        return [f'display as result _newline "{self.closing_message()}"']

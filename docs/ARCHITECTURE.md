@@ -67,6 +67,43 @@ Yeni bir konu eklemek, yeni bir `LabSpec` yazmak ve gerekiyorsa üç üreticiye 
 
 Terim adları dilden bağımsızdır: kategorik değişkenin bir düzeyi `race4=2` biçiminde yazılır ve üreticiler bunu statsmodels'te `C(race4)[T.2]`, R'de `factor(race4)2`, Stata'da `2.race4` olarak çevirir. Marjinal etki sonuçları katsayıları etkiler olan bir model gibi saklanır (`EffectTable` ve `CoefTarget` onları doğrudan kullanır); tablo hücreleri `TableTarget` ile notlarla karşılaştırılır (Stata'da skaler adı `tablo_sütun_satır`, en çok 32 karakter).
 
+## Ek veri kaynakları: alternatif örnek ve kendi verin
+
+Uygulama sekmesinde ek kaynakları olan konularda (`core/labs/ornekler.py`) en üstte veri kaynağı seçilir
+(`LabSpec.source`: `notlar`, `alternatif`, `kendi`). Notlardaki laboratuvar (`core/labs/konuNN.py`) değişmez; her konu
+için ek bir **genel uygulama** yazılır (`core/labs/ornek_konuNN.py`): notlardaki adımlar aynı numaralar ve aynı
+işlemlerle, verisi bir `Case`'ten (roller → sütunlar) gelecek biçimde.
+
+- **Alternatif örnek** (`alternative()`): Hansen'in arşivindeki başka bir gerçek veriyle kurulur. Tanım veriden önce
+  kurulur; kontrollerin beklenen değerleri bu verinin tam örneklemindeki sayılardır (`ALT_EXPECTED`, `with_expected`)
+  ve metinlerdeki sayılar onlardır. Testler sayıları bağımsız bir hesapla (numpy, statsmodels) ve üretilen Python/R
+  koduyla doğrular. Veri paneli notlardakiyle aynıdır; oturum anahtarları `konuNN_alternatif_` önekiyle ayrılır.
+- **Kendi verin** (`CustomLab`): öğrenci dosyayı yükler, sütunları rollere atar (`Role`), açık/kapalı seçenekleri
+  (`Option`, ör. sonucun logaritması) seçer. `core/labs/kendi_veri.py` dosyayı üretilen kodun okuyacağı biçimde okur ve
+  temizler (İKT 217/305 ile aynı kurallar); sonuç bir `ReadFile` işlemidir: temizlenmiş değerler tanımın içindedir,
+  kod aynı değerleri dosyadan elde eder. Kontrollerin beklenen değerleri uygulamanın hesabıdır (`with_app_values`);
+  yorumlar sonuçlardan yazılır (`LabStep.note_for`). Konuya özgü doğrulama (ör. tam doğrusal bağlantı, logaritma için
+  analiz örnekleminde pozitif sonuç, koşullu ortalama için en çok 30 değer) açık bir iletiyle reddeder. Sayısal
+  hassasiyet `ornek.stable_design` ile denetlenir: sütunları birim uzunluğa ölçeklenmiş tasarımın koşul sayısı en çok
+  3.000 olmalı (neredeyse doğrusal bağlantı, ör. yıl ve karesi, QR ile sözde ters çözümünü ayrıştırır) ve
+  statsmodels'in sözde ters çözümü, ortalanıp ölçeklenmiş tasarımdaki çözümle 1e-9 içinde aynı olmalı (kötü ölçek
+  yalnız sözde tersi bozar; R'nin QR çözümü etkilenmez). Tam uyumda (R² ≈ 1) standart hataya bağlı kontroller kodda
+  karşılaştırılmaz. Python okuyucusu sayısal sütunları uygulama gibi ondalıklı sayıya, R okuyucusu (Excel'de metin
+  olarak saklanmış sayılar dahil) `as.numeric` ile sayıya çevirir. Kod Python ve R'da üretilir (`languages_for`);
+  Stata üreticisi `ReadFile` için hata verir.
+
+Yeni işlemler: `ReadFile` (dosya okuma ve temizleme), `CompleteCases` (tam gözlemler), `Indicator` (kategoriden 0/1
+gösterge). Notların kodunu değiştirmeyen isteğe bağlı alanlar: `RegressionTable.title`, `ProjectionPlot.relative_size`
+(nokta boyutu en kalabalık gruba göre), `LabStep.note_for`. Kontrol başlığı, `kontrol_et` metni ve toleransı, betik
+başlığı ve dosya adı (`ikt807_konuNN_alternatif`, `ikt807_konuNN_kendi_verim`) kaynağa göre yazılır; kendi verinde
+tolerans büyük sayılar için göreli bir pay içerir. Notlardaki 12 laboratuvarın üç dildeki bütün kodunun özeti
+`tests/test_lab_variants.py::NOTES_MD5` ile kilitlidir.
+
+Öğrencinin dosyası, seçimleri ve ondan kurulan hesap yalnız oturum belleğindedir (`st.session_state`); ortak önbelleğe
+girmez. Kaynak seçimi, adım seçimi ve kendi verin paneli, Streamlit'in çizilmeyen widget durumunu silmesine karşı gölge
+anahtarlarla (`_kalici_`) korunur (`topics/kendi_veri_ui.py`): öğrenci kaynak ya da konu değiştirip döndüğünde ya da
+geçersiz bir seçimi düzelttiğinde kaldığı adımda devam eder.
+
 ## Sezgi deneyleri
 
 Bir Sezgi deneyi (`SimExperiment`), kaydırıcı değerlerinden işlem listesi üreten bir tanımdır. Simülasyon işlemleri (`NewSample`, `Draw`) Python'da `numpy.random.default_rng` ile uygulamayla aynı sırada çekiliş yapar; bu yüzden üretilen Python kodu uygulamadaki sayıların aynısını verir. R (`set.seed` + `rnorm`) ve Stata (`set seed` + `rnormal()`) aynı dağılımdan farklı çekiliş yapar; deneyler "yalnız dağılımda aynı" sınıfındadır.
@@ -114,10 +151,11 @@ Konu değiştiğinde `core/session_utils.py` önceki konunun soru indeksini ve c
 - Konu 09-10: Uygulama/Sezgi/Kendini sına sekmeleri; RDD'nin statsmodels WLS ve R `lm` + `sandwich::vcovHC` ile eşitliği; eğrinin noktasal ağırlıklı EKK ile ve eşikte RDD limitleriyle eşitliği; eksik değerli gözlemlerin atılması ve LM2007'nin CSV olarak yüklenmesi (değişken adları küçük harfe çevrilir); bootstrap çekiliş sırasının (pairs, wild, küme) üretilen Python koduyla aynı olması; Sezgi varsayılanlarının notlardaki Tablo 10.1'i birebir üretmesi; Sezgi deneylerinin kuramsal değerleri (global polinomun eşik yanlılığı, yerel doğrusal yanlılığın ≈ −2,4h² olması, bulanık RDD'de Wald oranı ve zayıf ilk aşama, percentile aralığının monoton dönüşüme uyumu, kümeli veride pairs bootstrap'ın belirsizliği küçümsemesi).
 - Konu 11-12: Uygulama/Sezgi/Kendini sına sekmeleri; Ridge, Lasso ve Elastic Net yolunun scikit-learn `Ridge`, `Lasso`, `ElasticNet` ile, CV'nin `Pipeline` + `GridSearchCV` + `PredefinedSplit` ile, artık regresyonunun statsmodels sabitsiz HC1 ve küme kovaryansıyla, AIC/BIC'in log-olabilirlikle ve LOOCV'nin açık dışarıda bırakma döngüsüyle eşitliği; Lasso KKT koşulu; çapraz uyarlamanın yalnız diğer katları kullanması ve artıklaştırmanın FWL ile eşitliği; R `glmnet` karşılığının notlardaki sayıları üretmesi; Sezgi varsayılanlarının notlardaki Tablo 11.1 ve 12.1'i birebir üretmesi; Sezgi deneylerinin kuramsal değerleri (eğitim hatasının monotonluğu, BIC'in AIC'den az parametre seçmesi, ön test sonrası kapsamanın düşmesi, naif ve ortogonal moment yanlılıkları, gözlenmeyen karıştırıcı altında DML yanlılığı κ²/(1 + κ²)).
 - Kod tarifi testi: 12 konunun dört bölümünü kapsayan 48 Python betiğinin derlenmesi ve dış veri olmadan çalışması; Colab JSON sözleşmesi.
+- Ek veri kaynakları (`test_lab_variants.py`, `test_lab_sources_ui.py`): notların kod özeti; alternatif örneğin notlarla aynı adımları, sayılarının bağımsız hesapla ve üretilen Python/R koduyla eşitliği, Stata kuralları; kendi verinde örnek dosya, Türkçe CSV (; ve ondalık virgül, cp1254), işaretli sütun adları, ayrılmış kod adları, tam uyum, logaritması alınamayan sonuç ve rol kurallarının iki dilde aynı sayıyı vermesi; AppTest ile kaynak seçimi, dosya yükleme ve seçimlerin korunması.
 
 ## Öğrenci kodu akışı
 
-Bütün konularda öğrenci kodu laboratuvar ve deney tanımlarından üretilir (`core/codegen/`). Uygulama sekmesinde her adımın kodu ve bütün laboratuvar tek dosya olarak (Python, R, Stata) indirilir; dosya veriyi Hansen'in arşivinden indirir ve sonunda notlardaki sayılarla karşılaştırır. Sezgi sekmesinde her deneyin kodu şu anki kaydırıcı değerleriyle üretilir.
+Bütün konularda öğrenci kodu laboratuvar ve deney tanımlarından üretilir (`core/codegen/`). Uygulama sekmesinde her adımın kodu ve bütün laboratuvar tek dosya olarak (Python, R, Stata) indirilir; dosya veriyi Hansen'in arşivinden indirir ve sonunda notlardaki sayılarla karşılaştırır. Alternatif örnekte betik aynı veriyle uygulamanın verdiği sayılarla, kendi verinde (Python ve R) öğrencinin dosyasını okuyup uygulamanın sayılarıyla karşılaştırır. Sezgi sekmesinde her deneyin kodu şu anki kaydırıcı değerleriyle üretilir.
 
 ## Veri yayınlama kapısı
 

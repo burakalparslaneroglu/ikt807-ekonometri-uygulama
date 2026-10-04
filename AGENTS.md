@@ -25,3 +25,4 @@
     - **Kendini sına:** dört türde soru seti (`core/quiz/konuNN.py`): çoktan seçmeli, doğru–yanlış, boşluk doldurma, denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; kavram tekilliği ve bölüm kapsamı testle denetlenir. Sorular bölüm sonu egzersizlerini tekrar etmez.
 18. Python, R ve Stata kodu aynı tanımdan üretilir; elle yazılmış dile özgü şablon eklenmez. Her adım veya deney, üç dilde aynı sayının hangi anlamda beklendiğini (birebir / ayar sabitlenince / yalnız dağılımda) gösterir.
 19. Yeni yapıya taşınan konu `tests/test_topic_contracts.py` içindeki `MIGRATED_TOPICS` kümesine eklenir.
+20. Uygulama sekmesinin ek veri kaynakları (alternatif örnek, kendi verin) `core/labs/ornek_konuNN.py` içinde notlardaki adımlarla aynı numaralarla yazılır ve `core/labs/ornekler.py`'ye kaydedilir. Notların laboratuvarı ve üretilen kodu değişmez (`NOTES_MD5`); alternatif veri seti ve kendi verin rolleri her blokta önceden onaylanır.

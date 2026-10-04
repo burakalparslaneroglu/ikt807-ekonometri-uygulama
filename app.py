@@ -94,6 +94,7 @@ def main() -> None:
             options=LANGUAGES,
             default=LANGUAGES[0],
             key="code_language",
+            required=True,
             label_visibility="collapsed",
             width="stretch",
         )

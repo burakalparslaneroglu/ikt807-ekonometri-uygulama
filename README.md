@@ -6,7 +6,7 @@
 
 Yeni yapıdaki her konu üç sekmeden oluşur:
 
-- **Uygulama:** ders notlarındaki uygulama laboratuvarını adım adım, gerçek Hansen verisiyle yeniden üretir. Her adımda notlardaki tablo ve şekiller, notlarla sayı sayı karşılaştırma ve seçilen dilde (Python, R, Stata) kod bulunur. Son adımda bütün laboratuvar tek dosya olarak indirilir; dosya sonunda sonuçları notlardaki basılı değerlerle karşılaştırır.
+- **Uygulama:** ders notlarındaki uygulama laboratuvarını adım adım, gerçek Hansen verisiyle yeniden üretir. Her adımda notlardaki tablo ve şekiller, notlarla sayı sayı karşılaştırma ve seçilen dilde (Python, R, Stata) kod bulunur. Son adımda bütün laboratuvar tek dosya olarak indirilir; dosya sonunda sonuçları notlardaki basılı değerlerle karşılaştırır. Ek veri kaynakları olan konularda sekmenin üstünde üç seçenek vardır (aşağıda).
 - **Sezgi:** veri üretim süreci (DGP) bilinen kontrollü deneyler. Her deney aynı sırayı izler: soru, DGP ve parametreleri, neye bakıyoruz, sonuç, ne gördük ve seçilen dilde kod. Gerçek veride görülemeyen nesneler (ör. gerçek koşullu ortalama) tahminlerle yan yana gösterilir.
 
 - **Kendini sına:** haftanın kavramlarını sınayan soru seti. Dört tür: çoktan seçmeli, doğru–yanlış, boşluk doldurma ve denklem yazma. Her soru tek bir kavramı sınar ve notlardaki bir bölüme bağlıdır; yanlış cevaplara göre tekrar edilecek bölümler listelenir. Denklem sorularında yazılan formül anında önizlenir ve doğru cevaba eşdeğerliği sayısal olarak sınanır (`100(exp(b)-1)` ile `100*exp(b)-100` aynı kabul edilir).
@@ -30,6 +30,34 @@ Yeni yapı **bütün konular (1–12)** için hazırdır:
 
 Kod dili kenar çubuğundan bir kez seçilir ve bütün konularda geçerlidir.
 
+### Uygulama sekmesinde veri kaynağı
+
+Notlardaki örnek ders sırasında notlarla aynı sayıları gösterdiği için, aynı adımlar iki ek kaynakla da yapılabilir.
+Sekmenin üstündeki seçim varsayılan olarak notlardaki örnektir; notların laboratuvarı ve üretilen kodu değişmez
+(üç dildeki bütün kodun özeti testle kilitlidir).
+
+- **Notlardaki örnek:** yukarıdaki laboratuvar.
+- **Alternatif örnek:** aynı adımlar, aynı işlemler ve aynı kod üreticisi; veri Hansen'in arşivindeki başka bir gerçek
+  veri setidir ve notlardaki gibi çalışma anında indirilir ya da yüklenir. Metinler bu verinin sayılarıyla yazılmıştır;
+  sayılar testlerde bağımsız bir hesapla ve üretilen Python/R koduyla doğrulanır. İndirilen betik (Python, R, Stata)
+  sonunda uygulamanın aynı veriyle verdiği değerlerle karşılaştırır.
+- **Kendi verini yükle:** aynı adımlar öğrencinin Excel (.xlsx) ya da CSV dosyasıyla kurulur. Öğrenci sütunları
+  rollere atar (ör. sonuç, açıklayıcı değişken, grup), sonucun logaritmasının alınıp alınmayacağını seçer; yorumlar
+  sonuçlardan yazılır. Kod Python ve R'da üretilir: dosyayı okuma ve temizleme kuralları (boşluklar, "NA", ondalık
+  virgül, Türkçe CSV, Excel'de metin olarak saklanmış sayılar) iki dilde birebir aynıdır ve betik uygulamanın
+  sayılarıyla karşılaştırır. İki dilin aynı sayıyı veremeyeceği seçimler açık bir iletiyle reddedilir: tam doğrusal
+  bağlantı, neredeyse doğrusal bağlantı (ör. dar aralıkta yıl ve karesi; iletide yaşı ya da `yıl − 2015` gibi bir
+  farkı kullanma önerilir) ve kötü ölçek (ör. milyonlarla ölçülen bir kontrolün karesi; iletide birimi değiştirme
+  önerilir). Örnek dosya kurgusal veriden bellekte üretilir. Okuma kuralları İKT 217 ve İKT 305 uygulamalarıyla
+  aynıdır.
+
+| Konu | Alternatif örnek | Kendi verinde roller |
+|---|---|---|
+| 1 | Card (1995), NLSYM 1976: 3.010 genç erkek; 39 kontrol (koşullu ortalamalar, projeksiyon, üç sütunlu tablo: eğitim; + deneyim profili; + siyahi göstergesi) | sonuç, az değerli açıklayıcı değişken (≤ 30 değer), karesiyle eklenen sürekli kontrol, iki kategorili grup |
+| 2 | Card (1995): 19 kontrol (M1–M3, klasik/HC1 SH, Breusch–Pagan, eğitim × siyahi etkileşimi, doğrusal birleşim, delta yöntemi) | sonuç, açıklayıcı değişken, iki kategorili grup (etkileşim), ek sayısal kontroller |
+
+Diğer konular blok blok eklenecektir; her blokta alternatif veri seti ve roller önceden onaylanır.
+
 ### Üç dilde aynı sayı sözleşmesi
 
 | Sınıf | Yöntemler | Beklenti |
@@ -42,8 +70,8 @@ Her adım hangi sınıfta olduğunu arayüzde gösterir.
 
 ### Öğrenci tarafında yazılım
 
-- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`; kantil regresyonun kesin çözümü için `scipy`; Lasso ve Elastic Net yolu için `scikit-learn`.
-- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS ve Tobit için `AER`, kantil regresyon için `quantreg`, Lasso ve Elastic Net için `glmnet`.
+- **Python:** `pandas`, `numpy`, `statsmodels`, `matplotlib`; 2SLS için `linearmodels`; kantil regresyonun kesin çözümü için `scipy`; Lasso ve Elastic Net yolu için `scikit-learn`; kendi verinde Excel dosyası için `openpyxl`.
+- **R:** temel R; dayanıklı çıkarım gereken konularda `sandwich` ve `lmtest`, Hansen'in `.dta` dosyaları için `haven`, 2SLS ve Tobit için `AER`, kantil regresyon için `quantreg`, Lasso ve Elastic Net için `glmnet`; kendi verinde Excel dosyası için `readxl`.
 - **Stata:** 14 ve üstü. Konu 11–12'de Ridge, Lasso, Elastic Net, çapraz doğrulama ve DML do-dosyasındaki Mata fonksiyonlarıyla hesaplanır; Stata 16'nın `lasso` komutları gerekmez.
 
 ## Teknik yapı
@@ -95,8 +123,15 @@ $env:IKT807_HANSEN_LM2007_PATH = "C:\veri\LM2007.dta"
 ```
 
 Bu testler üretilen Python ve R betiklerini gerçekten çalıştırır (R için `Rscript` PATH'te olmalıdır;
-gerekli R paketleri: `sandwich`, `lmtest`, `haven`, `AER`, `quantreg`).
+gerekli R paketleri: `sandwich`, `lmtest`, `haven`, `AER`, `quantreg`, kendi verin testleri için `readxl`; `readxl`
+kurulu değilse yalnız Excel okuyan R adımları atlanır).
 Stata lisans gerektirdiği için otomatik test edilemez; do-dosyası sonunda kendi kontrollerini yapar.
+
+Ek veri kaynaklarının testleri `tests/test_lab_variants.py` (alternatif örneğin sayıları, kendi verinde örnek dosya,
+Türkçe CSV, işaretli sütun adları, tam uyum, logaritması alınamayan sonuç, notların kod özeti) ve
+`tests/test_lab_sources_ui.py` (Streamlit AppTest: kaynak seçimi, dosya yükleme, seçimlerin korunması) içindedir.
+Alternatif örneğin gerçek veri testleri `IKT807_HANSEN_CARD1995_PATH` ile çalışır; kendi verin testleri veri dosyası
+gerektirmez (örnek dosya kurgusaldır).
 
 ## Veri politikası
 
@@ -110,6 +145,8 @@ Ders notlarındaki uygulamalar Hansen'in *Econometrics* veri arşivine dayanır.
 Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH`, `IKT807_HANSEN_CARD1995_PATH`, `IKT807_HANSEN_CHJ2004_PATH` ve `IKT807_HANSEN_LM2007_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.
 
 Her veri setinin kaynağı, gözlem birimi, örneklem kısıtı, değişken birimi, küme/yeniden örnekleme birimi ve yeniden dağıtım durumu `core/data_registry.py` içinde kayıtlıdır.
+
+"Kendi verini yükle" seçeneğinde yüklenen dosya yalnız oturumun belleğinde işlenir: diske, ortak önbelleğe ya da günlüğe yazılmaz (en çok 5 MB ve 10.000 satır). Arayüz kişisel veri içeren dosya yüklenmemesini hatırlatır.
 
 ## Dağıtım
 

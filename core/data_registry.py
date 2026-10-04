@@ -77,6 +77,8 @@ DATASETS: tuple[DatasetMetadata, ...] = (
             _variable(name, label, label, unit)
             for name, label, unit in (
                 ("lwage76", "1976 log ücret", "log birim"),
+                ("wage76", "1976 saatlik ücret", "sent"),
+                ("age76", "1976 yaş", "yıl"),
                 ("ed76", "1976 eğitim", "yıl"),
                 ("nearc4", "Dört yıllık koleje yakınlık", "0/1"),
                 ("exp76", "1976 deneyim", "yıl"),
@@ -96,11 +98,11 @@ DATASETS: tuple[DatasetMetadata, ...] = (
             )
         ),
         expected_columns=(
-            "lwage76", "ed76", "nearc4", "exp76", "exp762_100", "black",
+            "lwage76", "wage76", "age76", "ed76", "nearc4", "exp76", "exp762_100", "black",
             "smsa76r", "reg76r", "smsa66r", "reg662", "reg663", "reg664",
             "reg665", "reg666", "reg667", "reg668", "reg669",
         ),
-        allowed_topics=("konu04",),
+        allowed_topics=("konu01", "konu02", "konu04"),
     ),
     DatasetMetadata(
         dataset_id="chj2004",

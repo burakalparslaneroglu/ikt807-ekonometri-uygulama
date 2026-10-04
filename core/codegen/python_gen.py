@@ -23,6 +23,9 @@ from core.labs.spec import (
     IV,
     OLS,
     RDD,
+    CompleteCases,
+    Indicator,
+    ReadFile,
     Bootstrap,
     RDDCurve,
     RDDTable,
@@ -120,6 +123,36 @@ def _term(term: str) -> str:
 
 def _row(row) -> str:
     return f'"{row}"' if isinstance(row, str) else E.format_number(row)
+
+
+def _text(value: str) -> str:
+    """Çift tırnaklı Python dizgesi: ters bölü ve tırnak kaçırılır (öğrencinin sütun ve kategori adları için).
+
+    Notlardaki metinlerde bu işaretler yoktur; onların kodu değişmez."""
+
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+_CLEAN_TEXT = [
+    "def temiz_metin(deger):",
+    '    """Metin hücresi: bölünmez boşluk boşluğa çevrilir, baştaki ve sondaki boşluklar silinir;',
+    '    boş kalan hücre ve NA eksik değerdir (None). Sayı hücresi metne çevrilir (12 → "12")."""',
+    "    if pd.isna(deger):",
+    "        return None",
+    '    deger = str(deger).replace("\\xa0", " ").strip(" \\t\\r\\n")',
+    '    return None if deger in ("", "NA") else deger',
+]
+_CODE_TEXT = [
+    "def kod_metni(deger):",
+    '    """Tam sayı kodu kategori etiketi olur (2.0 → "2"); eksik değer eksik kalır."""',
+    "    return None if pd.isna(deger) else str(int(deger))",
+]
+
+
+def _text_columns(op: ReadFile) -> list[str]:
+    """Dosyada metin olarak saklanan (kategorik ya da metin biçiminde sayı) sütunlar: boşluklar silinir."""
+
+    return [name for name, _, kind in op.columns if kind in ("metin", "sayi_metin")]
 
 
 def _quoted(names) -> list[str]:
@@ -406,8 +439,9 @@ class PythonGenerator(Generator):
             '    """Hansen\'in veri arşivinden bir Stata (.dta) dosyasını okur.',
             "",
             "    Değişken adları dosyada kayıtlıdır; Python, R ve Stata'da aynı olsun diye",
-            "    küçük harfe çevrilir. Değer etiketleri kategoriye dönüştürülmez. Yerel dosya",
-            "    olarak ders notlarının öğretim CSV'si de verilebilir.",
+            *(["    küçük harfe çevrilir. Değer etiketleri kategoriye dönüştürülmez. Yerel dosya",
+               "    olarak ders notlarının öğretim CSV'si de verilebilir."] if self.spec.source == "notlar" else
+              ["    küçük harfe çevrilir. Değer etiketleri kategoriye dönüştürülmez."]),
             '    """',
             '    if yerel_dosya and str(yerel_dosya).lower().endswith(".csv"):',
             "        veri = pd.read_csv(yerel_dosya)",
@@ -444,7 +478,14 @@ class PythonGenerator(Generator):
                 "",
                 "",
             ]
-        if with_checks:
+        reads = [op for op in flatten(operations) if isinstance(op, ReadFile)]
+        if reads and not loads:
+            lines.append("")  # tanımlardan önce iki boş satır
+        if any(_text_columns(op) for op in reads):
+            lines += _CLEAN_TEXT + ["", ""]
+        if any(kind == "kod" for op in reads for _, _, kind in op.columns):
+            lines += _CODE_TEXT + ["", ""]
+        if with_checks and self.spec.source == "notlar":
             lines += [
                 "def kontrol_et(etiket, deger, beklenen, ondalik=4):",
                 '    """Hesaplanan değeri ders notlarındaki basılı değerle karşılaştırır."""',
@@ -452,6 +493,23 @@ class PythonGenerator(Generator):
                 '    durum = "OK  " if abs(deger - beklenen) <= tolerans else "HATA"',
                 '    print(f"  {durum} {etiket}: {deger:.{ondalik}f}  (notlar: {beklenen})")',
                 '    assert abs(deger - beklenen) <= tolerans, f"{etiket} notlarla uyuşmuyor."',
+                "",
+                "",
+            ]
+        elif with_checks:
+            # Beklenen değer uygulamanın hesabıdır ve gösterim basamağına yuvarlanmıştır. Kendi verinde büyük
+            # sayılarda iki yazılımın son basamak farkı göreli bir payla karşılanır.
+            tolerance = "    tolerans = 0.5 * 10 ** (-ondalik) + 1e-12"
+            if self.spec.source == "kendi":
+                tolerance = ("    tolerans = max(0.5 * 10 ** (-ondalik), 1e-9 * abs(beklenen)) + 1e-12"
+                             "  # büyük sayılarda göreli pay")
+            lines += [
+                "def kontrol_et(etiket, deger, beklenen, ondalik=4):",
+                '    """Hesaplanan değeri uygulamanın aynı veriyle verdiği değerle karşılaştırır."""',
+                tolerance,
+                '    durum = "OK  " if abs(deger - beklenen) <= tolerans else "HATA"',
+                '    print(f"  {durum} {etiket}: {deger:.{ondalik}f}  (uygulama: {beklenen:.{ondalik}f})")',
+                '    assert abs(deger - beklenen) <= tolerans, f"{etiket} uygulamayla uyuşmuyor."',
                 "",
                 "",
             ]
@@ -598,6 +656,21 @@ class PythonGenerator(Generator):
             return lines
         if isinstance(op, Plot):
             return self._plot(op)
+        if isinstance(op, ReadFile):
+            return self._read_file(op)
+        if isinstance(op, CompleteCases):
+            return [
+                f"# {op.comment}",
+                *_wrapped_list(f"{op.frame} = {op.source}.dropna(subset=[", _quoted(op.columns), "]).reset_index(drop=True)"),
+                f"print(len({op.frame}))  # gözlem sayısı",
+            ]
+        if isinstance(op, Indicator):
+            return [
+                f"# {op.comment}",
+                f'{op.frame}["{op.name}"] = ({op.frame}["{op.source}"] == {_text(op.level)}).astype(float)'
+                f'.where({op.frame}["{op.source}"].notna())',
+                f'print({op.frame}["{op.name}"].value_counts().sort_index())',
+            ]
         if isinstance(op, LoadHansen):
             if op.member.lower().endswith(".dta"):
                 return [
@@ -667,31 +740,41 @@ class PythonGenerator(Generator):
                 f'print(f"{op.comment}: {{{op.name}:.{op.decimals}f}}")',
             ]
         if isinstance(op, GroupMeanPlot):
-            pairs = ", ".join(f'({value}, "{label}")' for value, label in sorted(op.group_labels))
+            pairs = ", ".join(f"({value}, {_text(label)})" for value, label in sorted(op.group_labels))
             return [
                 "fig, ax = plt.subplots(figsize=(8, 5))",
                 f"for deger, etiket in [{pairs}]:",
                 f'    ortalama = {op.frame}[{op.frame}["{op.group}"] == deger].groupby("{op.x}")["{op.y}"].mean()',
                 '    ax.plot(ortalama.index, ortalama.values, marker="o", label=etiket)',
-                f'ax.set_xlabel("{op.x_label}")',
-                f'ax.set_ylabel("{op.y_label}")',
-                f'ax.set_title("{op.title}")',
+                f"ax.set_xlabel({_text(op.x_label)})",
+                f"ax.set_ylabel({_text(op.y_label)})",
+                f"ax.set_title({_text(op.title)})",
                 "ax.legend()",
                 "ax.grid(alpha=0.3)",
                 "plt.show()",
             ]
         if isinstance(op, ProjectionPlot):
+            if op.relative_size:
+                size = [
+                    "# Nokta alanı gruptaki gözlem sayısıyla büyür; en kalabalık grup en büyük noktadır",
+                    'boyut = (3 + 15 * np.sqrt(ortalama["size"] / ortalama["size"].max())) ** 2',
+                    'ax.scatter(ortalama.index, ortalama["mean"], s=boyut, alpha=0.7, label="Koşullu ortalama")',
+                ]
+            else:
+                size = [
+                    'ax.scatter(ortalama.index, ortalama["mean"], s=np.sqrt(ortalama["size"]) * 2,',
+                    '           alpha=0.7, label="Koşullu ortalama")',
+                ]
             return [
                 f'ortalama = {op.frame}.groupby("{op.x}")["{op.y}"].agg(["mean", "size"])',
                 "izgara = np.linspace(ortalama.index.min(), ortalama.index.max(), 100)",
                 "fig, ax = plt.subplots(figsize=(8, 5))",
-                'ax.scatter(ortalama.index, ortalama["mean"], s=np.sqrt(ortalama["size"]) * 2,',
-                '           alpha=0.7, label="Koşullu ortalama")',
+                *size,
                 f'ax.plot(izgara, {op.model}.params["Intercept"] + {op.model}.params["{op.x}"] * izgara,',
                 '        linewidth=2, label="OLS doğrusal projeksiyonu")',
-                f'ax.set_xlabel("{op.x_label}")',
-                f'ax.set_ylabel("{op.y_label}")',
-                f'ax.set_title("{op.title}")',
+                f"ax.set_xlabel({_text(op.x_label)})",
+                f"ax.set_ylabel({_text(op.y_label)})",
+                f"ax.set_title({_text(op.title)})",
                 "ax.legend()",
                 "ax.grid(alpha=0.3)",
                 "plt.show()",
@@ -870,6 +953,71 @@ class PythonGenerator(Generator):
             "ax.grid(alpha=0.3)",
             "plt.show()",
         ]
+        return lines
+
+    # --- Öğrencinin veri dosyası -------------------------------------------
+    @staticmethod
+    def _read_file(op: ReadFile) -> list[str]:
+        lines = [
+            f"# {op.comment}",
+            "# Dosyayı bu betikle aynı klasöre koyun ya da yolu değiştirin.",
+            f"VERI_DOSYASI = {_text(op.file_name)}",
+        ]
+        if op.file_format == "xlsx":
+            sheet = f", sheet_name={_text(op.sheet)}" if op.sheet else ""
+            lines += [
+                "# Excel dosyasını okumak için openpyxl paketi gerekir (bir kez kurun: pip install openpyxl).",
+                f'ham = pd.read_excel(VERI_DOSYASI{sheet}, na_values=["", "NA"], keep_default_na=False)',
+            ]
+        else:
+            separator = '"\\t"' if op.separator == "\t" else _text(op.separator)
+            lines += [
+                f"ham = pd.read_csv(VERI_DOSYASI, sep={separator}, decimal={_text(op.decimal)}, "
+                f"encoding={_text(op.encoding)},",
+                '                  na_values=["", "NA"], keep_default_na=False)',
+            ]
+        if op.strip_names:
+            lines += [
+                "# Sütun adlarının baştaki ve sondaki boşlukları silinir",
+                'ham.columns = [str(sutun).replace("\\xa0", " ").strip(" \\t\\r\\n") for sutun in ham.columns]',
+            ]
+        names = [name for name, _, _ in op.columns]
+        lines.append("# Kullanılan sütunlar; kodda kısa ve Türkçe karakter içermeyen adlarla")
+        lines += _wrapped_list(f"{op.frame} = ham[[", [_text(original) for _, original, _ in op.columns], "]].copy()")
+        lines += _wrapped_list(f"{op.frame}.columns = [", [_text(name) for name in names], "]")
+        texts = _text_columns(op)
+        if texts:
+            lines += [
+                "# Metin hücreleri temizlenir: baştaki ve sondaki boşluklar silinir; boş hücre ve NA eksik değerdir",
+                f"for sutun in [{', '.join(_text(name) for name in texts)}]:",
+                f"    {op.frame}[sutun] = {op.frame}[sutun].map(temiz_metin)",
+            ]
+        required = list(op.required) or names
+        dropped = f" (uygulamada {op.dropped} satır)" if op.dropped else ""
+        if set(required) == set(names):
+            lines += [
+                f"# Kullanılan sütunlardan birinde eksik değer olan satırlar çıkarılır{dropped}",
+                f"{op.frame} = {op.frame}.dropna().reset_index(drop=True)",
+            ]
+        else:
+            lines.append(f"# Temel sütunlarda eksik değer olan satırlar çıkarılır{dropped}; diğer sütunlardaki eksik "
+                         "değerler yerinde kalır")
+            lines += _wrapped_list(f"{op.frame} = {op.frame}.dropna(subset=[", [_text(name) for name in required],
+                                   "]).reset_index(drop=True)")
+        for name, _, kind in op.columns:
+            if kind == "kod":
+                lines.append(f'{op.frame}["{name}"] = {op.frame}["{name}"].map(kod_metni)'
+                             "  # tam sayı kodları kategori etiketi")
+            elif kind == "sayi_metin":
+                lines.append(f'{op.frame}["{name}"] = pd.to_numeric({op.frame}["{name}"].str.replace(",", ".", '
+                             "regex=False))  # ondalık virgül")
+        numbers = [name for name, _, kind in op.columns if kind in ("sayi", "sayi_metin")]
+        if numbers:
+            lines.append("# Sayısal sütunlar ondalıklı sayı (float) olarak tutulur: tam sayı sütunlarında kare gibi işlemler "
+                         "taşmasın")
+            lines += _wrapped_list("sayisal = [", [_text(name) for name in numbers], "]")
+            lines.append(f"{op.frame}[sayisal] = {op.frame}[sayisal].astype(float)")
+        lines.append(f"print(len({op.frame}))  # gözlem sayısı")
         return lines
 
     # --- Tahminler -------------------------------------------------------
@@ -1128,13 +1276,13 @@ class PythonGenerator(Generator):
         raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
 
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:
-        lines = ['print("Notlarla karşılaştırma:")']
+        lines = [f'print("{self.reference[0]}")']
         for check in checks:
             expected = f"{check.expected:.{check.decimals}f}"
             lines.append(
-                f'kontrol_et("{check.label}", {self.target(check.target)}, {expected}, {check.decimals})'
+                f"kontrol_et({_text(check.label)}, {self.target(check.target)}, {expected}, {check.decimals})"
             )
         return lines
 
     def closing(self) -> list[str]:
-        return ['print("\\nBütün değerler ders notlarıyla uyuşuyor.")']
+        return [f'print("\\n{self.closing_message()}")']

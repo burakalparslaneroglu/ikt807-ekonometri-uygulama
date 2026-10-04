@@ -29,6 +29,9 @@ from core.labs.spec import (
     IV,
     OLS,
     RDD,
+    CompleteCases,
+    Indicator,
+    ReadFile,
     Bootstrap,
     RDDCurve,
     RDDTable,
@@ -112,6 +115,29 @@ _COLORS_HEX = ("#107C89", "#B3392F", "#2F9E6B", "#07373D")
 
 def _quoted(names) -> str:
     return ", ".join(f'"{name}"' for name in names)
+
+
+def _text(value: str) -> str:
+    """Çift tırnaklı R dizgesi: ters bölü ve tırnak kaçırılır (öğrencinin sütun ve kategori adları için).
+
+    Notlardaki metinlerde bu işaretler yoktur; onların kodu değişmez."""
+
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _vector(values) -> str:
+    return "c(" + ", ".join(_text(value) for value in values) + ")"
+
+
+_CLEAN_TEXT = [
+    "# Metin hücresi: bölünmez boşluk boşluğa çevrilir, baştaki ve sondaki boşluklar silinir;",
+    "# boş kalan hücre ve NA eksik değerdir",
+    "temiz_metin <- function(x) {",
+    '  x <- trimws(gsub("\\u00a0", " ", as.character(x), fixed = TRUE))',
+    '  x[x %in% c("", "NA")] <- NA',
+    "  x",
+    "}",
+]
 
 
 def _wrapped(opening: str, items: list[str], closing: str, width: int = 88) -> list[str]:
@@ -306,6 +332,8 @@ class RGenerator(Generator):
             packages.append("lmtest")
         if any(isinstance(op, LoadHansen) and op.member.lower().endswith(".dta") for op in ops):
             packages.append("haven")
+        if any(isinstance(op, ReadFile) and op.file_format == "xlsx" for op in ops):
+            packages.append("readxl")
         if any(isinstance(op, (IV, Tobit)) for op in ops):
             packages.append("AER")
         if any(isinstance(op, QuantileRegression) for op in ops):
@@ -338,7 +366,8 @@ class RGenerator(Generator):
             if stata_file:
                 lines += [
                     "# Hansen'in .dta dosyası değişken adlarını taşır; Python, R ve Stata'da aynı olsun diye",
-                    "# adlar küçük harfe çevrilir. Yerel dosya olarak ders notlarının öğretim CSV'si de verilebilir.",
+                    "# adlar küçük harfe çevrilir. Yerel dosya olarak ders notlarının öğretim CSV'si de verilebilir."
+                    if self.spec.source == "notlar" else "# adlar küçük harfe çevrilir.",
                     "hansen_verisi <- function(dosya_adi, yerel_dosya = NULL) {",
                     "  if (!is.null(yerel_dosya) && grepl(\"\\\\.csv$\", tolower(yerel_dosya))) {",
                     "    veri <- read.csv(yerel_dosya)",
@@ -374,7 +403,37 @@ class RGenerator(Generator):
                     "}",
                     "",
                 ]
-        if with_checks and self.mc_checks:
+        if any(isinstance(op, ReadFile) and any(kind in ("metin", "sayi_metin") for _, _, kind in op.columns)
+               for op in flatten(operations)):
+            lines += _CLEAN_TEXT + [""]
+        if with_checks and self.spec.source != "notlar":
+            # Beklenen değer uygulamanın hesabıdır ve gösterim basamağına yuvarlanmıştır. Kendi verinde büyük
+            # sayılarda iki yazılımın son basamak farkı göreli bir payla karşılanır.
+            tolerance = "0.5 * 10^(-ondalik) + 1e-12"
+            if self.spec.source == "kendi":
+                tolerance = "max(0.5 * 10^(-ondalik), 1e-9 * abs(beklenen)) + 1e-12  # büyük sayılarda göreli pay"
+            if self.mc_checks:
+                head = [
+                    "# Rastgele çekilişe dayanan değerlerde beşinci argüman Monte Carlo toleransıdır.",
+                    "kontrol_et <- function(etiket, deger, beklenen, ondalik = 4, tolerans = NULL) {",
+                    f"  if (is.null(tolerans)) tolerans <- {tolerance}",
+                ]
+            else:
+                head = [
+                    "kontrol_et <- function(etiket, deger, beklenen, ondalik = 4) {",
+                    f"  tolerans <- {tolerance}",
+                ]
+            lines += [
+                "# Hesaplanan değeri uygulamanın aynı veriyle verdiği değerle karşılaştırır.",
+                *head,
+                "  durum <- if (abs(deger - beklenen) <= tolerans) \"OK  \" else \"HATA\"",
+                "  cat(sprintf(\"  %s %s: %.*f  (uygulama: %s)\\n\", durum, etiket, ondalik, deger,",
+                "              sprintf(\"%.*f\", ondalik, beklenen)))",
+                "  if (abs(deger - beklenen) > tolerans) stop(etiket, \" uygulamayla uyuşmuyor.\")",
+                "}",
+                "",
+            ]
+        elif with_checks and self.mc_checks:
             lines += [
                 "# Rastgele çekilişe dayanan değerlerde tolerans Monte Carlo toleransıdır: R'nin rastgele sayı üreteci",
                 "# Python'dakinden farklıdır, aynı tohum aynı çekilişi vermez.",
@@ -543,6 +602,22 @@ class RGenerator(Generator):
             return [f"{op.result} <- c(", ",\n".join(entries), ")", f"print(round({op.result}, 10))"]
         if isinstance(op, Plot):
             return self._plot(op)
+        if isinstance(op, ReadFile):
+            return self._read_file(op)
+        if isinstance(op, CompleteCases):
+            return [
+                f"# {op.comment}",
+                *_wrapped(f"{op.frame} <- {op.source}[complete.cases({op.source}[, c(", [_text(c) for c in op.columns],
+                          ")]), , drop = FALSE]"),
+                f"rownames({op.frame}) <- NULL",
+                f"print(nrow({op.frame}))  # gözlem sayısı",
+            ]
+        if isinstance(op, Indicator):
+            return [
+                f"# {op.comment}",
+                f"{op.frame}${op.name} <- as.numeric({op.frame}${op.source} == {_text(op.level)})",
+                f"print(table({op.frame}${op.name}, useNA = \"ifany\"))",
+            ]
         if isinstance(op, LoadHansen):
             if op.member.lower().endswith(".dta"):
                 return [
@@ -628,24 +703,26 @@ class RGenerator(Generator):
             count = len(labels)
             colors = ", ".join(_COLORS[:count])
             pch = ", ".join(str(15 + i) for i in range(count))
-            label_text = ", ".join(f'"{label}"' for label in labels)
+            label_text = ", ".join(_text(label) for label in labels)
             return [
                 f"ortalama <- tapply({op.frame}${op.y}, list({op.frame}${op.x}, {op.frame}${op.group}), mean)",
                 f"matplot(as.numeric(rownames(ortalama)), ortalama, type = \"b\", lty = 1,",
                 f"        pch = c({pch}), col = c({colors}),",
-                f'        xlab = "{op.x_label}", ylab = "{op.y_label}",',
-                f'        main = "{op.title}")',
+                f"        xlab = {_text(op.x_label)}, ylab = {_text(op.y_label)},",
+                f"        main = {_text(op.title)})",
                 f'legend("topleft", legend = c({label_text}), pch = c({pch}),',
                 f"       col = c({colors}), bty = \"n\")",
             ]
         if isinstance(op, ProjectionPlot):
+            size = ("     cex = 0.5 + 2 * sqrt(gozlem / max(gozlem)),  # en kalabalık grup en büyük nokta"
+                    if op.relative_size else "     cex = sqrt(gozlem) / 30,")
             return [
                 f"ortalama <- tapply({op.frame}${op.y}, {op.frame}${op.x}, mean)",
                 f"gozlem <- tapply({op.frame}${op.y}, {op.frame}${op.x}, length)",
                 "plot(as.numeric(names(ortalama)), ortalama, pch = 16, col = \"#107C89\",",
-                "     cex = sqrt(gozlem) / 30,",
-                f'     xlab = "{op.x_label}", ylab = "{op.y_label}",',
-                f'     main = "{op.title}")',
+                size,
+                f"     xlab = {_text(op.x_label)}, ylab = {_text(op.y_label)},",
+                f"     main = {_text(op.title)})",
                 f'abline(a = coef({op.model})[["(Intercept)"]], b = coef({op.model})[["{op.x}"]], lwd = 2)',
                 'legend("topleft", legend = c("Koşullu ortalama", "OLS doğrusal projeksiyonu"),',
                 '       pch = c(16, NA), lty = c(NA, 1), col = c("#107C89", "black"), bty = "n")',
@@ -821,6 +898,87 @@ class RGenerator(Generator):
         ending = [f"  data = {data},", f"  {extra}"] if extra else [f"  data = {data}"]
         return [f"{name} <- {function}(", *[f"  {line}" for line in body[:-1]], f"  {body[-1]},",
                 *ending, ")"]
+
+    @staticmethod
+    def _read_file(op: ReadFile) -> list[str]:
+        lines = [
+            f"# {op.comment}",
+            "# Dosyayı bu betikle aynı klasöre koyun ya da yolu değiştirin.",
+            f"veri_dosyasi <- {_text(op.file_name)}",
+        ]
+        texts = [name for name, _, kind in op.columns if kind in ("metin", "sayi_metin")]
+        csv = op.file_format != "xlsx"
+        if not csv:
+            sheet = f", sheet = {_text(op.sheet)}" if op.sheet else ""
+            lines.append(f'ham <- as.data.frame(readxl::read_excel(veri_dosyasi{sheet}, na = c("", "NA"), '
+                         "guess_max = 10000))")
+        else:
+            separator = '"\\t"' if op.separator == "\t" else _text(op.separator)
+            encoding = {"utf-8-sig": "UTF-8-BOM", "cp1254": "CP1254"}.get(op.encoding, op.encoding)
+            lines += [
+                "# Bütün sütunlar metin olarak okunur (ör. T ve F mantıksal değere çevrilmez); sayılar aşağıda açıkça",
+                "# dönüştürülür",
+                f"ham <- read.csv(veri_dosyasi, sep = {separator}, fileEncoding = {_text(encoding)},",
+                '                na.strings = c("", "NA"), check.names = FALSE, colClasses = "character")',
+            ]
+        if op.strip_names:
+            lines += [
+                "# Sütun adlarının baştaki ve sondaki boşlukları silinir",
+                'names(ham) <- trimws(gsub("\\u00a0", " ", names(ham), fixed = TRUE))',
+            ]
+        names = [name for name, _, _ in op.columns]
+        lines += [
+            "# Kullanılan sütunlar dosyada olmalı. Betik UTF-8'dir: R 4.2'den eski bir sürümde Türkçe sütun adları için",
+            '# source("betik.R", encoding = "UTF-8") ile çalıştırın.',
+            *_wrapped("eksik <- setdiff(c(", [_text(original) for _, original, _ in op.columns], "), names(ham))"),
+            'if (length(eksik) > 0) stop("Dosyada şu sütunlar yok: ", paste(eksik, collapse = ", "))',
+            "# Kullanılan sütunlar; kodda kısa ve Türkçe karakter içermeyen adlarla",
+            f"{op.frame} <- data.frame(",
+        ]
+        for name, original, _ in op.columns:
+            lines.append(f"  {name} = ham[[{_text(original)}]],")
+        lines += ["  stringsAsFactors = FALSE", ")"]
+        if texts:
+            lines += [
+                "# Metin hücreleri temizlenir: baştaki ve sondaki boşluklar silinir; boş hücre ve NA eksik değerdir",
+                f"for (sutun in {_vector(texts)}) {op.frame}[[sutun]] <- temiz_metin({op.frame}[[sutun]])",
+            ]
+        required = list(op.required) or names
+        dropped = f" (uygulamada {op.dropped} satır)" if op.dropped else ""
+        if set(required) == set(names):
+            lines += [
+                f"# Kullanılan sütunlardan birinde eksik değer olan satırlar çıkarılır{dropped}",
+                f"{op.frame} <- {op.frame}[complete.cases({op.frame}), , drop = FALSE]",
+            ]
+        else:
+            lines += [
+                f"# Temel sütunlarda eksik değer olan satırlar çıkarılır{dropped}; diğer sütunlardaki eksik "
+                "değerler yerinde kalır",
+                f"{op.frame} <- {op.frame}[complete.cases({op.frame}[, {_vector(required)}, drop = FALSE]), , "
+                "drop = FALSE]",
+            ]
+        lines.append(f"rownames({op.frame}) <- NULL")
+
+        def number(column: str) -> str:
+            # Excel'de bir sütunda metin olarak saklanmış sayılar varsa readxl bütün sütunu metin okur (pandas sayıya
+            # çevirir); as.numeric iki durumda da aynı sayıyı verir.
+            if csv and op.decimal == ",":
+                return f'as.numeric(sub(",", ".", {column}, fixed = TRUE))'
+            return f"as.numeric({column})"
+
+        for name, _, kind in op.columns:
+            column = f"{op.frame}${name}"
+            if kind == "kod":
+                lines.append(f'{column} <- ifelse(is.na({column}), NA, sprintf("%.0f", {number(column)} + 0))'
+                             "  # tam sayı kodları kategori etiketi (+ 0: −0 yerine 0)")
+            elif kind == "sayi_metin":
+                lines.append(f'{column} <- as.numeric(sub(",", ".", {column}, fixed = TRUE))'
+                             "  # metin olarak yazılmış sayı")
+            elif kind == "sayi":
+                mark = "; ondalık virgül" if csv and op.decimal == "," else ""
+                lines.append(f"{column} <- {number(column)}  # sayı{mark}")
+        lines.append(f"print(nrow({op.frame}))  # gözlem sayısı")
+        return lines
 
     def _ols(self, op: OLS) -> list[str]:
         terms = [f"factor({r})" if r in op.categorical else r for r in op.regressors]
@@ -1131,14 +1289,14 @@ class RGenerator(Generator):
         raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
 
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:
-        lines = ['cat("Notlarla karşılaştırma:\\n")']
+        lines = [f'cat("{self.reference[0]}\\n")']
         for check in checks:
             expected = f"{check.expected:.{check.decimals}f}"
             tolerance = "" if check.mc_tolerance is None else f", tolerans = {E.format_number(check.mc_tolerance)}"
             lines.append(
-                f'kontrol_et("{check.label}", {self.target(check.target)}, {expected}, {check.decimals}{tolerance})'
+                f"kontrol_et({_text(check.label)}, {self.target(check.target)}, {expected}, {check.decimals}{tolerance})"
             )
         return lines
 
     def closing(self) -> list[str]:
-        return ['cat("\\nBütün değerler ders notlarıyla uyuşuyor.\\n")']
+        return [f'cat("\\n{self.closing_message()}\\n")']

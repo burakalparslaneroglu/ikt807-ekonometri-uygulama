@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Union
+from typing import Callable, Union
 
 from core.labs.expr import Expr
 
@@ -49,6 +49,14 @@ VCOV_TYPES = ("classic", "HC1", "cluster")
 BINARY_LINKS = ("logit", "probit")
 BINARY_VCOV_TYPES = ("classic", "robust")
 KEEP_OPERATORS = ("==", "!=", "<", "<=", ">", ">=")
+SOURCES = ("notlar", "alternatif", "kendi")
+"""Uygulama sekmesinin veri kaynakları (``LabSpec.source``): notlardaki örnek, alternatif örnek (aynı adımlar, Hansen
+arşivindeki başka bir veriyle) ve öğrencinin kendi verisi (Excel ya da CSV dosyası)."""
+FILE_FORMATS = ("xlsx", "csv")
+FILE_COLUMN_KINDS = ("metin", "kod", "sayi", "sayi_metin")
+"""Yüklenen dosyadaki bir sütunun koddaki dönüşümü: ``metin`` metin (kategori etiketi; tam sayı hücreler "12"
+olur), ``kod`` tam sayı kodlu kategorik değişken (1, 2, 3 → "1", "2", "3"), ``sayi`` sayısal sütun, ``sayi_metin``
+metin olarak saklanmış sayı (ondalık virgül noktaya çevrilir). Eksik değerler her türde eksik kalır."""
 
 
 # --- İşlemler ---------------------------------------------------------------
@@ -66,6 +74,67 @@ class LoadHansen:
     member: str
     frame: str
     columns: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReadFile:
+    """Öğrencinin yüklediği Excel (.xlsx) ya da CSV dosyası ("Kendi verini yükle").
+
+    Kod dosyayı okur, ``columns`` sütunlarını seçip koddaki (ASCII) adlarıyla yeniden adlandırır ve metin hücrelerini
+    temizler: bölünmez boşluk boşluğa çevrilir, baştaki ve sondaki boşluklar silinir, boş kalan hücre ve "NA" eksik
+    değerdir. Sonra ``required`` sütunlarından birinde eksik değer olan satırlar çıkarılır ve sütun türleri dönüştürülür
+    (``FILE_COLUMN_KINDS``). ``rows`` bu işlemlerden sonraki değerlerdir: uygulamanın hesabı bunlardan yapılır, üretilen
+    kod aynı değerleri dosyadan elde eder (testle denetlenir). R, CSV dosyasının bütün sütunlarını metin olarak okur ve
+    sayıları açıkça dönüştürür; böylece iki dilin tür tahmini birbirinden ayrılamaz. Stata kodu üretilmez.
+    """
+
+    frame: str
+    file_name: str
+    file_format: str
+    columns: tuple[tuple[str, str, str], ...]
+    """(koddaki ad, dosyadaki sütun adı, dönüşüm türü)."""
+    rows: tuple[tuple[object, ...], ...]
+    comment: str
+    sheet: str | None = None
+    separator: str = ","
+    decimal: str = "."
+    encoding: str = "utf-8-sig"
+    dropped: int = 0
+    """Boş hücre nedeniyle çıkarılan satır sayısı."""
+    required: tuple[str, ...] = ()
+    """Eksik değeri satırı çıkaran sütunlar (koddaki adlar); boşsa bütün sütunlar."""
+    strip_names: bool = False
+    """Dosyadaki sütun adlarının baştaki ve sondaki boşlukları silinir (Excel'de sık görülen bir yazım)."""
+
+    def __post_init__(self) -> None:
+        if self.file_format not in FILE_FORMATS:
+            raise ValueError(f"Desteklenmeyen dosya biçimi: {self.file_format}")
+        if any(kind not in FILE_COLUMN_KINDS for _, _, kind in self.columns):
+            raise ValueError("Tanımsız sütun dönüşümü.")
+
+
+@dataclass(frozen=True)
+class CompleteCases:
+    """``source`` çerçevesinde ``columns`` sütunlarının hepsinde değeri olan satırlar: ``frame`` adlı yeni çerçeve.
+
+    Satır numaraları 1'den yeniden başlar; kaynak çerçeve değişmez.
+    """
+
+    frame: str
+    source: str
+    columns: tuple[str, ...]
+    comment: str
+
+
+@dataclass(frozen=True)
+class Indicator:
+    """Kategorik bir değişkenden gösterge: ``source`` = ``level`` ise 1, değilse 0; ``source`` eksikse eksik."""
+
+    frame: str
+    name: str
+    source: str
+    level: str
+    comment: str
 
 
 @dataclass(frozen=True)
@@ -132,6 +201,8 @@ class RegressionTable:
     models: tuple[str, ...]
     terms: tuple[str, ...]
     result: str
+    title: str = ""
+    """Uygulamadaki tablo başlığı; boşsa notlardaki başlık (log saatlik ücret için OLS regresyonları)."""
 
 
 @dataclass(frozen=True)
@@ -173,6 +244,8 @@ class ProjectionPlot:
     x_label: str
     y_label: str
     title: str
+    relative_size: bool = False
+    """Nokta boyutu en kalabalık gruba göre ölçeklenir (küçük örneklemde de noktalar görünür); notlarda mutlak ölçek."""
 
 
 @dataclass(frozen=True)
@@ -1058,6 +1131,9 @@ class LinePlot:
 
 
 Operation = Union[
+    ReadFile,
+    CompleteCases,
+    Indicator,
     RowNumber,
     GroupRank,
     Dictionary,
@@ -1215,6 +1291,9 @@ class LabStep:
     reproducibility: ReproClass = ReproClass.EXACT
     takeaway: str = ""
     code_note: str = ""
+    note_for: Callable[[object], str] | None = field(default=None, compare=False, repr=False)
+    """Ek veri kaynaklarında adımın yorumu sonuçlardan yazılır: ``note_for(state)`` (``LabState``). Hesap yokken ya da
+    yorum yazılamazsa ``takeaway`` gösterilir."""
 
     @property
     def key(self) -> str:
@@ -1231,6 +1310,14 @@ class LabSpec:
     labels: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     consistency_notes: tuple[str, ...] = field(default_factory=tuple)
     kind: str = "uygulama"
+    source: str = "notlar"
+    """Veri kaynağı (``SOURCES``). Notlar dışındaki kaynaklarda kontrollerin beklenen değerleri uygulamanın hesabıdır
+    (alternatif örnekte Hansen'in tam örneklemiyle, kendi verinde yüklenen dosyayla); üretilen kod bu değerleri
+    yeniden üretmelidir."""
+
+    def __post_init__(self) -> None:
+        if self.source not in SOURCES:
+            raise ValueError(f"{self.topic_key}: tanımsız veri kaynağı {self.source!r}.")
 
     def label(self, name: str) -> str:
         """Değişken veya terim için öğrenciye gösterilecek Türkçe ad."""

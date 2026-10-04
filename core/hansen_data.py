@@ -46,7 +46,7 @@ DDK2011_REQUIRED = (
     "percentile",
 )
 CARD1995_REQUIRED = (
-    "lwage76", "ed76", "nearc4", "age76", "black", "smsa76r", "reg76r", "smsa66r",
+    "lwage76", "wage76", "ed76", "nearc4", "age76", "black", "smsa76r", "reg76r", "smsa66r",
     *(f"reg66{i}" for i in range(2, 10)),
 )
 CHJ2004_CONTROLS = (

@@ -2,6 +2,12 @@
 
 Her laboratuvar ``core.labs`` altındaki tek bir tanımdan beslenir: adım metni,
 uygulamanın hesabı, üç dildeki kod ve notlarla karşılaştırma aynı kaynaktan gelir.
+
+Ek kaynakları olan konularda (``core.labs.ornekler``) sekmenin en üstünde veri kaynağı seçilir: notlardaki örnek
+(varsayılan), alternatif örnek (aynı adımlar, Hansen arşivindeki başka bir gerçek veriyle) ya da öğrencinin kendi verisi
+("Kendi verini yükle", ``topics.kendi_veri_ui``). Üç kaynak aynı adımları ve aynı kod üreticisini kullanır; notlar
+dışındaki kaynaklarda kontroller ekranda gösterilmez, indirilen kod uygulamanın sayılarıyla karşılaştırır. Kendi
+verinde kod Python ve R'da üretilir; öğrencinin verisi ve ondan kurulan hesap ortak önbelleğe girmez.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from core.codegen.base import (
     HANSEN_PAGE_URL,
     LANGUAGE_INFO,
     LANGUAGES,
+    languages_for,
     render_script,
     render_step,
     script_filename,
@@ -32,8 +39,13 @@ from core.hansen_data import (
     load_from_upload,
     DATASET_MEMBERS,
 )
+from core.labs.ornek import SOURCE_LABELS, md
+from core.labs.ornekler import get_variants
 from core.labs.runner import LabRun, bootstrap_key, run_lab, statsmodels_term
 from core.labs.spec import (
+    SOURCES,
+    Indicator,
+    ReadFile,
     IV,
     OLS,
     RDD,
@@ -73,6 +85,7 @@ from core.labs.spec import (
     Scalar,
     ShowModel,
 )
+from topics.kendi_veri_ui import remember, render_custom, restore
 from topics.regression_ui import show_figure, style_figure
 from topics.selection_ui import render_lab_op
 
@@ -109,8 +122,8 @@ def _hansen_member(dataset: str) -> bytes:
     return extract_member(_hansen_archive(), DATASET_MEMBERS[dataset])
 
 
-def _data_key(topic_key: str) -> str:
-    return f"{topic_key}_lab_data"
+def _data_key(prefix: str) -> str:
+    return f"{prefix}_lab_data"
 
 
 def _local_path(dataset: str) -> Path | None:
@@ -123,9 +136,14 @@ def _local_path(dataset: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def _render_data_panel(spec: LabSpec) -> LoadedData | None:
-    key = _data_key(spec.topic_key)
+def _render_data_panel(spec: LabSpec, prefix: str | None = None) -> LoadedData | None:
+    """Hansen verisinin yükleme paneli. ``prefix``: oturum ve widget anahtarlarının öneki; notlarda konu anahtarı,
+    alternatif örnekte ``konuNN_alternatif`` (iki kaynağın verisi birbirine karışmaz)."""
+
+    prefix = prefix or spec.topic_key
+    key = _data_key(prefix)
     member = DATASET_MEMBERS[spec.dataset]
+    reference = "notlardaki sayılarla" if spec.source == "notlar" else "bu sayfadaki metinlerdeki sayılarla"
 
     if key not in st.session_state:
         path = _local_path(spec.dataset)
@@ -146,10 +164,10 @@ def _render_data_panel(spec: LabSpec) -> LoadedData | None:
             )
             if not loaded.matches_hansen:
                 left.warning(
-                    "Yüklenen dosya Hansen'in tam örnekleminden farklı. Sonuçlar notlardaki "
-                    "sayılarla uyuşmayabilir."
+                    "Yüklenen dosya Hansen'in tam örnekleminden farklı. Sonuçlar "
+                    f"{reference} uyuşmayabilir."
                 )
-            if right.button("Veriyi değiştir", key=f"{spec.topic_key}_lab_reset", width="stretch"):
+            if right.button("Veriyi değiştir", key=f"{prefix}_lab_reset", width="stretch"):
                 del st.session_state[key]
                 st.rerun()
             return loaded
@@ -162,7 +180,7 @@ def _render_data_panel(spec: LabSpec) -> LoadedData | None:
         left, right = st.columns(2)
         if left.button(
             "Hansen'in sayfasından indir",
-            key=f"{spec.topic_key}_lab_download",
+            key=f"{prefix}_lab_download",
             type="primary",
             icon=":material/cloud_download:",
             width="stretch",
@@ -183,7 +201,7 @@ def _render_data_panel(spec: LabSpec) -> LoadedData | None:
         uploaded = right.file_uploader(
             f"veya dosya yükleyin ({member}{csv_note})",
             type=("txt", "csv", "dta"),
-            key=f"{spec.topic_key}_lab_upload",
+            key=f"{prefix}_lab_upload",
         )
         if uploaded is not None:
             try:
@@ -201,11 +219,29 @@ def _run(topic_key: str, fingerprint: int, _spec: LabSpec, _frame: pd.DataFrame)
 
 def _lab_run(spec: LabSpec, loaded: LoadedData) -> LabRun | None:
     fingerprint = int(pd.util.hash_pandas_object(loaded.frame, index=False).sum())
+    name = spec.topic_key if spec.source == "notlar" else f"{spec.topic_key}_{spec.source}"
     try:
-        return _run(spec.topic_key, fingerprint, spec, loaded.frame)
+        return _run(name, fingerprint, spec, loaded.frame)
     except Exception as error:  # veri yapısı sorunları öğrenciye açıkça gösterilir
         st.error(f"Laboratuvar bu veriyle çalıştırılamadı: {error}")
         return None
+
+
+def _own_run(spec: LabSpec) -> LabRun | None:
+    """Kendi verinin hesabı; yalnız bu oturumda, aynı tanım için saklanır (ortak önbelleğe girmez)."""
+
+    key = f"{spec.topic_key}_kendi_hesap"
+    stored = st.session_state.get(key)
+    if isinstance(stored, tuple) and len(stored) == 2 and stored[0] is spec:
+        return stored[1]
+    try:
+        run = run_lab(spec)
+    except Exception as error:  # beklenmeyen veri: anlaşılır ileti, ayrıntı türüyle
+        st.error(f"Uygulama bu veriyle çalıştırılamadı ({type(error).__name__}: {md(str(error))}).",
+                 icon=":material/error:")
+        return None
+    st.session_state[key] = (spec, run)
+    return run
 
 
 # --- Adım gezinimi ---------------------------------------------------------
@@ -225,6 +261,7 @@ def _shift(spec: LabSpec, delta: int) -> None:
 def _render_navigation(spec: LabSpec) -> LabStep:
     key = _step_key(spec)
     numbers = [step.number for step in spec.steps]
+    restore(key)  # adımlar bir çalıştırmada çizilmezse (ör. kendi verinde hata) Streamlit seçimi siler
     if st.session_state.get(key) not in numbers:
         st.session_state[key] = numbers[0]
     left, middle, right = st.columns([1, 6, 1], vertical_alignment="bottom")
@@ -234,10 +271,12 @@ def _render_navigation(spec: LabSpec) -> LabStep:
         options=numbers,
         format_func=lambda number: f"Adım {number}",
         key=key,
+        required=True,
         label_visibility="collapsed",
         width="stretch",
     )
     right.button("Sonraki ›", key=f"{spec.topic_key}_lab_next", on_click=_shift, args=(spec, 1), width="stretch")
+    remember(key)
     return spec.step(st.session_state.get(key) or numbers[0])
 
 
@@ -252,7 +291,13 @@ def _describe_table(spec: LabSpec, table: pd.DataFrame) -> pd.DataFrame:
 
 def _group_table(spec: LabSpec, op: GroupSummary, table: pd.DataFrame) -> pd.DataFrame:
     shown = table.rename(columns={name: spec.label(name) for name, _, _ in op.columns}).reset_index()
-    shown = shown.rename(columns={op.by: spec.label(op.by)})
+    groups = shown[op.by]
+    if groups.dtype.kind == "f" and groups.notna().all() and (groups == groups.round()).all():
+        shown[op.by] = groups.astype("int64")  # tam sayı değerli grup (ör. .dta'da ondalıklı saklanan eğitim yılı)
+    by_label = spec.label(op.by)
+    if by_label in [spec.label(name) for name, _, _ in op.columns]:  # ör. kendi verinde "N" adlı sütun
+        by_label = f"{by_label} (grup)"
+    shown = shown.rename(columns={op.by: by_label})
     count_columns = [spec.label(name) for name, _, stat in op.columns if stat == "count"]
     for column in count_columns:
         shown[column] = shown[column].astype(int)
@@ -337,20 +382,29 @@ def _compact_iv(spec: LabSpec, op: IV, result) -> None:
     )
 
 
+def _escape(spec: LabSpec):
+    """Markdown metnine girecek etiketler: kendi verinde öğrencinin sütun adları kaçırılır (ör. "Fiyat ($)"), notlarda
+    ve alternatif örnekte etiketler olduğu gibi yazılır."""
+
+    return md if spec.source == "kendi" else (lambda text: text)
+
+
 def _compact_model(spec: LabSpec, op: OLS, result) -> None:
+    escape = _escape(spec)
     if op.categorical or len(op.regressors) > 3:
-        shown = ", ".join(spec.label(r) for r in op.regressors)
+        shown = ", ".join(escape(spec.label(r)) for r in op.regressors)
         st.markdown(
-            f"**{spec.label(op.name)}:** {spec.label(op.outcome)} ~ {shown} · {len(result.params)} katsayı · "
-            f"N = {_count(result.nobs)} · R² = {_number(result.rsquared)}"
+            f"**{escape(spec.label(op.name))}:** {escape(spec.label(op.outcome))} ~ {shown} · {len(result.params)} "
+            f"katsayı · N = {_count(result.nobs)} · R² = {_number(result.rsquared)}"
         )
         return
     parts = [_number(float(result.params["Intercept"]))]
     for name in op.regressors:
         value = float(result.params[name])
         sign = "−" if value < 0 else "+"
-        parts.append(f"{sign} {_number(abs(value))}·{spec.label(name).lower()}")
-    st.markdown(f"**Tahmin edilen denklem:** {spec.label(op.outcome)} = " + " ".join(parts))
+        label = spec.label(name) if spec.source == "kendi" else spec.label(name).lower()
+        parts.append(f"{sign} {_number(abs(value))}·{escape(label)}")
+    st.markdown(f"**Tahmin edilen denklem:** {escape(spec.label(op.outcome))} = " + " ".join(parts))
     st.caption(f"N = {_count(result.nobs)} · R² = {_number(result.rsquared)}")
 
 
@@ -375,6 +429,9 @@ def _group_plot(spec: LabSpec, op: GroupMeanPlot, data: pd.DataFrame) -> None:
 def _projection_plot(op: ProjectionPlot, data: pd.DataFrame, result) -> None:
     grid = np.linspace(data[op.x].min(), data[op.x].max(), 100)
     line = result.params["Intercept"] + result.params[op.x] * grid
+    # Notlarda nokta çapı √n ile mutlak ölçeklenir (CPS'te gruplar binlerce gözlemdir); ek kaynaklarda en kalabalık
+    # gruba göre ölçeklenir, böylece küçük örneklemde de noktalar görünür.
+    size = 6 + 22 * np.sqrt(data["n"] / data["n"].max()) if op.relative_size else np.sqrt(data["n"]) / 2.5
     figure = go.Figure()
     figure.add_trace(
         go.Scatter(
@@ -382,7 +439,7 @@ def _projection_plot(op: ProjectionPlot, data: pd.DataFrame, result) -> None:
             y=data["ortalama"],
             mode="markers",
             name="Koşullu ortalama",
-            marker={"size": np.sqrt(data["n"]) / 2.5, "color": _COLORS[0], "opacity": 0.75},
+            marker={"size": size, "color": _COLORS[0], "opacity": 0.75},
             customdata=data[["n"]],
             hovertemplate=f"{op.x_label}: %{{x}}<br>Ortalama: %{{y:.4f}}<br>n: %{{customdata[0]}}<extra></extra>",
         )
@@ -623,6 +680,7 @@ def _bootstrap(spec: LabSpec, op: Bootstrap, state) -> None:
 
 def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
     state = run.state
+    escape = _escape(spec)
     has_table = any(isinstance(op, (RegressionTable, EffectTable, RDDTable)) for op in step.operations)
     has_plot = any(isinstance(op, Plot) for op in step.operations)
     for op in step.operations:
@@ -644,6 +702,16 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             table = state.tables[op.result]
             shown = pd.DataFrame({"": table.index, "Değer": [_number(v, op.decimals) for v in table["deger"]]})
             st.dataframe(shown, hide_index=True, width="stretch")
+        elif isinstance(op, ReadFile):
+            count = len(state.frames[op.frame])
+            dropped = (f"; seçilen sütunlarda boş hücresi olan {_count(op.dropped)} satır çıkarıldı" if op.dropped
+                       else "; seçilen sütunlarda boş hücre yok")
+            st.markdown(f"**Analiz örneklemi:** N = {_count(count)} (dosyada {_count(count + op.dropped)} satır"
+                        f"{dropped})")
+        elif isinstance(op, Indicator):
+            values = state.frames[op.frame][op.name]
+            st.caption(f"{escape(spec.label(op.name))}: 1 → {_count((values == 1).sum())} gözlem, "
+                       f"0 → {_count((values == 0).sum())} gözlem")
         elif isinstance(op, DropMissing):
             before, after = state.samples[op]
             st.markdown(
@@ -658,7 +726,7 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             st.markdown("**Betimsel istatistikler**")
             st.dataframe(_describe_table(spec, state.tables[op.result]).style.format("{:.4f}"), width="stretch")
         elif isinstance(op, GroupSummary):
-            st.markdown(f"**{spec.label(op.by)} düzeyine göre koşullu ortalamalar**")
+            st.markdown(f"**{escape(spec.label(op.by))} düzeyine göre koşullu ortalamalar**")
             table = _group_table(spec, op, state.tables[op.result])
             numeric = [c for c in table.columns if table[c].dtype.kind == "f"]
             st.dataframe(table.style.format({c: "{:.4f}" for c in numeric}), hide_index=True, width="stretch")
@@ -669,7 +737,8 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
         elif isinstance(op, OLS) and not has_table:
             _compact_model(spec, op, state.models[op.name])
         elif isinstance(op, RegressionTable):
-            st.markdown("**Log saatlik ücret için OLS regresyonları** (parantez içinde klasik standart hatalar)")
+            title = escape(op.title) if op.title else "Log saatlik ücret için OLS regresyonları"
+            st.markdown(f"**{title}** (parantez içinde klasik standart hatalar)")
             table = state.tables[op.result].reset_index()
             table["Terim"] = [spec.label(name) if name else "" for name in table["Terim"]]
             st.dataframe(table, hide_index=True, width="stretch")
@@ -794,48 +863,114 @@ def _render_checks(step: LabStep, run: LabRun) -> None:
 def _render_code(spec: LabSpec, step: LabStep) -> None:
     if not step.operations:
         return
-    language = st.session_state.get(CODE_LANGUAGE_KEY, LANGUAGES[0])
+    language = st.session_state.get(CODE_LANGUAGE_KEY) or LANGUAGES[0]
+    if language not in languages_for(spec):
+        st.info(
+            "Kendi verinizle kod Python ve R'da üretilir: dosyayı okuma ve temizleme kuralları iki dilde birebir "
+            "aynıdır. Kenar çubuğundan Python ya da R seçin.",
+            icon=":material/code:",
+        )
+        return
     info = LANGUAGE_INFO[language]
     title, description = REPRO_DESCRIPTIONS[step.reproducibility]
     st.markdown(f"**{language} kodu**")
-    st.caption(f"Üç dilde sonuç: **{title}**. {description}")
+    if spec.source == "kendi":
+        description = description.replace("Python, R ve Stata", "Python ve R")
+        st.caption(f"İki dilde sonuç: **{title}**. {description}")
+    else:
+        st.caption(f"Üç dilde sonuç: **{title}**. {description}")
     st.code(render_step(spec, step.number, language), language=info.highlight, line_numbers=True)
     if step.code_note:
         st.caption(step.code_note)
 
 
-def _render_downloads(spec: LabSpec) -> None:
-    st.markdown("**Bütün laboratuvarı indirin**")
-    st.caption(
+_DOWNLOAD_NOTES = {
+    "notlar": (
         "Her dosya veriyi indirir, bütün adımları çalıştırır ve sonunda sonuçları ders notlarındaki "
         "sayılarla karşılaştırır. Bir sayı tutmazsa hangisinin tutmadığını söyleyerek durur."
-    )
-    columns = st.columns(len(LANGUAGES))
-    for column, language in zip(columns, LANGUAGES):
+    ),
+    "alternatif": (
+        "Her dosya veriyi Hansen'in arşivinden indirir, bütün adımları çalıştırır ve sonunda sonuçları uygulamanın "
+        "aynı veriyle (Hansen'in tam örneklemi) verdiği sayılarla karşılaştırır. Bir sayı tutmazsa hangisinin "
+        "tutmadığını söyleyerek durur."
+    ),
+    "kendi": (
+        "Her dosya veri dosyanızı okur, bütün adımları çalıştırır ve sonunda sonuçları uygulamanın aynı veriyle "
+        "verdiği sayılarla karşılaştırır. Bir sayı tutmazsa hangisinin tutmadığını söyleyerek durur. Veri dosyanızı "
+        "betikle aynı klasöre koyun."
+    ),
+}
+
+
+def _render_downloads(spec: LabSpec) -> None:
+    st.markdown("**Bütün laboratuvarı indirin**")
+    st.caption(_DOWNLOAD_NOTES[spec.source])
+    middle = "" if spec.source == "notlar" else f"{spec.source}_"
+    languages = languages_for(spec)
+    columns = st.columns(len(languages))
+    for column, language in zip(columns, languages):
         info = LANGUAGE_INFO[language]
         column.download_button(
             f"{language} (.{info.extension})",
             data=render_script(spec, language),
             file_name=script_filename(spec, language),
             mime=info.mime,
-            key=f"{spec.topic_key}_lab_download_{language}",
+            key=f"{spec.topic_key}_lab_download_{middle}{language}",
             icon=":material/download:",
             width="stretch",
         )
 
 
-# --- Ana giriş ---------------------------------------------------------------
+# --- Veri kaynağı ------------------------------------------------------------
 
-def render_lab(spec: LabSpec) -> None:
-    st.markdown(
-        f"Bu sekme ders notlarındaki **§{spec.note_section} {spec.title}** laboratuvarını adım adım "
-        "yeniden üretir. Tablolar notlardakiyle aynı sayıları verir; kod dilini kenar çubuğundan seçin."
+_SOURCE_ICONS = {
+    "notlar": ":material/menu_book:",
+    "alternatif": ":material/shuffle:",
+    "kendi": ":material/upload_file:",
+}
+
+
+def _source_key(topic_key: str) -> str:
+    return f"{topic_key}_lab_kaynak"
+
+
+def _render_source(topic_key: str) -> str:
+    """Sekmenin en üstünde veri kaynağı seçimi; varsayılan notlardaki örnektir. Seçim başka konuya geçip dönünce de
+    korunur (gölge anahtar)."""
+
+    key = _source_key(topic_key)
+    restore(key)
+    if st.session_state.get(key) not in SOURCES:
+        st.session_state[key] = SOURCES[0]
+    st.segmented_control(
+        "Veri kaynağı",
+        options=list(SOURCES),
+        key=key,
+        required=True,
+        width="stretch",
+        format_func=lambda source: f"{_SOURCE_ICONS[source]} {SOURCE_LABELS[source]}",
+        help="Notlardaki örnek: ders notlarındaki laboratuvar. Alternatif örnek: aynı adımlar, Hansen'in arşivindeki "
+             "başka bir gerçek veriyle. Kendi verini yükle: aynı adımlar, sizin Excel ya da CSV dosyanızla.",
     )
-    loaded = _render_data_panel(spec)
-    run = _lab_run(spec, loaded) if loaded is not None else None
+    remember(key)
+    return st.session_state[key]
+
+
+def _note(step: LabStep, run: LabRun | None) -> str:
+    """Adımın yorumu: ek kaynaklarda sonuçlardan yazılır (``note_for``); hesap yoksa ya da yazılamazsa sabit metin."""
+
+    if step.note_for is not None and run is not None:
+        try:
+            return step.note_for(run.state)
+        except Exception:  # yorum bu veriyle yazılamadı; sonuçlar yukarıda gösterildi
+            return step.takeaway
+    return step.takeaway
+
+
+def _render_steps(spec: LabSpec, run: LabRun | None) -> None:
+    """Adım gezinimi, sonuçlar, kontroller (yalnız notlarda), yorum, kod ve indirme."""
 
     step = _render_navigation(spec)
-    title, _ = REPRO_DESCRIPTIONS[step.reproducibility]
     st.subheader(f"Adım {step.number}: {step.title}")
     st.caption(step.note.label())
     st.markdown(step.explanation)
@@ -843,11 +978,44 @@ def render_lab(spec: LabSpec) -> None:
     if step.operations:
         if run is not None:
             _render_results(spec, step, run)
-            _render_checks(step, run)
+            if spec.source == "notlar":
+                _render_checks(step, run)
         else:
             st.info("Sonuçları görmek için yukarıdan veriyi yükleyin. Kod aşağıda her durumda görünür.")
-    if step.takeaway:
-        st.info(step.takeaway, icon=":material/lightbulb:")
+    note = _note(step, run)
+    if note:
+        st.info(note, icon=":material/lightbulb:")
     _render_code(spec, step)
     if step.number == spec.steps[-1].number:
         _render_downloads(spec)
+
+
+# --- Ana giriş ---------------------------------------------------------------
+
+def render_lab(spec: LabSpec) -> None:
+    variants = get_variants(spec.topic_key)
+    source = _render_source(spec.topic_key) if variants is not None else "notlar"
+    if source == "notlar":
+        st.markdown(
+            f"Bu sekme ders notlarındaki **§{spec.note_section} {spec.title}** laboratuvarını adım adım "
+            "yeniden üretir. Tablolar notlardakiyle aynı sayıları verir; kod dilini kenar çubuğundan seçin."
+        )
+        loaded = _render_data_panel(spec)
+        run = _lab_run(spec, loaded) if loaded is not None else None
+        _render_steps(spec, run)
+        return
+    if source == "alternatif":
+        base = variants.alternative()
+        st.markdown(
+            f"Bu sekme ders notlarındaki **§{spec.note_section} {spec.title}** laboratuvarının adımlarını başka bir "
+            f"gerçek veriyle yeniden yapar. {variants.story} Sayılar notlardakinden farklıdır; yöntem, adımlar ve kod "
+            "aynıdır. Kod dilini kenar çubuğundan seçin."
+        )
+        loaded = _render_data_panel(base, prefix=f"{spec.topic_key}_alternatif")
+        run = _lab_run(base, loaded) if loaded is not None else None
+        _render_steps(base, run)
+        return
+    base = render_custom(spec.topic_key, variants.custom)
+    if base is None:
+        return
+    _render_steps(base, _own_run(base))

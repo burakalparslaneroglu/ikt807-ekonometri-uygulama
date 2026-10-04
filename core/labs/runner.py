@@ -29,6 +29,9 @@ from core.labs import resample as RS
 from core.labs import smoothing as S
 from core.labs.spec import (
     BOOT,
+    CompleteCases,
+    Indicator,
+    ReadFile,
     IV,
     OLS,
     RDD,
@@ -911,6 +914,23 @@ def _execute_selection(op: Operation, state: LabState) -> bool:
     return True
 
 
+def read_file_frame(op: ReadFile) -> pd.DataFrame:
+    """``ReadFile`` tanımındaki temizlenmiş değerlerden veri çerçevesi: sayısal sütunlar ondalıklı sayı, diğerleri metin
+    (eksik değer ``None``)."""
+
+    widths = {len(row) for row in op.rows}
+    if widths - {len(op.columns)}:
+        raise ValueError("Her satırda sütun sayısı kadar değer olmalıdır.")
+    data: dict[str, object] = {}
+    for position, (name, _, kind) in enumerate(op.columns):
+        values = [row[position] for row in op.rows]
+        if kind in ("sayi", "sayi_metin"):
+            data[name] = np.array([np.nan if value is None else float(value) for value in values], dtype=float)
+        else:
+            data[name] = pd.Series(values, dtype=object)
+    return pd.DataFrame(data)
+
+
 def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) -> None:
     if _execute_selection(op, state):
         return
@@ -1001,6 +1021,16 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         covariance = result.cov_params().loc[terms, terms].to_numpy()
         state.scalars[op.name] = float(E.evaluate(op.expr, coefficient=lookup))
         state.scalars[f"{op.name}_se"] = float(np.sqrt(gradient @ covariance @ gradient))
+    elif isinstance(op, ReadFile):
+        # Dosya uygulamada yüklenirken okunup temizlendi; tanım temizlenmiş değerleri taşır.
+        state.frames[op.frame] = read_file_frame(op)
+    elif isinstance(op, CompleteCases):
+        source = state.frames[op.source]
+        state.frames[op.frame] = source.dropna(subset=list(op.columns)).reset_index(drop=True)
+    elif isinstance(op, Indicator):
+        frame = state.frames[op.frame]
+        values = frame[op.source]
+        frame[op.name] = np.where(values.isna(), np.nan, (values == op.level).to_numpy(dtype=float))
     elif isinstance(op, LoadHansen):
         if op.dataset not in sources:
             raise ValueError(f"'{op.dataset}' verisi yüklenmemiş.")
@@ -1224,7 +1254,11 @@ def evaluate_target(target, state: LabState) -> float:
     raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
 
 
-def run_lab(spec: LabSpec, sources: dict[str, pd.DataFrame]) -> LabRun:
+def run_lab(spec: LabSpec, sources: dict[str, pd.DataFrame] | None = None) -> LabRun:
+    """Bütün adımları çalıştırır ve kontrolleri değerlendirir. ``sources``: Hansen verileri (veri seti → çerçeve);
+    kendi verinde boş kalır (veri ``ReadFile`` tanımındadır)."""
+
+    sources = {} if sources is None else sources
     state = LabState()
     checks: dict[int, list[CheckResult]] = {}
     for step in spec.steps:

@@ -41,10 +41,16 @@ from core.labs.spec import (
     LabStep,
     LoadHansen,
     Operation,
+    ReadFile,
     Scalar,
 )
 
 LANGUAGES = ("Python", "R", "Stata")
+OWN_DATA_LANGUAGES = ("Python", "R")
+"""Kendi verinde kod Python ve R'da üretilir: dosyayı okuma ve temizleme kuralları iki dilde birebir aynıdır
+(``ReadFile``); Stata'da karşılığı yazılmamıştır."""
+FILE_SUFFIX = {"notlar": "uygulama", "alternatif": "alternatif", "kendi": "kendi_verim"}
+"""İndirilen betiğin adı veri kaynağına göre: ikt807_konuNN_<ek>.py."""
 
 HANSEN_ARCHIVE_URL = "https://users.ssc.wisc.edu/~behansen/econometrics/Econometrics%20Data.zip"
 HANSEN_PAGE_URL = "https://users.ssc.wisc.edu/~behansen/econometrics/"
@@ -428,8 +434,60 @@ class Generator:
         rule = self.comment + " " + "=" * 74
         return [rule, f"{self.comment} {text}", rule]
 
+    def closing_message(self) -> str:
+        """Betiğin son satırı: bütün kontroller geçti."""
+
+        if self.spec.source == "notlar":
+            return "Bütün değerler ders notlarıyla uyuşuyor."
+        return "Bütün değerler uygulamadaki sonuçlarla uyuşuyor."
+
+    @property
+    def reference(self) -> tuple[str, str, str]:
+        """Kontrollerin karşılaştırıldığı kaynak: (başlık, kısa ad, uyuşmazlık iletisinin sonu). Notlar dışındaki
+        kaynaklarda beklenen değerler uygulamanın aynı veriyle verdiği sonuçlardır."""
+
+        if self.spec.source == "notlar":
+            return "Notlarla karşılaştırma:", "notlar", "notlarla uyuşmuyor."
+        return "Uygulamayla karşılaştırma:", "uygulama", "uygulamayla uyuşmuyor."
+
+    def source_header(self) -> list[str]:
+        """Alternatif örneğin ya da öğrencinin kendi verisinin betik başlığı."""
+
+        c = self.comment
+        topic = self.spec.topic_key[-2:]
+        operations = flatten(op for step in self.spec.steps for op in step.operations)
+        members = sorted({op.member for op in operations if isinstance(op, LoadHansen)})
+        files = sorted({op.file_name for op in operations if isinstance(op, ReadFile)})
+        if self.spec.source == "alternatif":
+            lines = [
+                f"{c} IKT 807 Ekonometrik Modelleme ve Uygulamaları",
+                f"{c} Konu {topic} uygulama laboratuvarı, alternatif örnek: {self.spec.title}",
+                f"{c} Ders notları §{self.spec.note_section} ile aynı adımlar, başka bir veriyle.",
+                f"{c}",
+            ]
+        else:
+            lines = [
+                f"{c} IKT 807 Ekonometrik Modelleme ve Uygulamaları",
+                f"{c} Konu {topic} uygulama laboratuvarı, kendi veriniz: {self.spec.title}",
+                f"{c} Ders notları §{self.spec.note_section} ile aynı adımlar, yüklediğiniz veri dosyasıyla.",
+                f"{c}",
+            ]
+        if members:
+            lines += [
+                f"{c} Veri: Bruce E. Hansen, Econometrics veri arşivi ({', '.join(members)})",
+                f"{c}       {HANSEN_PAGE_URL}",
+            ]
+        for name in files:
+            lines += [f"{c} Veri dosyası: {name}. Dosyayı bu betikle aynı klasöre koyun ya da betikteki",
+                      f"{c} dosya yolunu değiştirin."]
+        if self.has_checks:
+            lines.append(f"{c} Betik sonunda sonuçlar uygulamanın aynı veriyle verdiği değerlerle karşılaştırılır.")
+        return lines + [""]
+
     def header(self) -> list[str]:
         c = self.comment
+        if self.spec.kind != "sezgi" and self.spec.source != "notlar":
+            return self.source_header()
         if self.spec.kind == "sezgi":
             return [
                 f"{c} IKT 807 Ekonometrik Modelleme ve Uygulamaları",
@@ -470,7 +528,7 @@ class Generator:
 
         step = self.spec.step(number)
         lines: list[str] = []
-        needs_loader = any(isinstance(op, LoadHansen) for op in step.operations)
+        needs_loader = any(isinstance(op, (LoadHansen, ReadFile)) for op in step.operations)
         if not step.operations:
             return ""
         lines.extend(self.imports(step.operations))
@@ -535,7 +593,13 @@ def render_step(spec: LabSpec, number: int, language: str) -> str:
 
 
 def script_filename(spec: LabSpec, language: str) -> str:
-    return f"ikt807_{spec.topic_key}_uygulama.{LANGUAGE_INFO[language].extension}"
+    return f"ikt807_{spec.topic_key}_{FILE_SUFFIX[spec.source]}.{LANGUAGE_INFO[language].extension}"
+
+
+def languages_for(spec: LabSpec) -> tuple[str, ...]:
+    """Tanım için kod üretilen diller: kendi verinde Python ve R, diğer kaynaklarda üç dil."""
+
+    return OWN_DATA_LANGUAGES if spec.source == "kendi" else LANGUAGES
 
 def categorical_comment(op, comment: str) -> str:
     """Kategorik regresörler için doğru açıklama: doymuş model mi, kukla kontroller mi."""
