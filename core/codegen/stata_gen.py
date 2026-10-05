@@ -22,6 +22,7 @@ from core.codegen import stata_rdd_boot as SRB
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
     Generator,
+    offers_teaching_csv,
     categorical_comment,
     coefficient_models,
     continuous_terms,
@@ -397,7 +398,7 @@ class StataGenerator(Generator):
             return lines + [
                 "* Değişken adları dosyada kayıtlıdır; Python ve R ile aynı olsun diye küçük harfe çevrilir.",
                 *(["* Ders notlarının öğretim CSV'si de yerel dosya olarak verilebilir."]
-                  if self.spec.source == "notlar" else []),
+                  if offers_teaching_csv(self.spec) else []),
                 "if lower(substr(`\"`yerel_dosya'\"', -4, .)) == \".csv\" {",
                 "    import delimited \"`yerel_dosya'\", clear",
                 "}",

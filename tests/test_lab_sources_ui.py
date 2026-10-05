@@ -19,8 +19,8 @@ from core.labs.ornekler import VARIANTS
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 START = "Başlamak için bir dosya yükleyin."
-STEPS = {"konu01": 9, "konu02": 7, "konu03": 5, "konu04": 5}
-STATA_STEP = {"konu01": 5, "konu02": 5, "konu03": 2, "konu04": 2}
+STEPS = {"konu01": 9, "konu02": 7, "konu03": 5, "konu04": 5, "konu05": 6, "konu06": 5, "konu07": 5, "konu08": 5}
+STATA_STEP = {"konu01": 5, "konu02": 5, "konu03": 2, "konu04": 2, "konu05": 1, "konu06": 2, "konu07": 1, "konu08": 2}
 """Kendi verinde Stata seçilince bilgi kutusunun denetlendiği adım (kodu olan bir adım)."""
 SAMPLE_ROLES = {
     "konu01": {"rol_aciklayici": "Eğitim yılı", "kategori_grup": "Kadın"},
@@ -30,6 +30,12 @@ SAMPLE_ROLES = {
                "kategori_secilmis": "Evet"},
     "konu04": {"rol_sonuc": "Saatlik ücret (TL)", "rol_icsel": "Eğitim yılı",
                "rol_arac": "Üniversiteye yakınlık (1/0)"},
+    "konu05": {"rol_sonuc": "İşe yerleşti", "rol_profil": "Yaş", "rol_gosterge": "Meslek kursu",
+               "kategori_sonuc": "Evet", "kategori_gosterge": "Var"},
+    "konu06": {"rol_sonuc": "Aylık bağış (TL)", "rol_aciklayici": "Hane geliri (bin TL)"},
+    "konu07": {"rol_sonuc": "Saatlik ücret (TL)", "rol_aciklayici": "Eğitim yılı", "rol_kontrol": "Deneyim (yıl)",
+               "rol_grup": "Cinsiyet", "kategori_grup": "Kadın"},
+    "konu08": {"rol_sonuc": "Sınav puanı", "rol_aciklayici": "Haftalık çalışma saati", "rol_kume": "Okul"},
 }
 """Örnek dosya yüklenince önerilen roller (``_guess`` ve konunun ``suggest`` önerileri)."""
 
@@ -83,8 +89,8 @@ def test_source_selector_opens_on_the_notes(monkeypatch) -> None:
         assert len(selector.options) == 3
         assert "ders notlarındaki" in _markdown(app) and "henüz yüklenmedi" in _markdown(app)
         assert not app.exception
-    _topic(app, "konu05")
-    assert "konu05_lab_kaynak" not in {item.key for item in app.segmented_control}
+    _topic(app, "konu09")
+    assert "konu09_lab_kaynak" not in {item.key for item in app.segmented_control}
 
 
 def test_alternative_shows_steps_and_code_before_its_data_is_loaded(monkeypatch) -> None:

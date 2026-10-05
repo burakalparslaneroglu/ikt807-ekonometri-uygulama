@@ -31,6 +31,31 @@ Araç değişkeni verisi (Konu 4; ``n`` = 1.500 çalışan, tohum 807):
 * log ücret = 3,2 + 0,08·eğitim + 0,03·deneyim − 0,0005·deneyim² − 0,15·kadın + 0,10·kent + 0,15·a + N(0, 0,35²);
   saatlik ücret = exp(log ücret), iki ondalığa yuvarlanır (TL). Eğitimin log ücrete gerçek etkisi 0,08'dir; yetenek
   hem eğitimi hem ücreti etkilediği için OLS yukarı yanlıdır, yakınlık ücreti yalnız eğitim üzerinden etkiler.
+
+İkili sonuç verisi (Konu 5; ``n`` = 1.200 kişi, tohum 807):
+
+* yaş ~ Tam sayı[22, 60]; eğitim yılı ∈ {8, 11, 12, 14, 16} (olasılıklar 0,20; 0,15; 0,30; 0,15; 0,20), kişilerin %2'sinde
+  boş; kadın ~ Bernoulli(0,48); il merkezinde yaşıyor ~ Bernoulli(0,6); meslek kursu ~ Bernoulli(0,25 + 0,15·1{yaş < 35});
+* P(işe yerleşti) = Λ(−3,2 + 0,06·yaş + 0,15·(eğitim − 12) − 0,5·kadın + 0,3·il merkezi + 0,9·kurs), Λ lojistik
+  dağılım fonksiyonu: Logit modeli doğru tanımlıdır, kursun gerçek katsayısı 0,9'dur.
+
+Bağış verisi (Konu 6; ``n`` = 800 hane, tohum 807):
+
+* hane geliri (bin TL/ay) = exp(N(log 25, 0,5²)), bir ondalığa yuvarlanır; yaş ~ Tam sayı[22, 70]; hane büyüklüğü =
+  min(1 + Poisson(2), 9), hanelerin %2'sinde boş; kentte yaşıyor ~ Bernoulli(0,65);
+* gizli bağış B* = −380 + 22·gelir − 12·(gelir − 40)₊ + 3·(yaş − 40) + 40·kent − 15·(hane − 3) + N(0, 250²);
+* aylık bağış (TL) = max(B*, 0), 10 TL'ye yuvarlanır. Gizli model (yuvarlama dışında) normal ve homoskedastik
+  hatalı bir Tobit'tir; gelirin gizli bağışa etkisi 40 bin TL'ye kadar 22, sonrasında 10 TL'dir. Uygulamanın spline
+  düğümleri gelirin çeyreklerindedir; gerçek kırılma noktasıyla (40) çakışmaz.
+
+Çalışma saati verisi (Konu 8; 40 okul × 20 öğrenci = 800 öğrenci, tohum 807):
+
+* okulun ortalama çalışma saati m_g ~ U(5, 35); öğrencinin haftalık çalışma saati = m_g + N(0, 5²), [0, 45]
+  aralığına kırpılıp yarım saate yuvarlanır (aynı okuldaki öğrencilerin çalışma saatleri birbirine yakındır);
+* okul etkisi u_g ~ N(0, 5²); sınav puanı = 35 + 2,4·saat − 0,05·saat² + u_g + N(0, 7²), bir ondalığa yuvarlanır.
+  Gerçek koşullu ortalama tepe noktası 24 saatte olan bir paraboldür. Aynı okuldaki öğrenciler iki yoldan
+  bağımlıdır: saatleri ortak okul ortalaması m_g çevresinde, puanları ortak okul etkisi u_g ile (u_g saatleri
+  etkilemez; m_g ile bağımsızdır).
 """
 
 from __future__ import annotations
@@ -118,3 +143,58 @@ def arac_verisi(n: int = 1500, seed: int = SEED) -> pd.DataFrame:
         "Kadın (1/0)": woman,
         "Kentte yaşıyor (1/0)": city,
     })
+
+
+def ikili_veri(n: int = 1200, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal işe yerleşme verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    yas = rng.integers(22, 61, size=n)
+    egitim = rng.choice(np.array((8, 11, 12, 14, 16)), size=n, p=np.array((0.20, 0.15, 0.30, 0.15, 0.20)))
+    kadin = (rng.random(n) < 0.48).astype(int)
+    merkez = (rng.random(n) < 0.6).astype(int)
+    kurs = rng.random(n) < 0.25 + 0.15 * (yas < 35)
+    indeks = -3.2 + 0.06 * yas + 0.15 * (egitim - 12) - 0.5 * kadin + 0.3 * merkez + 0.9 * kurs
+    yerlesti = rng.random(n) < 1.0 / (1.0 + np.exp(-indeks))
+    egitim_bos = np.where(rng.random(n) < 0.02, np.nan, egitim.astype(float))
+    return pd.DataFrame({
+        "İşe yerleşti": np.where(yerlesti, "Evet", "Hayır"),
+        "Yaş": yas,
+        "Meslek kursu": np.where(kurs, "Var", "Yok"),
+        "Eğitim yılı": egitim_bos,
+        "Kadın (1/0)": kadin,
+        "İl merkezinde yaşıyor (1/0)": merkez,
+    })
+
+
+def bagis_verisi(n: int = 800, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal hane bağış verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    gelir = np.round(np.exp(rng.normal(np.log(25.0), 0.5, size=n)), 1)
+    yas = rng.integers(22, 71, size=n)
+    hane = np.minimum(1 + rng.poisson(2.0, size=n), 9)
+    kent = (rng.random(n) < 0.65).astype(int)
+    gizli = (-380 + 22 * gelir - 12 * np.maximum(gelir - 40, 0) + 3 * (yas - 40) + 40 * kent - 15 * (hane - 3)
+             + rng.normal(0, 250, size=n))
+    bagis = np.round(np.maximum(gizli, 0) / 10) * 10
+    hane_bos = np.where(rng.random(n) < 0.02, np.nan, hane.astype(float))
+    return pd.DataFrame({
+        "Aylık bağış (TL)": bagis,
+        "Hane geliri (bin TL)": gelir,
+        "Yaş": yas,
+        "Hane büyüklüğü": hane_bos,
+        "Kentte yaşıyor (1/0)": kent,
+    })
+
+
+def calisma_verisi(schools: int = 40, students: int = 20, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal okul–öğrenci verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    school = np.repeat(np.arange(1, schools + 1), students)
+    mean_hours = rng.uniform(5, 35, schools)[school - 1]
+    hours = np.round(np.clip(mean_hours + rng.normal(0, 5, len(school)), 0, 45) * 2) / 2
+    effect = rng.normal(0, 5, schools)[school - 1]
+    score = np.round(35 + 2.4 * hours - 0.05 * hours ** 2 + effect + rng.normal(0, 7, len(school)), 1)
+    return pd.DataFrame({"Sınav puanı": score, "Haftalık çalışma saati": hours, "Okul": school})

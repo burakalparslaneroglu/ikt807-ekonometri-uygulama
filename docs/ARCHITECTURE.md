@@ -112,6 +112,33 @@ bırakır (`runner._slim`); tasarımı yeniden isteyen işlemler (Breusch–Paga
 hatayla durur. Eşik yalnız AK1991'in 329.509 gözlemli modellerini etkiler: notlardaki laboratuvarların en büyük
 tasarımı 1,47 milyon hücredir (Konu 2), kendi verin en çok 10.000 satırdır.
 
+Konu 5–8 (Blok C) ile eklenenler, notların kodunu değiştirmeden:
+
+- `Tobit.scale`: sonuç büyük ölçekliyse (standart sapma 1.000 ve üstü) R `survreg` sonucu bu ölçeğe bölerek tahmin
+  eder ve katsayıları, doğrusal tahmini ve σ'yı geri ölçekler (büyük ölçekte `survreg`'in yakınsaması bozuluyor).
+- `codegen.r_gen.r_row_name`: R'nin `data.frame` satır adının yazımı (R kısa olduğunda bilimsel gösterim kullanır,
+  ör. `1e+05`); tablo kontrolleri satırı bu adla bulur.
+- `quantreg.solution_range` / `fitted_value_range`: bütün optimal kantil (LAD) çözümleri üzerinde g'β'nın en küçük ve
+  en büyük değeri. Tümleyici gevşeklikle: dual çözüm dejenere değilse çözüm tektir; değilse optimal küme k değişkenli
+  küçük bir doğrusal programdır. Kendi verinde bir kontrol yalnız bu aralık gösterim penceresinin
+  (yuvarlanmış değer ± 0,5·10⁻ᵈ) içindeyse kodda karşılaştırılır: Konu 6'da LAD eğrisi (`lad_guard`), Konu 7'de her
+  kantil modelinin katsayıları, kesin yüzde etkiler ve 0,10–0,90 farkı (`stability`). Hendricks–Koenker standart
+  hatası τ ± h kantillerinin çözümlerini kullanır; onlar sayısal olarak tek değilse standart hata kontrolleri çıkarılır,
+  yoğunluk matrisi H tekilse (az değerli sonuç) dosya açık bir iletiyle reddedilir.
+- `smoothing.cv_curve` önbelleği veri başına, h başına tutulur (aynı veriyle ızgaranın bir parçası yeniden
+  hesaplanmaz); `cv_conditioning` ve `local_conditioning` yerel doğrusal tahminin göreli belirleyicisini
+  ρ = (S₀S₂ − S₁²)/(S₀S₂) verir. ρ küçükse (bir noktanın çevresinde ağırlığı anlamlı tek bir farklı değer kalır) formül
+  0/0 ya da yuvarlama gürültüsü üretir ve diller farklı sayı verir (R grafiği çizemez). Konu 8'in kendi verisinde CV
+  ızgarasının alt ucu, dışarıda bırakılan bütün tahminlerde ve grafik eğrisinde ρ ≥ 10⁻⁶ olan en küçük h'ye
+  yükseltilir; notların formülü değişmez.
+- Ondalıklar ölçeğe göre seçilir: Konu 5'te profil olasılıkları, Konu 6'da eğriler, Konu 7'de her terimin katsayısı,
+  Konu 8'de tahminler; gösterim çok fazla ondalık gerektiriyorsa (Konu 7'de 8, Konu 8'de 6 ondalıktan fazla) dosya
+  birimi değiştirme önerisiyle reddedilir. Arayüz tabloları kontrollerin ondalığını kullanır.
+- Konu 8'in kendi verisinde kontroller katsayılar değil seçilmiş noktalardaki tahminler olduğu için `stable_design`
+  yerine tahmin sınaması kullanılır (`ornek_konu08._stable_fits`): doğrusal, kübik ve spline tasarımının koşul sayısı
+  en çok 10⁶ (R'nin QR'ı sütun düşürmez) ve uygulamanın tahminleri ortalanıp ölçeklenmiş tasarımdakilerle 10⁻⁹ içinde
+  aynı. Çarpık bir açıklayıcı (ör. gelir) böylece kabul edilir; AL1999'un kendisi koşul sayısı 2·10⁴'tür.
+
 Öğrencinin dosyası, seçimleri ve ondan kurulan hesap yalnız oturum belleğindedir (`st.session_state`); ortak önbelleğe
 girmez. Kaynak seçimi, adım seçimi ve kendi verin paneli, Streamlit'in çizilmeyen widget durumunu silmesine karşı gölge
 anahtarlarla (`_kalici_`) korunur (`topics/kendi_veri_ui.py`): öğrenci kaynak ya da konu değiştirip döndüğünde ya da
@@ -164,7 +191,7 @@ Konu değiştiğinde `core/session_utils.py` önceki konunun soru indeksini ve c
 - Konu 09-10: Uygulama/Sezgi/Kendini sına sekmeleri; RDD'nin statsmodels WLS ve R `lm` + `sandwich::vcovHC` ile eşitliği; eğrinin noktasal ağırlıklı EKK ile ve eşikte RDD limitleriyle eşitliği; eksik değerli gözlemlerin atılması ve LM2007'nin CSV olarak yüklenmesi (değişken adları küçük harfe çevrilir); bootstrap çekiliş sırasının (pairs, wild, küme) üretilen Python koduyla aynı olması; Sezgi varsayılanlarının notlardaki Tablo 10.1'i birebir üretmesi; Sezgi deneylerinin kuramsal değerleri (global polinomun eşik yanlılığı, yerel doğrusal yanlılığın ≈ −2,4h² olması, bulanık RDD'de Wald oranı ve zayıf ilk aşama, percentile aralığının monoton dönüşüme uyumu, kümeli veride pairs bootstrap'ın belirsizliği küçümsemesi).
 - Konu 11-12: Uygulama/Sezgi/Kendini sına sekmeleri; Ridge, Lasso ve Elastic Net yolunun scikit-learn `Ridge`, `Lasso`, `ElasticNet` ile, CV'nin `Pipeline` + `GridSearchCV` + `PredefinedSplit` ile, artık regresyonunun statsmodels sabitsiz HC1 ve küme kovaryansıyla, AIC/BIC'in log-olabilirlikle ve LOOCV'nin açık dışarıda bırakma döngüsüyle eşitliği; Lasso KKT koşulu; çapraz uyarlamanın yalnız diğer katları kullanması ve artıklaştırmanın FWL ile eşitliği; R `glmnet` karşılığının notlardaki sayıları üretmesi; Sezgi varsayılanlarının notlardaki Tablo 11.1 ve 12.1'i birebir üretmesi; Sezgi deneylerinin kuramsal değerleri (eğitim hatasının monotonluğu, BIC'in AIC'den az parametre seçmesi, ön test sonrası kapsamanın düşmesi, naif ve ortogonal moment yanlılıkları, gözlenmeyen karıştırıcı altında DML yanlılığı κ²/(1 + κ²)).
 - Kod tarifi testi: 12 konunun dört bölümünü kapsayan 48 Python betiğinin derlenmesi ve dış veri olmadan çalışması; Colab JSON sözleşmesi.
-- Ek veri kaynakları (`test_lab_variants.py`, `test_lab_sources_ui.py`): notların kod özeti; alternatif örneğin notlarla aynı adımları, sayılarının bağımsız hesapla ve üretilen Python/R koduyla eşitliği, Stata kuralları; kendi verinde örnek dosya, Türkçe CSV (; ve ondalık virgül, cp1254), işaretli sütun adları, ayrılmış kod adları, tam uyum, logaritması alınamayan sonuç ve rol kurallarının iki dilde aynı sayıyı vermesi; AppTest ile kaynak seçimi, dosya yükleme ve seçimlerin korunması. Konu 3–4 için ayrıca `test_lab_variants_konu03_04.py`: DS2004 ve AK1991 alternatiflerinin bütün kontrol değerlerinin ve metindeki sayılarının uygulamanın kodundan ayrı numpy hesabıyla (küme-dayanıklı ve HC1 sandviç, elle 2SLS) doğrulanması; `GroupMean`, kategorik kontrollü 2SLS ve `_slim` birim testleri; kendi verinde küme yokken HC1, az küme, birlikte seçilen roller, Adım 4'ün alt örneklemi, sıfır ilk aşama, zayıf araç, logaritmasız sonuç ve boş hücreli kontrol kurallarının iki dilde aynı sayıyı vermesi.
+- Ek veri kaynakları (`test_lab_variants.py`, `test_lab_sources_ui.py`): notların kod özeti; alternatif örneğin notlarla aynı adımları, sayılarının bağımsız hesapla ve üretilen Python/R koduyla eşitliği, Stata kuralları; kendi verinde örnek dosya, Türkçe CSV (; ve ondalık virgül, cp1254), işaretli sütun adları, ayrılmış kod adları, tam uyum, logaritması alınamayan sonuç ve rol kurallarının iki dilde aynı sayıyı vermesi; AppTest ile kaynak seçimi, dosya yükleme ve seçimlerin korunması. Konu 5–8 için `test_lab_variants_konu05_08.py`: CHJ2004, CK1994, Card1995 (kantil) ve AL1999 alternatiflerinin bağımsız hesabı (statsmodels ve sayısal türevle AME, primal doğrusal programla LAD ve kantil regresyon, elle Hendricks–Koenker, genel amaçlı optimizasyonla Tobit, döngüyle ağırlıklı en küçük kareler CV'si) ve metin sayıları; kendi verinde ayrışma, tek olmayan LAD ve kantil çözümleri, az değerli sonuç, terim ölçekleri, iki CV'nin aynı h'yi seçmesi, seyrek uç değerler, çarpık açıklayıcı ve tam doğrusal sonuç kurallarının iki dilde aynı sayıyı vermesi. Konu 3–4 için ayrıca `test_lab_variants_konu03_04.py`: DS2004 ve AK1991 alternatiflerinin bütün kontrol değerlerinin ve metindeki sayılarının uygulamanın kodundan ayrı numpy hesabıyla (küme-dayanıklı ve HC1 sandviç, elle 2SLS) doğrulanması; `GroupMean`, kategorik kontrollü 2SLS ve `_slim` birim testleri; kendi verinde küme yokken HC1, az küme, birlikte seçilen roller, Adım 4'ün alt örneklemi, sıfır ilk aşama, zayıf araç, logaritmasız sonuç ve boş hücreli kontrol kurallarının iki dilde aynı sayıyı vermesi.
 
 ## Öğrenci kodu akışı
 

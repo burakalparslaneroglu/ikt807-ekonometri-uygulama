@@ -23,7 +23,9 @@ from scipy.optimize import linprog
 
 INTERCEPT = "Intercept"
 EPS = float(np.finfo(float).eps ** 0.5)
-"""R quantreg: ``.Machine$double.eps^(1/2)``; yoğunluk paydasından çıkarılan küçük sabit."""
+"""R quantreg: ``.Machine$double.eps^(1/2)``; yoğunluk paydasından çıkarılan küçük sabit. Mutlak bir sabittir (R'nin
+kuralı): sonucun ölçeği çok küçükse (ör. değerler 10⁻⁸ düzeyinde) paydaya göre büyür ve standart hatalar ölçeğe bağlı
+olur; Python ve R'de aynı formül kullanıldığı için diller yine aynı sayıyı verir."""
 VCOV_TYPES = ("none", "nid")
 
 _HIGHS_LOCK = threading.Lock()
@@ -32,12 +34,9 @@ eşzamanlı çağrılar erişim ihlaline (access violation) yol açabiliyor. Str
 iş parçacığında çalıştırdığı için kilit, farklı oturumlardaki çözümleri de sıraya koyar."""
 
 
-def rq_fit(x: np.ndarray, y: np.ndarray, tau: float) -> np.ndarray:
-    """Kesin kantil regresyon çözümü.
-
-    Dual problem: max y'a, X'a = (1 − τ)X'1, 0 ≤ a ≤ 1. Eşitlik kısıtlarının gölge fiyatları
-    (işaret değiştirilerek) primal çözüm β'dır.
-    """
+def _dual(x: np.ndarray, y: np.ndarray, tau: float) -> tuple[np.ndarray, np.ndarray]:
+    """Dual problem: max y'a, X'a = (1 − τ)X'1, 0 ≤ a ≤ 1. Dönüş: primal çözüm β (eşitlik kısıtlarının gölge
+    fiyatları, işaret değiştirilerek) ve dual çözüm a."""
 
     x = np.asarray(x, dtype=float)
     with _HIGHS_LOCK:
@@ -50,12 +49,80 @@ def rq_fit(x: np.ndarray, y: np.ndarray, tau: float) -> np.ndarray:
         )
     if result.status != 0:
         raise RuntimeError(f"Kantil regresyon çözülemedi (τ = {tau}): {result.message}")
-    return -np.asarray(result.eqlin.marginals, dtype=float)
+    return -np.asarray(result.eqlin.marginals, dtype=float), np.asarray(result.x, dtype=float)
+
+
+def rq_fit(x: np.ndarray, y: np.ndarray, tau: float) -> np.ndarray:
+    """Kesin kantil regresyon çözümü.
+
+    Dual problem: max y'a, X'a = (1 − τ)X'1, 0 ≤ a ≤ 1. Eşitlik kısıtlarının gölge fiyatları
+    (işaret değiştirilerek) primal çözüm β'dır.
+    """
+
+    return _dual(x, y, tau)[0]
 
 
 def check_loss_sum(x: np.ndarray, y: np.ndarray, beta: np.ndarray, tau: float) -> float:
     residual = y - x @ beta
     return float(np.sum(residual * (tau - (residual < 0))))
+
+
+BOUND = 1e-7
+"""Dual değişkenin sınırda (0 ya da 1) sayıldığı uzaklık; HiGHS'ın uygunluk toleransı düzeyinde."""
+
+
+def fitted_value_range(x: np.ndarray, y: np.ndarray, tau: float, points: np.ndarray,
+                       tolerance: float = 1e-8) -> np.ndarray:
+    """Bütün optimal kantil regresyon çözümleri üzerinde g'β'nın en küçük ve en büyük değeri (``points``'in her satırı
+    g için bir satır: [en küçük, en büyük]); ayrıntı ``solution_range``'de."""
+
+    return solution_range(x, y, tau, points, tolerance)[1]
+
+
+def solution_range(x: np.ndarray, y: np.ndarray, tau: float, points: np.ndarray,
+                   tolerance: float = 1e-8) -> tuple[np.ndarray, np.ndarray]:
+    """Kesin çözüm β (``rq_fit`` ile aynı) ve bütün optimal çözümler üzerinde g'β'nın [en küçük, en büyük] değeri
+    (``points``'in her satırı bir g).
+
+    Çözüm tek değilse (ör. bağlı değerli kesikli sonuçta) diller aynı amaç değerini veren farklı köşe çözümleri
+    seçebilir; aralık, tahmin edilen değerin seçilen çözüme göre ne kadar değişebileceğini gösterir.
+
+    Tümleyici gevşeklik: her primal optimal çözüm her dual optimal çözümle tümleyici gevşektir. Bir dual optimal çözüm
+    a için optimal β'ların kümesi B* = {β : xᵢ'β = yᵢ (0 < aᵢ < 1), xᵢ'β ≤ yᵢ (aᵢ = 1), xᵢ'β ≥ yᵢ (aᵢ = 0)}'dır;
+    g'β'nın bu küme üzerindeki en küçük ve en büyük değeri k değişkenli küçük bir doğrusal programdır. Dual çözüm
+    dejenere değilse (tam k tane aᵢ sınırların içinde) küme tek noktadır ve program çözülmez. ``tolerance``: kısıtlara
+    izin verilen pay, max|y| ile çarpılır (çözücünün sayısal toleransı); aralığı en çok bu düzeyde genişletir.
+    """
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    points = np.atleast_2d(np.asarray(points, dtype=float))
+    k = x.shape[1]
+    beta, dual = _dual(x, y, tau)
+    fitted = points @ beta
+    inner = (dual > BOUND) & (dual < 1.0 - BOUND)
+    if int(inner.sum()) == k:
+        return beta, np.column_stack([fitted, fitted])
+    upper, lower = dual >= 1.0 - BOUND, dual <= BOUND
+    design = np.vstack([x[upper], -x[lower], x[inner], -x[inner]])
+    target = np.concatenate([y[upper], -y[lower], y[inner], -y[inner]])
+    ranges = np.empty((len(points), 2))
+    for attempt in (tolerance, 100 * tolerance):
+        slack = attempt * max(1.0, float(np.abs(y).max()))
+        try:
+            for row, point in enumerate(points):
+                for column, sign in enumerate((1.0, -1.0)):
+                    with _HIGHS_LOCK:
+                        result = linprog(sign * point, A_ub=design, b_ub=target + slack, bounds=[(None, None)] * k,
+                                         method="highs")
+                    if result.status != 0:
+                        raise RuntimeError(f"Kantil regresyon aralığı çözülemedi (τ = {tau}): {result.message}")
+                    ranges[row, column] = sign * result.fun
+            return beta, ranges
+        except RuntimeError:
+            if attempt != tolerance:
+                raise
+    return beta, ranges
 
 
 def hall_sheather(tau: float, n: int, alpha: float = 0.05) -> float:
@@ -74,6 +141,15 @@ def hk_bandwidth(tau: float, n: int) -> float:
     while tau - h < 0.0 or tau + h > 1.0:
         h /= 2.0
     return h
+
+
+def hk_matrix(x: np.ndarray, high: np.ndarray, low: np.ndarray, h: float) -> np.ndarray:
+    """H = Σ f̂ᵢ xᵢxᵢ': her gözlemin koşullu yoğunluğu τ ± h kantil doğrularının farkından, f̂ᵢ = max(0, 2h/(xᵢ'(β̂(τ+h)
+    − β̂(τ−h)) − ε)) (R ``summary.rq(se = "nid")``)."""
+
+    change = x @ (high - low)
+    density = np.maximum(0.0, (2.0 * h) / (change - EPS))
+    return x.T @ (density[:, None] * x)
 
 
 @dataclass
@@ -146,9 +222,7 @@ def quantile_regression(design: pd.DataFrame, y: np.ndarray, tau: float, vcov: s
         return QuantileFit(pd.Series(beta, index=design.columns), tau, n, design, y)
     h = hk_bandwidth(tau, n)
     beta, high, low = (rq_fit(x, y, t) for t in (tau, tau + h, tau - h))
-    change = x @ (high - low)
-    density = np.maximum(0.0, (2.0 * h) / (change - EPS))
-    hinv = np.linalg.inv(x.T @ (density[:, None] * x))
+    hinv = np.linalg.inv(hk_matrix(x, high, low, h))
     xtx = x.T @ x
     covariance = tau * (1.0 - tau) * hinv @ xtx @ hinv
     names = design.columns

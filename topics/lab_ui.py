@@ -32,6 +32,7 @@ from core.codegen.base import (
     script_filename,
 )
 from core.hansen_data import (
+    TEACHING_CSV,
     HansenDataError,
     LoadedData,
     download_archive,
@@ -83,14 +84,17 @@ from core.labs.spec import (
     ProjectionPlot,
     RegressionTable,
     Scalar,
+    ScalarTarget,
     ShowModel,
+    CoefTarget,
+    TableTarget,
 )
 from topics.kendi_veri_ui import remember, render_custom, restore
 from topics.regression_ui import show_figure, style_figure
 from topics.selection_ui import render_lab_op
 
 CODE_LANGUAGE_KEY = "code_language"
-TEACHING_CSV_DATASETS = ("cps09mar", "ddk2011", "lm2007")
+TEACHING_CSV_DATASETS = TEACHING_CSV  # öğretim CSV'si laboratuvarın ham değişkenlerini taşıyan veri setleri
 """Öğretim CSV'si laboratuvarın bütün ham değişkenlerini taşıyan veri setleri (Card1995 ve CHJ2004'te türetilen
 değişkenlerin kaynakları eksiktir; bu veri setlerinde Hansen'in .dta dosyası gerekir)."""
 _KERNEL_LABELS = {"triangular": "üçgen", "rectangular": "dikdörtgen"}
@@ -355,14 +359,24 @@ def _count(value: float) -> str:
     return f"{int(value):,}".replace(",", ".")
 
 
+def _coef_decimals(spec: LabSpec, model: str, term: str) -> int:
+    """Katsayının gösterim ondalığı: en az 4; kontrolleri daha fazla basamakla yazılmışsa (kendi verinde büyük ölçekli
+    bir açıklayıcı) o kadar."""
+
+    return max([4] + [check.decimals for step in spec.steps for check in step.checks
+                      if isinstance(check.target, CoefTarget) and check.target.model == model
+                      and check.target.term == term])
+
+
 def _effect_table(spec: LabSpec, op: EffectTable, table: pd.DataFrame) -> None:
     if op.title:
         st.markdown(f"**{op.title}**")
+    places = [_coef_decimals(spec, model, term) for _, model, term in op.rows]
     shown = pd.DataFrame(
         {
             "": table.index,
-            "Tahmin": [_number(v) for v in table["tahmin"]],
-            op.se_label: [_number(v) for v in table["sh"]],
+            "Tahmin": [_number(v, d) for v, d in zip(table["tahmin"], places)],
+            op.se_label: [_number(v, d) for v, d in zip(table["sh"], places)],
             "p-değeri": [_number(v, 3) for v in table["p"]],
             "N": [_count(v) for v in table["n"]],
         }
@@ -513,28 +527,58 @@ def _profile_plot(op: AverageProfile, data: pd.DataFrame) -> None:
     show_figure(figure)
 
 
+def _check_decimals(spec: LabSpec, table: str) -> dict[str, int]:
+    """Tablo sütunlarının kontrollerdeki ondalığı (kendi verinde sonucun ölçeğine göre seçilir; notlarda 2)."""
+
+    places: dict[str, int] = {}
+    for step in spec.steps:
+        for check in step.checks:
+            target = check.target
+            if isinstance(target, TableTarget) and target.table == table:
+                places[target.column] = max(places.get(target.column, 0), check.decimals)
+    return places
+
+
+def _fixed(decimals: int):
+    """Tablo hücresi için Türkçe sabit ondalıklı yazım (55,40; −0,2604)."""
+
+    return lambda value: _number(float(value), decimals)
+
+
+def _step_decimals(low: float, high: float, count: int) -> int:
+    """Eşit aralıklı ızgaranın değerlerini ayırt eden ondalık (adım 1 ya da büyükse 0)."""
+
+    step = (float(high) - float(low)) / max(int(count) - 1, 1)
+    return 0 if step <= 0 or step >= 1 else int(np.ceil(-np.log10(step) - 1e-9))
+
+
 def _curves(spec: LabSpec, op: ProfileCurves, state, plot: bool = True) -> None:
     table = state.tables[op.result].reset_index()
     labels = dict(op.models)
+    places = _check_decimals(spec, op.result)
+    fallback = max(places.values(), default=2)  # kontrol edilmeyen sütun (ör. çözümü tek olmayan LAD) da aynı basamakla
     table.columns = [op.x_label] + [labels[column] for column in table.columns[1:]]
     profile_terms = {"Intercept", op.variable, *(name for name, _ in op.derived)}
     has_controls = any(set(state.models[model].params.index) - profile_terms for model, _ in op.models)
     note = " (kontroller örneklem ortalamasında)" if has_controls else ""
     st.markdown(f"**Seçilmiş düzeylerde tahmin**{note}")
     st.dataframe(
-        table.style.format({column: "{:.2f}" for column in table.columns[1:]} | {op.x_label: "{:.0f}"}),
+        table.style.format({label: _fixed(places.get(model, fallback)) for model, label in op.models}
+                           | {op.x_label: _plain}),
         hide_index=True, width="stretch",
     )
     if not plot:
         return
     data = state.plots[f"egriler:{op.result}"]
+    x_places = _step_decimals(*op.plot_grid)
     figure = go.Figure()
     for index, (model, label) in enumerate(op.models):
         figure.add_trace(
             go.Scatter(
                 x=data[op.variable], y=data[model], mode="lines", name=label,
                 line={"color": _COLORS[index % len(_COLORS)], "width": 3},
-                hovertemplate=f"{op.x_label}: %{{x:.0f}}<br>%{{y:.2f}}<extra>{label}</extra>",
+                hovertemplate=f"{op.x_label}: %{{x:.{x_places}f}}<br>%{{y:.{places.get(model, fallback)}f}}"
+                              f"<extra>{label}</extra>",
             )
         )
     style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="Tahmin edici")
@@ -545,10 +589,21 @@ def _decimal(value: float, decimals: int = 1) -> str:
     return f"{value:.{decimals}f}".replace(".", ",")
 
 
+def _plain(value: float) -> str:
+    """Sayının gereken kadar basamakla yazımı (6,5; 0,035; 12; 7.400): tam sayılarda binlik ayırıcı nokta, ondalık
+    virgül, tipografik eksi (kendi verinin kontrol etiketleriyle aynı yazım)."""
+
+    value = float(value)
+    if value.is_integer():
+        return ("−" if value < 0 else "") + _count(abs(value))
+    return np.format_float_positional(value, trim="-").replace("-", "−").replace(".", ",")
+
+
 def _quantile_profile(spec: LabSpec, op: CoefficientProfile, state) -> None:
     """Katsayının kantil profili, noktasal %95 güven bandı ve (varsa) OLS referans çizgisi."""
 
     data = state.plots[f"kantil_profili:{op.term}"]
+    places = max(_coef_decimals(spec, model, op.term) for _, model in op.models)
     tau = data["tau"].to_numpy()
     low = (data["katsayi"] - 1.96 * data["sh"]).to_numpy()
     high = (data["katsayi"] + 1.96 * data["sh"]).to_numpy()
@@ -563,7 +618,8 @@ def _quantile_profile(spec: LabSpec, op: CoefficientProfile, state) -> None:
         go.Scatter(
             x=tau, y=data["katsayi"], mode="lines+markers", name="Kantil regresyon",
             line={"color": _COLORS[0], "width": 3}, customdata=data[["sh"]],
-            hovertemplate="τ = %{x:.2f}<br>katsayı = %{y:.4f}<br>SH = %{customdata[0]:.4f}<extra></extra>",
+            hovertemplate=f"τ = %{{x:.2f}}<br>katsayı = %{{y:.{places}f}}<br>SH = %{{customdata[0]:.{places}f}}"
+                          "<extra></extra>",
         )
     )
     if op.reference:
@@ -572,31 +628,35 @@ def _quantile_profile(spec: LabSpec, op: CoefficientProfile, state) -> None:
             go.Scatter(
                 x=[tau.min(), tau.max()], y=[value, value], mode="lines", name=op.reference_label,
                 line={"color": _COLORS[1], "width": 2, "dash": "dash"},
-                hovertemplate=f"{op.reference_label}: %{{y:.4f}}<extra></extra>",
+                hovertemplate=f"{op.reference_label}: %{{y:.{places}f}}<extra></extra>",
             )
         )
     style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
     show_figure(figure)
 
 
-def _quantile_difference(op: QuantileDifference, state) -> None:
+def _quantile_difference(spec: LabSpec, op: QuantileDifference, state) -> None:
     value, se = state.scalars[op.name], state.scalars[f"{op.name}_se"]
+    places = max([4] + [check.decimals for step in spec.steps for check in step.checks
+                        if isinstance(check.target, ScalarTarget) and check.target.name in (op.name, f"{op.name}_se")])
     st.markdown(f"**{op.comment}**")
     first, second, third, fourth = st.columns(4)
-    first.metric("Fark", _number(value))
-    second.metric("SH (ortak kovaryans)", _number(se))
+    first.metric("Fark", _number(value, places))
+    second.metric("SH (ortak kovaryans)", _number(se, places))
     third.metric("z", _number(state.scalars[f"{op.name}_z"], 2))
     fourth.metric("p-değeri", _p_text(state.scalars[f"{op.name}_p"]))
 
 
 def _local_linear(spec: LabSpec, op: LocalLinear, state) -> None:
     table = state.tables[op.result].reset_index()
-    labels = {column: f"Yerel doğrusal, h = {_decimal(h)}" for column, h in op.bandwidths}
+    labels = {column: f"Yerel doğrusal, h = {_plain(h)}" for column, h in op.bandwidths}
+    places = _check_decimals(spec, op.result)
     x_label = spec.label(op.x)
     table.columns = [x_label] + [labels[column] for column in table.columns[1:]]
     st.markdown("**Yerel doğrusal tahmin, seçilmiş noktalarda** (Gauss çekirdeği; h çekirdeğin standart sapması)")
     st.dataframe(
-        table.style.format({column: "{:.2f}" for column in table.columns[1:]} | {x_label: "{:g}"}),
+        table.style.format({labels[column]: _fixed(places.get(column, 2)) for column, _ in op.bandwidths}
+                           | {x_label: _plain}),
         hide_index=True, width="stretch",
     )
 
@@ -606,7 +666,8 @@ def render_bandwidth_cv(op: BandwidthCV, state, metrics: bool = True) -> None:
 
     table = state.tables[op.result]
     step = op.grid[2]
-    decimals = 1 if float(round(step * 10, 9)).is_integer() else 2
+    text = np.format_float_positional(float(step), trim="-")
+    decimals = len(text.split(".")[1]) if "." in text else 0  # ızgara adımının basamağı (0,1 → 1; 0,25 → 2; 2 → 0)
     chosen = state.scalars[f"{op.name}_h"]
     series = [("cv", "Birini dışarıda bırak", _COLORS[0], chosen)]
     if op.cluster:
@@ -622,7 +683,7 @@ def render_bandwidth_cv(op: BandwidthCV, state, metrics: bool = True) -> None:
         figure.add_trace(
             go.Scatter(
                 x=table.index, y=values, mode="lines", name=label, line={"color": color, "width": 3},
-                hovertemplate="h = %{x:.1f}<br>CV − en küçük = %{y:.4f}<extra>" + label + "</extra>",
+                hovertemplate=f"h = %{{x:.{decimals}f}}<br>CV − en küçük = %{{y:.4f}}<extra>" + label + "</extra>",
             )
         )
         figure.add_vline(x=selected, line={"color": color, "dash": "dot", "width": 1.5})
@@ -780,7 +841,7 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
                 f"τ = {_number(op.q, 2)} · N = {_count(result.nobs)}"
             )
         elif isinstance(op, QuantileDifference):
-            _quantile_difference(op, state)
+            _quantile_difference(spec, op, state)
         elif isinstance(op, CoefficientProfile):
             _quantile_profile(spec, op, state)
         elif isinstance(op, LocalLinear):
@@ -801,12 +862,15 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             _curves(spec, op, state, plot=not has_plot)
         elif isinstance(op, TobitTargets):
             table = state.tables[op.result].reset_index()
+            places = _check_decimals(spec, op.result)
+            originals = list(table.columns[1:])
             table.columns = [spec.label(table.columns[0]), "Gizli ortalama m*(x)", "P(Y>0|x)",
                              "Gözlenen ortalama m(x)", "Pozitiflerde ortalama m#(x)"]
+            formats = {shown: _fixed(places.get(original, 3 if shown == "P(Y>0|x)" else 2))
+                       for original, shown in zip(originals, table.columns[1:])}
             st.markdown("**Tobit'in üç hedefi (kontroller örneklem ortalamasında)**")
             st.dataframe(
-                table.style.format({column: "{:.3f}" if column == "P(Y>0|x)" else "{:.2f}" for column in table.columns[1:]}
-                                   | {table.columns[0]: "{:.0f}"}),
+                table.style.format(formats | {table.columns[0]: _plain}),
                 hide_index=True, width="stretch",
             )
         elif isinstance(op, TobitFitCheck):

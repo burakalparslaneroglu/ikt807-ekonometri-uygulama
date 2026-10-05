@@ -102,7 +102,7 @@ DATASETS: tuple[DatasetMetadata, ...] = (
             "smsa76r", "reg76r", "smsa66r", "reg662", "reg663", "reg664",
             "reg665", "reg666", "reg667", "reg668", "reg669",
         ),
-        allowed_topics=("konu01", "konu02", "konu04"),
+        allowed_topics=("konu01", "konu02", "konu04", "konu07"),
     ),
     DatasetMetadata(
         dataset_id="chj2004",
@@ -137,7 +137,7 @@ DATASETS: tuple[DatasetMetadata, ...] = (
             "someuniversity", "university", "age10c", "married", "female",
             "marriedf", "child1", "child7", "child15", "size", "bothwork", "notemployed",
         ),
-        allowed_topics=("konu06",),
+        allowed_topics=("konu05", "konu06"),
     ),
     DatasetMetadata(
         dataset_id="lm2007",
@@ -207,6 +207,61 @@ DATASETS: tuple[DatasetMetadata, ...] = (
         ),
         expected_columns=("logwage", "edu", "qob", "yob", "ageq", "black", "smsa", "married", "region", "state"),
         allowed_topics=("konu04",),
+    ),
+    DatasetMetadata(
+        dataset_id="ck1994",
+        title="CK1994 - Asgari ücret ve fast-food istihdamı",
+        source="Card ve Krueger (1994); Hansen Econometrics kaynak veri paketi.",
+        observation_unit="Restoran × anket dalgası",
+        sample_definition="New Jersey ve Pennsylvania'da 410 fast-food restoranı, 1992 Şubat–Mart ve Kasım–Aralık "
+                          "anketleri; 820 satır. Uygulama sekmesinin alternatif örneği tam zamanlı çalışan sayısını "
+                          "kullanır.",
+        variables=tuple(
+            _variable(name, label, label, unit)
+            for name, label, unit in (
+                ("store", "Restoran", "kimlik"),
+                ("chain", "Zincir", "1–4"),
+                ("co_owned", "Şirkete ait", "0/1"),
+                ("state", "New Jersey", "0/1"),
+                ("empft", "Tam zamanlı çalışan", "kişi"),
+                ("emppt", "Yarı zamanlı çalışan", "kişi"),
+                ("nmgrs", "Yönetici", "kişi"),
+                ("wage_st", "Başlangıç ücreti", "dolar/saat"),
+                ("hoursopen", "Günlük açık saat", "saat"),
+                ("nregisters", "Kasa sayısı", "adet"),
+                ("time", "İkinci anket dalgası", "0/1"),
+            )
+        ),
+        expected_columns=("store", "chain", "co_owned", "state", "empft", "emppt", "nmgrs", "wage_st", "hoursopen",
+                          "nregisters", "time"),
+        allowed_topics=("konu06",),
+        cluster_variable="store",
+    ),
+    DatasetMetadata(
+        dataset_id="al1999",
+        title="AL1999 - Sınıf büyüklüğü ve başarı (Maimonides kuralı)",
+        source="Angrist ve Lavy (1999); Hansen Econometrics kaynak veri paketi.",
+        observation_unit="Sınıf",
+        sample_definition="İsrail'de 4. ve 5. sınıflar (1991); eksik test puanı, 44'ten büyük sınıf ve 6'dan küçük "
+                          "kayıt çıkarıldı; 4.067 sınıf. Uygulama sekmesinin alternatif örneği 4. sınıfları kullanır.",
+        variables=tuple(
+            _variable(name, label, label, unit)
+            for name, label, unit in (
+                ("schlcode", "Okul", "kimlik"),
+                ("grade", "Sınıf düzeyi", "4/5"),
+                ("classid", "Sınıf sıra numarası", "sıra"),
+                ("classize", "Sınıf mevcudu", "öğrenci"),
+                ("enrollment", "Okulun o sınıf düzeyindeki öğrenci sayısı", "öğrenci"),
+                ("avgmath", "Matematik ortalaması", "puan"),
+                ("avgverb", "Okuma (dil) ortalaması", "puan"),
+                ("disadvantaged", "Dezavantajlı öğrenci yüzdesi", "%"),
+            )
+        ),
+        expected_columns=("schlcode", "grade", "classid", "classize", "enrollment", "avgmath", "avgverb",
+                          "disadvantaged"),
+        allowed_topics=("konu08",),
+        cluster_variable="schlcode",
+        resampling_unit="okul",
     ),
 )
 

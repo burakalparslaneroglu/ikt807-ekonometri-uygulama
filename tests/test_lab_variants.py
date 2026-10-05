@@ -27,7 +27,7 @@ import pytest
 import statsmodels.formula.api as smf
 
 from core.codegen.base import LANGUAGES, languages_for, render_script, render_step, script_filename
-from core.hansen_data import DATASET_MEMBERS, load_from_upload
+from core.hansen_data import DATASET_MEMBERS, TEACHING_CSV, load_from_upload
 from core.labs import kendi_veri as K
 from core.labs import ornek_konu01, ornek_konu02
 from core.labs.ornek import SOURCE_LABELS, CustomChoices, custom_case, md
@@ -44,9 +44,11 @@ from core.labs.spec import (
 )
 
 TOPICS = sorted(VARIANTS)
-NOTES_MD5 = "5fce77e8713442f6e9db5b93886716d1"
-"""Notlardaki 12 laboratuvarın üç dildeki bütün betik ve adım kodunun özeti (ek kaynaklardan önceki sürümle aynı).
-Notların kodu bilerek değiştirilirse bu değer de güncellenir."""
+NOTES_MD5 = "e6eb2b280607de0fe2a5b242b5c5a38d"
+"""Notlardaki 12 laboratuvarın üç dildeki bütün betik ve adım kodunun özeti. Notların kodu bilerek değiştirilirse bu
+değer de güncellenir. Son bilerek değişiklik (Blok B sonrası): Konu 4 (Card1995) ve Konu 6 (CHJ2004) betiklerinden
+"öğretim CSV'si de verilebilir" cümlesi kaldırıldı; bu iki öğretim CSV'sinde laboratuvarın ham değişkenleri yoktur.
+Önceki değer: 5fce77e8713442f6e9db5b93886716d1."""
 SAMPLE_CHOICES = {
     "konu01": CustomChoices(
         roles={"sonuc": "Saatlik ücret (TL)", "aciklayici": "Eğitim yılı", "kontrol": "Deneyim (yıl)",
@@ -62,6 +64,17 @@ SAMPLE_CHOICES = {
     "konu04": CustomChoices(
         roles={"sonuc": "Saatlik ücret (TL)", "icsel": "Eğitim yılı", "arac": "Üniversiteye yakınlık (1/0)"},
         extra=("Deneyim (yıl)", "Kadın (1/0)", "Kentte yaşıyor (1/0)")),
+    "konu05": CustomChoices(
+        roles={"sonuc": "İşe yerleşti", "profil": "Yaş", "gosterge": "Meslek kursu"},
+        extra=("Eğitim yılı", "Kadın (1/0)", "İl merkezinde yaşıyor (1/0)"), picks={"sonuc": "Evet", "gosterge": "Var"}),
+    "konu06": CustomChoices(
+        roles={"sonuc": "Aylık bağış (TL)", "aciklayici": "Hane geliri (bin TL)"},
+        extra=("Yaş", "Hane büyüklüğü", "Kentte yaşıyor (1/0)")),
+    "konu07": CustomChoices(
+        roles={"sonuc": "Saatlik ücret (TL)", "aciklayici": "Eğitim yılı", "kontrol": "Deneyim (yıl)",
+               "grup": "Cinsiyet"},
+        extra=("Evli (1/0)", "Kıdem (yıl)"), picks={"grup": "Kadın"}),
+    "konu08": CustomChoices(roles={"sonuc": "Sınav puanı", "aciklayici": "Haftalık çalışma saati", "kume": "Okul"}),
 }
 WAGE_TOPICS = ("konu01", "konu02")
 """Örnek dosyası kurgusal ücret verisi olan konular (Blok A); bu verinin sütunlarını kullanan testler bunlarla sınırlı."""
@@ -153,7 +166,7 @@ def _reproduces(spec: LabSpec, result: subprocess.CompletedProcess) -> None:
 # --- Kayıt ve notlar ------------------------------------------------------------------------------------------
 
 def test_registry_covers_the_approved_topics_and_labels() -> None:
-    assert TOPICS == ["konu01", "konu02", "konu03", "konu04"]
+    assert TOPICS == ["konu01", "konu02", "konu03", "konu04", "konu05", "konu06", "konu07", "konu08"]
     assert SOURCE_LABELS == {"notlar": "Notlardaki örnek", "alternatif": "Alternatif örnek",
                              "kendi": "Kendi verini yükle"}
     for topic in TOPICS:
@@ -558,11 +571,21 @@ def test_a_year_and_its_square_are_rejected_but_a_linear_year_is_kept(label: str
         _reproduces(spec, _run(spec, "R", tmp_path, data))
 
 
-def test_alternative_scripts_do_not_offer_the_teaching_csv() -> None:
+def test_the_teaching_csv_is_offered_only_where_it_carries_the_lab_variables() -> None:
+    """Alternatif örnek öğretim CSV'si önermez; notlarda yalnız öğretim CSV'si laboratuvarın bütün ham değişkenlerini
+    taşıyan .dta veri setlerinde (DDK2011, LM2007) önerilir: Card1995 ve CHJ2004'te önerilmez."""
+
     for topic in TOPICS:
         for language in LANGUAGES:
             assert "öğretim CSV" not in render_script(VARIANTS[topic].alternative(), language)
-    assert "öğretim CSV" in render_script(LABS["konu04"], "Python")  # notların kodu değişmez
+    offered = {key for key, spec in LABS.items()
+               if all("öğretim CSV" in render_script(spec, language) for language in LANGUAGES)}
+    silent = {key for key, spec in LABS.items()
+              if not any("öğretim CSV" in render_script(spec, language) for language in LANGUAGES)}
+    assert offered | silent == set(LABS)
+    assert offered == {key for key, spec in LABS.items()
+                       if spec.dataset in TEACHING_CSV and DATASET_MEMBERS[spec.dataset].lower().endswith(".dta")}
+    assert {"konu04", "konu06"} <= silent and {"konu03", "konu09"} <= offered
 
 
 def test_a_symmetric_outcome_is_not_called_skewed() -> None:

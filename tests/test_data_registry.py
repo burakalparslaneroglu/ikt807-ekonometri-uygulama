@@ -20,6 +20,8 @@ def test_registry_contains_the_hansen_dataset_families() -> None:
         "lm2007",
         "ds2004",
         "ak1991",
+        "ck1994",
+        "al1999",
     ]
     assert all(
         dataset.redistribution_status == "license_review_required"

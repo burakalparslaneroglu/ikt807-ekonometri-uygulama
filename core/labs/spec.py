@@ -601,6 +601,11 @@ class Tobit:
 
     Standart hatalar ters gözlenen bilgi matrisinden (klasik); β bloğu σ'nın nasıl
     parametrelendiğinden etkilenmez.
+
+    ``scale``: 1'den farklıysa R kodunda sonuç bu sayıya bölünerek tahmin edilir, β ve σ aynı
+    sayıyla geri ölçeklenir. Tobit ölçekle eşdeğişkendir, sonuç değişmez; ``survival::survreg``
+    çok büyük ölçekli sonuçta (ör. standart sapması 10⁶ düzeyinde) katsayıları tekil sayıp NA
+    verebiliyor. Uygulamanın Olsen–Newton çözümü ölçekten etkilenmez.
     """
 
     name: str
@@ -608,6 +613,7 @@ class Tobit:
     outcome: str
     regressors: tuple[str, ...]
     left: float = 0.0
+    scale: float = 1.0
 
 
 @dataclass(frozen=True)

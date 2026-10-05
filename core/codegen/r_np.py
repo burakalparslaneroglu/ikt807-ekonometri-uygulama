@@ -226,4 +226,6 @@ def _bandwidth_cv(op: BandwidthCV) -> list[str]:
             'legend("topright", legend = c("Birini dışarıda bırak", "Küme-silmeli"), col = c("#107C89", "#B3392F"),',
             '       lwd = 2, bty = "n")',
         ]
+    else:
+        lines.append('legend("topright", legend = "Birini dışarıda bırak", col = "#107C89", lwd = 2, bty = "n")')
     return lines

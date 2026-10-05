@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
     Generator,
+    offers_teaching_csv,
     categorical_comment,
     continuous_terms,
     flatten,
@@ -441,7 +442,7 @@ class PythonGenerator(Generator):
             "",
             "    Değişken adları dosyada kayıtlıdır; Python, R ve Stata'da aynı olsun diye",
             *(["    küçük harfe çevrilir. Değer etiketleri kategoriye dönüştürülmez. Yerel dosya",
-               "    olarak ders notlarının öğretim CSV'si de verilebilir."] if self.spec.source == "notlar" else
+               "    olarak ders notlarının öğretim CSV'si de verilebilir."] if offers_teaching_csv(self.spec) else
               ["    küçük harfe çevrilir. Değer etiketleri kategoriye dönüştürülmez."]),
             '    """',
             '    if yerel_dosya and str(yerel_dosya).lower().endswith(".csv"):',

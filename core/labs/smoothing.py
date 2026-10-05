@@ -16,6 +16,10 @@ bütün kümesi (ör. okulu) çıkarılır.
 
 from __future__ import annotations
 
+import hashlib
+import threading
+from collections import OrderedDict
+
 import numpy as np
 import pandas as pd
 
@@ -62,40 +66,134 @@ def bandwidth_grid(low: float, high: float, step: float) -> np.ndarray:
     return np.round(low + step * np.arange(count), 10)
 
 
-def cv_curve(x, y, bandwidths, cluster=None) -> pd.DataFrame:
-    """Her h için CV(h); ``cluster`` verilirse küme-silmeli CV de hesaplanır.
+RELIABLE = 1e-6
+"""Yerel doğrusal tahminin sayısal olarak güvenilir sayıldığı en küçük göreli belirleyici ρ = (S₀S₂ − S₁²)/(S₀S₂).
 
-    Dönüş tablosu: indeks h, sütunlar ``cv`` ve (küme varsa) ``cv_kume``.
-    """
+ρ ∈ [0, 1] (Cauchy–Schwarz): ağırlıklı yerel tasarımın tekilliğe uzaklığıdır. Formüldeki iki farkın yuvarlama hatası
+yaklaşık ε·max|Y|/ρ'dur (ε ≈ 2,2·10⁻¹⁶); ρ ≥ 10⁻⁶ iken tahminin hatası 10⁻¹⁰·max|Y| düzeyinde kalır ve Python, R ve
+Stata aynı sonucu verir. Bir noktanın çevresinde ağırlığı anlamlı tek bir farklı X değeri kalırsa (ör. küçük h ile
+uçtaki seyrek bir değer ya da değerler arasındaki büyük bir boşluk) ρ sıfıra iner: formül 0/0 ya da yuvarlama gürültüsü
+üretir ve diller farklı sayılar (R'de grafik hatası) verebilir."""
+
+
+def _determinant(s0: np.ndarray, s1: np.ndarray, s2: np.ndarray) -> np.ndarray:
+    """ρ = (S₀S₂ − S₁²)/(S₀S₂); tanımsızsa (ağırlıkların tamamı ya da ikinci momenti sıfır) 0."""
+
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        product = s0 * s2
+        value = (product - s1 * s1) / product
+    return np.where(np.isfinite(value), value, 0.0)
+
+
+def local_conditioning(x, points, bandwidths) -> np.ndarray:
+    """Her h için noktalardaki en küçük ρ (bütün veriyle yerel doğrusal tahmin, ör. grafik eğrisi); bkz. ``RELIABLE``."""
+
+    x = np.asarray(x, dtype=float)
+    points = np.atleast_1d(np.asarray(points, dtype=float))
+    out = []
+    for h in np.atleast_1d(np.asarray(bandwidths, dtype=float)):
+        smallest = np.inf
+        for start in range(0, len(points), _BLOCK):
+            d = x[None, :] - points[start:start + _BLOCK, None]
+            w = np.exp(-0.5 * (d / h) ** 2)
+            wd = w * d
+            smallest = min(smallest, float(_determinant(w.sum(axis=1), wd.sum(axis=1), (wd * d).sum(axis=1)).min()))
+        out.append(smallest)
+    return np.array(out)
+
+
+_CV_CACHE: OrderedDict[str, dict[float, tuple[float, ...]]] = OrderedDict()
+_CV_LOCK = threading.Lock()
+_CV_SIZE = 16
+"""Son hesaplanan CV değerlerinin önbelleği (veri başına, h başına): kendi verinde bant genişliği tanım kurulurken
+seçilir; aynı ölçüt laboratuvar çalışırken ya da ızgaranın bir parçası için yeniden hesaplanmasın (n×n ağırlık matrisi;
+birkaç bin gözlemde saniyeler sürer)."""
+
+
+def _cache_key(x: np.ndarray, y: np.ndarray, codes: np.ndarray | None) -> str:
+    digest = hashlib.sha1()
+    parts = (x, y) if codes is None else (x, y, codes)
+    for part in parts:
+        data = np.ascontiguousarray(part).tobytes()
+        digest.update(len(data).to_bytes(8, "little"))
+        digest.update(data)
+    return digest.hexdigest() + ("k" if codes is not None else "")
+
+
+def _cv_rows(x, y, bandwidths, cluster) -> tuple[list[float], list[tuple[float, ...]]]:
+    """Izgaradaki her h için (CV, ρ) ya da küme varsa (CV, ρ, küme-silmeli CV, küme-silmeli ρ); eksikler hesaplanır."""
 
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
-    d = x[None, :] - x[:, None]
-    d2 = d * d
-    same = None
+    grid = [round(float(h), 10) for h in np.atleast_1d(np.asarray(bandwidths, dtype=float))]
+    codes = None if cluster is None else pd.factorize(np.asarray(cluster))[0].astype(np.int64)
+    key = _cache_key(x, y, codes)
+    with _CV_LOCK:
+        rows = _CV_CACHE.get(key, {})
+        missing = [h for h in dict.fromkeys(grid) if h not in rows]
+    if missing:
+        computed = _cv_compute(x, y, np.asarray(missing), codes)
+    with _CV_LOCK:
+        rows = _CV_CACHE.setdefault(key, rows)
+        if missing:
+            rows.update(computed)
+        _CV_CACHE.move_to_end(key)
+        while len(_CV_CACHE) > _CV_SIZE:
+            _CV_CACHE.popitem(last=False)
+        return grid, [rows[h] for h in grid]
+
+
+def cv_curve(x, y, bandwidths, cluster=None) -> pd.DataFrame:
+    """Her h için CV(h); ``cluster`` verilirse küme-silmeli CV de hesaplanır.
+
+    Dönüş tablosu: indeks h, sütunlar ``cv`` ve (küme varsa) ``cv_kume``. Aynı veriyle yeniden çağrıldığında daha önce
+    hesaplanan h'ler önbellekten gelir.
+    """
+
+    grid, rows = _cv_rows(x, y, bandwidths, cluster)
+    table = pd.DataFrame({"cv": [row[0] for row in rows]}, index=pd.Index(grid, dtype=float, name="h"))
     if cluster is not None:
-        groups = pd.factorize(np.asarray(cluster))[0]
-        same = groups[:, None] == groups[None, :]
-    loo, clustered = [], []
-    for h in np.asarray(bandwidths, dtype=float):
-        w = np.exp(-0.5 * d2 / (h * h))
-        np.fill_diagonal(w, 0.0)
-        loo.append(_cv_error(w, d, y))
-        if same is not None:
-            w[same] = 0.0
-            clustered.append(_cv_error(w, d, y))
-    table = pd.DataFrame({"cv": loo}, index=pd.Index(np.asarray(bandwidths, dtype=float), name="h"))
-    if same is not None:
-        table["cv_kume"] = clustered
+        table["cv_kume"] = [row[2] for row in rows]
     return table
 
 
-def _cv_error(w: np.ndarray, d: np.ndarray, y: np.ndarray) -> float:
+def cv_conditioning(x, y, bandwidths, cluster=None) -> pd.DataFrame:
+    """Her h için CV'deki dışarıda bırakılan tahminlerin en küçük ρ değeri (``RELIABLE``): sütunlar ``kosul`` ve (küme
+    varsa) ``kosul_kume``. CV ile aynı hesapta bulunur ve önbelleği paylaşır."""
+
+    grid, rows = _cv_rows(x, y, bandwidths, cluster)
+    table = pd.DataFrame({"kosul": [row[1] for row in rows]}, index=pd.Index(grid, dtype=float, name="h"))
+    if cluster is not None:
+        table["kosul_kume"] = [row[3] for row in rows]
+    return table
+
+
+def _cv_compute(x: np.ndarray, y: np.ndarray, bandwidths: np.ndarray,
+                codes: np.ndarray | None) -> dict[float, tuple[float, ...]]:
+    d = x[None, :] - x[:, None]
+    d2 = d * d
+    same = None if codes is None else codes[:, None] == codes[None, :]
+    rows = {}
+    for h in np.asarray(bandwidths, dtype=float):
+        w = np.exp(-0.5 * d2 / (h * h))
+        np.fill_diagonal(w, 0.0)
+        row = _cv_error(w, d, y)
+        if same is not None:
+            w[same] = 0.0
+            row += _cv_error(w, d, y)
+        rows[round(float(h), 10)] = row
+    return rows
+
+
+def _cv_error(w: np.ndarray, d: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """(CV, en küçük ρ): dışarıda bırakılan tahmin hatalarının kareler ortalaması ve tahminlerin koşulu."""
+
     wd = w * d
     s0, s1, s2 = w.sum(axis=1), wd.sum(axis=1), (wd * d).sum(axis=1)
     t0, t1 = w @ y, wd @ y
-    fitted = (s2 * t0 - s1 * t1) / (s0 * s2 - s1**2)
-    return float(np.mean((y - fitted) ** 2))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        fitted = (s2 * t0 - s1 * t1) / (s0 * s2 - s1**2)
+    return float(np.mean((y - fitted) ** 2)), float(_determinant(s0, s1, s2).min())
 
 
 def binned_means(x, y, bins: int) -> pd.DataFrame:

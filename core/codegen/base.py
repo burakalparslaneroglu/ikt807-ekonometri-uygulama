@@ -56,6 +56,16 @@ HANSEN_ARCHIVE_URL = "https://users.ssc.wisc.edu/~behansen/econometrics/Economet
 HANSEN_PAGE_URL = "https://users.ssc.wisc.edu/~behansen/econometrics/"
 
 
+def offers_teaching_csv(spec: LabSpec) -> bool:
+    """Notlardaki betik, yerel dosya olarak ders notlarının öğretim CSV'sini önerebilir mi: yalnız öğretim CSV'si
+    laboratuvarın bütün ham değişkenlerini taşıyan veri setlerinde (``hansen_data.TEACHING_CSV``). Card1995 ve CHJ2004
+    öğretim CSV'lerinde laboratuvarın türettiği ham değişkenler yoktur."""
+
+    from core.hansen_data import TEACHING_CSV
+
+    return spec.source == "notlar" and spec.dataset in TEACHING_CSV
+
+
 @dataclass(frozen=True)
 class LayerStyle:
     color: str

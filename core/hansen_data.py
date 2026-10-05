@@ -6,8 +6,8 @@ kullanıcının yüklediği dosyayı okur. Hansen'in sayfası 2026'da ``~bhansen
 
 Dosya biçimleri: ``cps09mar`` başlıksız ``.txt`` olarak okunur (değişken adları
 açıklama belgesindeki sırayla). ``DDK2011``, ``Card1995``, ``CHJ2004``, ``LM2007`` ve uygulama sekmesinin alternatif
-örneklerinde kullanılan ``DS2004`` ile ``AK1991`` Stata ``.dta`` olarak okunur: adlar dosyada kayıtlıdır ve üç dilde aynı
-olsun diye küçük harfe çevrilir.
+örneklerinde kullanılan ``DS2004``, ``AK1991``, ``CK1994`` ile ``AL1999`` Stata ``.dta`` olarak okunur: adlar dosyada
+kayıtlıdır ve üç dilde aynı olsun diye küçük harfe çevrilir.
 """
 
 from __future__ import annotations
@@ -54,29 +54,37 @@ CHJ2004_CONTROLS = (
     "primary", "somesecondary", "secondary", "someuniversity", "university", "age", "married", "female",
     "marriedf", "child1", "child7", "child15", "size", "bothwork", "notemployed",
 )
-CHJ2004_REQUIRED = ("tabroad", "tdomestic", "tinkind", "tgifts", "income", "transfers", *CHJ2004_CONTROLS)
+CHJ2004_REQUIRED = ("tabroad", "tdomestic", "tinkind", "tgifts", "income", "transfers", *CHJ2004_CONTROLS,
+                    "region")
+"""Bölge (0–13) notlardaki Konu 6 laboratuvarında kullanılmaz; Konu 5'in alternatif örneği kontrol olarak ister."""
 LM2007_REQUIRED = ("povrate60", "mort_age59_related_posths")
 DS2004_REQUIRED = ("block", "sameblock", "distance", "public", "gasstation", "bank", "thefts", "month", "oneblock")
 AK1991_REQUIRED = ("ageq", "edu", "logwage", "married", "state", "qob", "black", "smsa", "yob", "region")
+CK1994_REQUIRED = ("store", "chain", "co_owned", "state", "empft", "emppt", "nmgrs", "wage_st", "hoursopen",
+                   "nregisters", "time")
+CK1994_COMPLETE = ("store", "chain", "co_owned", "state", "time")
+AL1999_REQUIRED = ("schlcode", "grade", "classid", "classize", "enrollment", "avgmath", "avgverb", "disadvantaged")
 
 DATASET_MEMBERS = {
     "cps09mar": "cps09mar.txt", "ddk2011": "DDK2011.dta", "card1995": "Card1995.dta", "chj2004": "CHJ2004.dta",
-    "lm2007": "LM2007.dta", "ds2004": "DS2004.dta", "ak1991": "AK1991.dta",
+    "lm2007": "LM2007.dta", "ds2004": "DS2004.dta", "ak1991": "AK1991.dta", "ck1994": "CK1994.dta",
+    "al1999": "AL1999.dta",
 }
 DATASET_COLUMNS = {"cps09mar": CPS09MAR_COLUMNS}
 """Başlıksız ``.txt`` dosyaları için değişken adları (açıklama belgesindeki sıra)."""
 DATASET_REQUIRED = {
     "cps09mar": CPS09MAR_REQUIRED, "ddk2011": DDK2011_REQUIRED, "card1995": CARD1995_REQUIRED,
     "chj2004": CHJ2004_REQUIRED, "lm2007": LM2007_REQUIRED, "ds2004": DS2004_REQUIRED, "ak1991": AK1991_REQUIRED,
+    "ck1994": CK1994_REQUIRED, "al1999": AL1999_REQUIRED,
 }
 DATASET_TEXT = {"ds2004": ("barrio",)}
 """Varlığı denetlenen fakat sayıya çevrilmeyen metin sütunları (DS2004'te mahalle adı)."""
 DATASET_COMPLETE = {"cps09mar": CPS09MAR_REQUIRED, "chj2004": CHJ2004_REQUIRED, "ds2004": DS2004_REQUIRED,
-                    "ak1991": AK1991_REQUIRED}
-"""Eksik değer içermemesi gereken sütunlar. DDK2011 ve Card1995'te eksik değerler olağandır;
+                    "ak1991": AK1991_REQUIRED, "ck1994": CK1994_COMPLETE, "al1999": AL1999_REQUIRED}
+"""Eksik değer içermemesi gereken sütunlar. DDK2011, Card1995 ve CK1994'ün ölçüm sütunlarında eksik değerler olağandır;
 analiz örneklemi laboratuvar adımlarında açıkça kurulur."""
 DATASET_ROWS = {"cps09mar": CPS09MAR_ROWS, "ddk2011": 5795, "card1995": 3613, "chj2004": 8684, "lm2007": 2783,
-                "ds2004": 7884, "ak1991": 329509}
+                "ds2004": 7884, "ak1991": 329509, "ck1994": 820, "al1999": 4067}
 TEACHING_CSV = ("cps09mar", "ddk2011", "lm2007")
 """Ders notlarının öğretim CSV'si laboratuvarın bütün ham değişkenlerini taşıyan veri setleri."""
 DATASET_SAMPLE = {"lm2007": LM2007_REQUIRED}

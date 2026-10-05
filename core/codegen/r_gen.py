@@ -10,6 +10,7 @@ from __future__ import annotations
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
     Generator,
+    offers_teaching_csv,
     categorical_comment,
     continuous_terms,
     flatten,
@@ -17,7 +18,6 @@ from core.codegen.base import (
     layer_styles,
     link_of,
     profile_others,
-    table_row_text,
 )
 from core.codegen import python_pen as PN
 from core.codegen import r_np as RNP
@@ -92,6 +92,28 @@ from core.labs.spec import (
 _STAT = {"count": "length", "sum": "sum", "mean": "mean", "sd": "sd", "median": "median", "min": "min", "max": "max"}
 _COLORS = ('"#107C89"', '"#B3392F"', '"#2F9E6B"', '"#07373D"')
 _REFERENCE_STYLES = (('"#07373D"', "2"), ('"#6B4C9A"', "3"))
+
+
+def r_row_name(row) -> str:
+    """Sayısal satır adının R'deki yazımı (``as.character``): 15 anlamlı basamak; sabit gösterim bilimsel gösterimden
+    uzunsa bilimsel (100000 → "1e+05", 0,0001 → "1e-04", 150000 → "150000"). ``data.frame(..., row.names = degerler)``
+    tablolarının satırları bu adla bulunur; metin satır adları olduğu gibi kalır."""
+
+    if isinstance(row, str):
+        return row
+    value = float(row)
+    if value == 0:
+        return "0"
+    mantissa, exponent = f"{abs(value):.14e}".split("e")
+    digits = mantissa.replace(".", "").rstrip("0") or "0"
+    power = int(exponent)
+    if power >= 0:
+        whole, fraction = digits[: power + 1].ljust(power + 1, "0"), digits[power + 1:]
+    else:
+        whole, fraction = "0", "0" * (-power - 1) + digits
+    fixed = whole + (f".{fraction}" if fraction else "")
+    scientific = digits[0] + (f".{digits[1:]}" if len(digits) > 1 else "") + f"e{'-' if power < 0 else '+'}{abs(power):02d}"
+    return ("-" if value < 0 else "") + (fixed if len(fixed) <= len(scientific) else scientific)
 
 
 def _term(term: str) -> str:
@@ -368,7 +390,7 @@ class RGenerator(Generator):
                 lines += [
                     "# Hansen'in .dta dosyası değişken adlarını taşır; Python, R ve Stata'da aynı olsun diye",
                     "# adlar küçük harfe çevrilir. Yerel dosya olarak ders notlarının öğretim CSV'si de verilebilir."
-                    if self.spec.source == "notlar" else "# adlar küçük harfe çevrilir.",
+                    if offers_teaching_csv(self.spec) else "# adlar küçük harfe çevrilir.",
                     "hansen_verisi <- function(dosya_adi, yerel_dosya = NULL) {",
                     "  if (!is.null(yerel_dosya) && grepl(\"\\\\.csv$\", tolower(yerel_dosya))) {",
                     "    veri <- read.csv(yerel_dosya)",
@@ -810,11 +832,24 @@ class RGenerator(Generator):
                 f'     xlab = "{op.x_label}", ylab = "{op.y_label}", main = "{op.title}")',
             ]
         if isinstance(op, Tobit):
-            formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
             lines = [f"# Tobit: {op.outcome} soldan {E.format_number(op.left)} noktasında sansürlü; MLE "
                      "(AER::tobit, survival::survreg üzerine)"]
-            call = self._call(op.name, "AER::tobit", formula, op.frame, f"left = {E.format_number(op.left)}")
-            lines += call
+            if op.scale == 1:
+                formula = f"{op.outcome} ~ " + " + ".join(op.regressors)
+                lines += self._call(op.name, "AER::tobit", formula, op.frame, f"left = {E.format_number(op.left)}")
+            else:
+                scale = E.format_number(op.scale)
+                formula = f"I({op.outcome} / {scale}) ~ " + " + ".join(op.regressors)
+                lines += [
+                    f"# Sayısal kararlılık: sonuç {scale} sayısına bölünerek tahmin edilir (survreg çok büyük ölçekte",
+                    "# katsayıları tekil sayabilir). Tobit ölçekle eşdeğişkendir: β, σ ve doğrusal indeks aynı sayıyla",
+                    "# geri ölçeklenir; sonuç doğrudan tahminle aynıdır.",
+                    *self._call(op.name, "AER::tobit", formula, op.frame,
+                                f"left = {E.format_number(op.left / op.scale)}"),
+                    f"{op.name}$coefficients <- {op.name}$coefficients * {scale}",
+                    f"{op.name}$linear.predictors <- {op.name}$linear.predictors * {scale}",
+                    f"{op.name}$scale <- {op.name}$scale * {scale}",
+                ]
             shown = ["(Intercept)", op.regressors[0]] if len(op.regressors) > 5 else ["(Intercept)", *op.regressors]
             lines.append(f"print(round(coef({op.name})[c({_quoted(shown)})], 4))")
             lines.append(f'cat("sigma:", round({op.name}$scale, 4), "\\n")')
@@ -1298,7 +1333,7 @@ class RGenerator(Generator):
         if isinstance(target, ScalarTarget):
             return target.name
         if isinstance(target, TableTarget):
-            return f'{target.table}["{table_row_text(target.row)}", "{target.column}"]'
+            return f'{target.table}["{r_row_name(target.row)}", "{target.column}"]'
         raise TypeError(f"Tanınmayan hedef: {type(target).__name__}")
 
     def check_lines(self, checks: tuple[Check, ...]) -> list[str]:
