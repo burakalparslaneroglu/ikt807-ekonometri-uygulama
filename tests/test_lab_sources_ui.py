@@ -19,8 +19,10 @@ from core.labs.ornekler import VARIANTS
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 START = "Başlamak için bir dosya yükleyin."
-STEPS = {"konu01": 9, "konu02": 7, "konu03": 5, "konu04": 5, "konu05": 6, "konu06": 5, "konu07": 5, "konu08": 5}
-STATA_STEP = {"konu01": 5, "konu02": 5, "konu03": 2, "konu04": 2, "konu05": 1, "konu06": 2, "konu07": 1, "konu08": 2}
+STEPS = {"konu01": 9, "konu02": 7, "konu03": 5, "konu04": 5, "konu05": 6, "konu06": 5, "konu07": 5, "konu08": 5,
+         "konu09": 5, "konu10": 5, "konu11": 4, "konu12": 5}
+STATA_STEP = {"konu01": 5, "konu02": 5, "konu03": 2, "konu04": 2, "konu05": 1, "konu06": 2, "konu07": 1, "konu08": 2,
+              "konu09": 2, "konu10": 1, "konu11": 1, "konu12": 1}
 """Kendi verinde Stata seçilince bilgi kutusunun denetlendiği adım (kodu olan bir adım)."""
 SAMPLE_ROLES = {
     "konu01": {"rol_aciklayici": "Eğitim yılı", "kategori_grup": "Kadın"},
@@ -36,6 +38,10 @@ SAMPLE_ROLES = {
     "konu07": {"rol_sonuc": "Saatlik ücret (TL)", "rol_aciklayici": "Eğitim yılı", "rol_kontrol": "Deneyim (yıl)",
                "rol_grup": "Cinsiyet", "kategori_grup": "Kadın"},
     "konu08": {"rol_sonuc": "Sınav puanı", "rol_aciklayici": "Haftalık çalışma saati", "rol_kume": "Okul"},
+    "konu09": {"rol_sonuc": "Mezuniyet not ortalaması", "rol_esik_degiskeni": "Sınav puanı", "rol_kume": "Okul"},
+    "konu10": {"rol_sonuc": "Matematik puanı", "rol_hedef": "Program (1/0)", "rol_kume": "Okul"},
+    "konu11": {"rol_sonuc": "Satış fiyatı (bin TL)", "rol_temel1": "Alan (m²)", "rol_kategori": "İlçe"},
+    "konu12": {"rol_sonuc": "Log kazanç", "rol_tedavi": "Kursa katıldı (1/0)", "rol_kume": "Firma"},
 }
 """Örnek dosya yüklenince önerilen roller (``_guess`` ve konunun ``suggest`` önerileri)."""
 
@@ -89,8 +95,6 @@ def test_source_selector_opens_on_the_notes(monkeypatch) -> None:
         assert len(selector.options) == 3
         assert "ders notlarındaki" in _markdown(app) and "henüz yüklenmedi" in _markdown(app)
         assert not app.exception
-    _topic(app, "konu09")
-    assert "konu09_lab_kaynak" not in {item.key for item in app.segmented_control}
 
 
 def test_alternative_shows_steps_and_code_before_its_data_is_loaded(monkeypatch) -> None:
@@ -245,3 +249,32 @@ def test_an_explanatory_column_named_like_a_table_column_renders(monkeypatch) ->
     app.segmented_control(key="konu01_lab_step").set_value(4).run()
     assert not app.exception and not app.error
     assert any("N (grup)" in frame.value.columns for frame in app.dataframe)
+
+
+def test_the_konu09_cutoff_and_bandwidth_are_typed_and_checked(monkeypatch) -> None:
+    """Eşik ve bant genişliği metin alanıdır: ilk değer medyan ve boş; ondalık virgül okunur, okunamayan metin ve
+    aralık dışı eşik açık bir iletiyle durur; eşik değişkeni değişince eşik alanı yeni değişkenin medyanına döner, bant
+    genişliği alanı boşalır."""
+
+    app = _app(monkeypatch)
+    _topic(app, "konu09")
+    _source(app, "konu09", "kendi")
+    _upload(app, "konu09")
+    cutoff, bandwidth = app.text_input(key="konu09_kendi_sayi_esik"), app.text_input(key="konu09_kendi_sayi_h")
+    assert cutoff.value == "70" and bandwidth.value == ""  # örnek dosyada medyan gerçek eşiğe eşittir
+    assert not app.exception and not app.error
+    cutoff.set_value("70,0").run()
+    app.text_input(key="konu09_kendi_sayi_h").set_value("3,2").run()
+    assert not app.exception and not app.error
+    app.segmented_control(key="konu09_lab_step").set_value(2).run()
+    table = next(frame.value for frame in app.dataframe if "τ̂" in frame.value.columns)
+    assert list(table["h"]) == ["1,6", "2,4", "3,2", "4", "4,8"] and "SH (küme)" in table.columns
+    app.text_input(key="konu09_kendi_sayi_esik").set_value("yetmiş").run()
+    assert any("sayı olarak okunamadı" in item.value for item in app.error)
+    app.text_input(key="konu09_kendi_sayi_esik").set_value("150").run()
+    assert any("gözlenen aralığının" in item.value for item in app.error)
+    app.text_input(key="konu09_kendi_sayi_esik").set_value("70").run()
+    assert not app.error
+    app.selectbox(key="konu09_kendi_rol_esik_degiskeni").set_value("Öğrenci no").run()
+    assert app.text_input(key="konu09_kendi_sayi_esik").value == "600,5"
+    assert app.text_input(key="konu09_kendi_sayi_h").value == ""  # bant genişliği de yeni değişkenle boşalır

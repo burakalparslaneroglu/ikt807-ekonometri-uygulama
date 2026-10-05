@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, bootstrap_key, uses_replicate_se
-from core.labs.spec import BOOT, RDD, Bootstrap, RDDTable, ScalarTable
+from core.labs.spec import BOOT, RDD, Bootstrap, RDDCurve, RDDTable, ScalarTable
 
 KERNEL_NAMES = {"triangular": "ucgen", "rectangular": "dikdortgen"}
 SCALE_NAMES = {"hansen": "hansen", "window": "pencere"}
@@ -64,6 +64,78 @@ CURVE_HELPER = [
     "    return pd.concat(parcalar, ignore_index=True)",
 ]
 
+RDD_CLUSTER_HELPER = [
+    'def rdd_yerel_dogrusal(veri, x, y, esik, h, cekirdek="ucgen", olcek="hansen", kume=None):',
+    '    """Keskin RDD: eşikte yerel doğrusal sıçrama (D katsayısı), ağırlıklı EKK; SH HC1 ya da küme-dayanıklı.',
+    "",
+    "    Pozitif ağırlıklı gözlemlerde Y'nin D = 1{X ≥ c}, R = X − c ve D·R üzerine çekirdek ağırlıklı EKK'si.",
+    "    Hansen ölçeği: çekirdek birim varyanslıdır ve h çekirdeğin standart sapmasıdır; üçgen çekirdekte ağırlık",
+    '    eşikten h√6, dikdörtgende h√3 uzaklıkta sıfırlanır. olcek="pencere": h pencerenin yarı genişliğidir.',
+    "    kume verilirse SH küme-dayanıklıdır (CR1: G/(G−1)·(n−1)/(n−k), G penceredeki küme sayısı).",
+    '    """',
+    '    pencere = h * np.sqrt(6 if cekirdek == "ucgen" else 3) if olcek == "hansen" else h',
+    "    ornek = veri[[x, y] + ([kume] if kume else [])].dropna()",
+    "    r = ornek[x].to_numpy(dtype=float) - esik",
+    '    w = np.maximum(1 - np.abs(r) / pencere, 0) if cekirdek == "ucgen" else (np.abs(r) <= pencere) * 1.0',
+    "    m = w > 0",
+    "    d = (r[m] >= 0) * 1.0",
+    '    Z = pd.DataFrame({"Intercept": 1.0, "D": d, "R": r[m], "DR": d * r[m]})',
+    "    model = sm.WLS(ornek[y].to_numpy(dtype=float)[m], Z, weights=w[m])",
+    "    if kume is None:",
+    '        return model.fit(cov_type="HC1")',
+    '    return model.fit(cov_type="cluster", cov_kwds={"groups": pd.factorize(ornek[kume].to_numpy()[m])[0]})',
+]
+
+CURVE_CLUSTER_HELPER = [
+    "def rdd_egrisi(x, y, esik, h, alt, ust, nokta=120, kume=None):",
+    '    """Eşiğin iki yanında ayrı yerel doğrusal tahmin ve noktasal %95 güven bandı.',
+    "",
+    "    Her x0 noktasında yalnız o taraftaki gözlemlerle, üçgen çekirdekli (pencere ±h√6) ağırlıklı EKK'nin sabit",
+    "    terimi: (S2·T0 − S1·T1)/(S0·S2 − S1²). SH o yerel regresyonun HC1 sandviçidir (k/(k−2) çarpanıyla); kume",
+    "    verilirse skorlar kümelerde toplanır ve çarpan G/(G−1)·(k−1)/(k−2) olur (G o noktadaki küme sayısı).",
+    '    """',
+    "    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)",
+    "    tamam = ~(np.isnan(x) | np.isnan(y))",
+    "    g = None",
+    "    if kume is not None:",
+    "        g = pd.factorize(np.asarray(kume))[0]",
+    "        tamam &= g >= 0",
+    "        g = g[tamam]",
+    "    x, y = x[tamam], y[tamam]",
+    "    parcalar = []",
+    '    for taraf, noktalar, secim in (("sol", np.linspace(alt, esik, nokta), x < esik),',
+    '                                   ("sag", np.linspace(esik, ust, nokta), x >= esik)):',
+    "        xs, ys = x[secim], y[secim]",
+    "        d = xs[None, :] - noktalar[:, None]",
+    "        w = np.maximum(1 - np.abs(d) / (h * np.sqrt(6)), 0)",
+    "        k = (w > 0).sum(axis=1)",
+    "        s0, s1, s2 = w.sum(axis=1), (w * d).sum(axis=1), (w * d * d).sum(axis=1)",
+    "        t0, t1 = w @ ys, (w * d) @ ys",
+    "        with np.errstate(invalid=\"ignore\", divide=\"ignore\"):",
+    "            det = s0 * s2 - s1**2",
+    "            a = (s2 * t0 - s1 * t1) / det",
+    "            b = (s0 * t1 - s1 * t0) / det",
+    "            e = w * (ys[None, :] - a[:, None] - b[:, None] * d)",
+    "            if g is None:",
+    "                u = e**2",
+    "                v = (s2**2 * u.sum(axis=1) - 2 * s1 * s2 * (u * d).sum(axis=1)",
+    "                     + s1**2 * (u * d * d).sum(axis=1)) / det**2 * k / (k - 2)",
+    "                gecerli = k > 2",
+    "            else:",
+    "                sira = np.argsort(g[secim], kind=\"stable\")",
+    "                bas = np.flatnonzero(np.r_[True, np.diff(g[secim][sira]) != 0])",
+    "                ag = np.add.reduceat(e[:, sira], bas, axis=1)  # kümelerde toplanmış skorlar",
+    "                bg = np.add.reduceat((e * d)[:, sira], bas, axis=1)",
+    "                G = (np.add.reduceat((w > 0)[:, sira] * 1.0, bas, axis=1) > 0).sum(axis=1)",
+    "                v = (s2**2 * (ag * ag).sum(axis=1) - 2 * s1 * s2 * (ag * bg).sum(axis=1)",
+    "                     + s1**2 * (bg * bg).sum(axis=1)) / det**2 * G / (G - 1) * (k - 1) / (k - 2)",
+    "                gecerli = (k > 2) & (G > 1)",
+    "        a, sh = np.where(gecerli, a, np.nan), np.where(gecerli, np.sqrt(v), np.nan)",
+    f'        parcalar.append(pd.DataFrame({{"x": noktalar, "tahmin": a, "alt": a - {CI_MULTIPLIER} * sh,',
+    f'                                      "ust": a + {CI_MULTIPLIER} * sh, "taraf": taraf}}))',
+    "    return pd.concat(parcalar, ignore_index=True)",
+]
+
 HC1_HELPER = [
     "def hc1_sh(X, y, b):",
     '    """HC1 standart hataları: n/(n−k)·(X\'X)⁻¹(Σ eᵢ²xᵢxᵢ\')(X\'X)⁻¹ (percentile-t için her tekrarda)."""',
@@ -90,6 +162,8 @@ def rdd_call(op: RDD) -> str:
         arguments.append(f'cekirdek="{KERNEL_NAMES[op.kernel]}"')
     if op.scale != "hansen":
         arguments.append(f'olcek="{SCALE_NAMES[op.scale]}"')
+    if op.cluster:
+        arguments.append(f'kume="{op.cluster}"')
     return f"{op.name} = rdd_yerel_dogrusal({', '.join(arguments)})"
 
 
@@ -101,21 +175,49 @@ def rdd_comment(op: RDD) -> str:
         root = "6" if op.kernel == "triangular" else "3"
         window = f"Hansen ölçeği, pencere ±h√{root}"
     kernel = "üçgen" if op.kernel == "triangular" else "dikdörtgen"
-    return f"Keskin RDD, {kernel} çekirdek, h = {h} ({window}); sıçrama D katsayısıdır"
+    text = f"Keskin RDD, {kernel} çekirdek, h = {h} ({window}); sıçrama D katsayısıdır"
+    return text + (f"; SH {op.cluster} düzeyinde kümelenmiş" if op.cluster else "")
+
+
+def rdd_helper_names(ops, layers) -> list[str]:
+    """RDD yardımcıları: kümeli bir RDD ya da eğri varsa küme seçenekli sürüm (``rdd_kume``, ``rdd_egri_kume``);
+    yoksa notlardaki sürüm (notların kodu değişmez)."""
+
+    names = []
+    models = [op for op in ops if isinstance(op, RDD)]
+    if models:
+        names.append("rdd_kume" if any(op.cluster for op in models) else "rdd")
+    curves = [layer for layer in layers if isinstance(layer, RDDCurve)]
+    if curves:
+        clustered = {bool(layer.cluster) for layer in curves}
+        if len(clustered) > 1:  # Stata'da iki sürüm aynı adı taşır; bir uygulamada eğriler aynı türde olmalı
+            raise ValueError("Bir uygulamada kümeli ve kümesiz RDD eğrileri birlikte kullanılamaz.")
+        names.append("rdd_egri_kume" if clustered.pop() else "rdd_egri")
+    return names
+
+
+def standard_error_text(gen, models) -> str:
+    """Tablo yorumundaki SH türü: modellerin hepsi aynı kümeyle kümelenmişse "<küme> düzeyinde küme SH"."""
+
+    clusters = {getattr(gen.models.get(model), "cluster", None) for model in models}
+    if len(clusters) == 1 and None not in clusters:
+        return f"{clusters.pop()} düzeyinde küme SH"
+    return "HC1 SH"
 
 
 def operation(gen, op) -> list[str] | None:
     """RDD ve bootstrap işlemlerinin Python kodu; tanımadığı işlemde ``None``."""
 
     if isinstance(op, RDD):
+        kind = "küme SH" if op.cluster else "HC1 SH"
         return [
             f"# {rdd_comment(op)}",
             rdd_call(op),
-            f"print(f\"τ̂ = {{{op.name}.params['D']:.4f}} (HC1 SH {{{op.name}.bse['D']:.4f}}), "
+            f"print(f\"τ̂ = {{{op.name}.params['D']:.4f}} ({kind} {{{op.name}.bse['D']:.4f}}), "
             f"n = {{int({op.name}.nobs)}}\")",
         ]
     if isinstance(op, RDDTable):
-        return _rdd_table(op)
+        return _rdd_table(op, standard_error_text(gen, [model for _, model in op.rows]))
     if isinstance(op, Bootstrap):
         return _bootstrap(gen, op)
     if isinstance(op, ScalarTable):
@@ -128,19 +230,19 @@ def operation(gen, op) -> list[str] | None:
     return None
 
 
-def _rdd_table(op: RDDTable) -> list[str]:
+def _rdd_table(op: RDDTable, kind: str = "HC1 SH") -> list[str]:
     models = ", ".join(model for _, model in op.rows)
     rows = ", ".join(_number(h) for h, _ in op.rows)
     table = op.result
     return [
-        f"# Bant genişliği duyarlılığı: her h için sıçrama, HC1 SH ve %95 güven aralığı (tahmin ± {CI_MULTIPLIER}·SH)",
+        f"# Bant genişliği duyarlılığı: her h için sıçrama, {kind} ve %95 güven aralığı (tahmin ± {CI_MULTIPLIER}·SH)",
         f"{table} = pd.DataFrame(",
         f'    [(m.nobs, m.params["D"], m.bse["D"]) for m in ({models},)],',
         f'    columns=["n", "tahmin", "sh"], index=pd.Index([{rows}], name="h"),',
         ")",
         f'{table}["alt"] = {table}["tahmin"] - {CI_MULTIPLIER} * {table}["sh"]',
         f'{table}["ust"] = {table}["tahmin"] + {CI_MULTIPLIER} * {table}["sh"]',
-        f"print({table}.round(2))",
+        f"print({table}.round({op.decimals}))",
         "fig, ax = plt.subplots(figsize=(8, 5))",
         f'ax.errorbar({table}.index, {table}["tahmin"], yerr={CI_MULTIPLIER} * {table}["sh"], fmt="o", color="#107C89",',
         '            capsize=4, linewidth=2, label="Tahmin ve %95 güven aralığı")',

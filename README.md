@@ -58,10 +58,20 @@ Sekmenin üstündeki seçim varsayılan olarak notlardaki örnektir; notların l
   basamağında tek değilse o modelin kontrolleri karşılaştırılmaz ve yorum bunu söyler. Konu 8'de en çok 2.500 gözlem
   kullanılır (CV n×n ağırlık matrisiyle); tam doğrusal sonuç reddedilir; CV ızgarasının alt ucu, dışarıda bırakılan
   bütün tahminlerin ve grafik eğrisinin sayısal olarak hesaplanabildiği en küçük h'ye yükseltilir (uçtaki seyrek
-  değerler) ve iki CV aynı h'yi seçerse karşılaştırma bandı ana bandın iki katıdır. Örnek
-  dosya kurgusal veriden bellekte üretilir (`core/labs/ornek_veri.py`: ücret verisi, okul deneyi, araç değişkeni,
-  iş arama, bağış ve çalışma saati verisi; DGP'ler dosyada yazılıdır). Okuma kuralları İKT 217 ve İKT 305
-  uygulamalarıyla aynıdır.
+  değerler) ve iki CV aynı h'yi seçerse karşılaştırma bandı ana bandın iki katıdır. Konu 9'da eşik değeri ve isteğe
+  bağlı ana bant genişliği metin alanına yazılır (ondalık virgül ya da nokta; binlik de olabilecek "5.000" gibi bir
+  yazım reddedilir); eşik, eşik değişkeninin gözlenen aralığında olmalıdır ve en dar pencerede eşiğin iki yanında en az
+  10 gözlem ile 3 farklı değer, küme seçildiyse en az 10 küme bulunmalıdır; eşik değişkeni değişince eşik alanı yeni
+  sütunun medyanına döner, bant genişliği alanı boşalır. Konu 10'da küme bootstrap'ı için
+  en az 20 küme gerekir; 1.000 tekrarın birinde bile hedef katsayı tanımsız kalıyorsa (ör. seyrek iki değerli
+  açıklayıcı bir tekrarda sabit) seçim reddedilir. Konu 11'de zengin model en çok 200 terim içerebilir ve eğitim
+  örnekleminde en az 2·(terim sayısı + 1) gözlem ister; eğitim örnekleminde ya da bir CV katının eğitim kısmında sabit
+  kalan ya da önceki terimlerin tam doğrusal birleşimi olan sözlük terimleri çıkarılır (metin bunu söyler);
+  Ridge ızgarası eğitim gözlemi sayısından, Lasso ızgarası bütün katsayıları sıfır yapan en küçük cezadan kurulur.
+  Konu 12'de en çok 5.000 gözlem ve 100 sözlük terimi kullanılır; küme seçilirse dış ve iç katlar ile standart hata
+  kümeye göre kurulur (en az 20 küme). Örnek dosya kurgusal veriden bellekte üretilir (`core/labs/ornek_veri.py`: ücret
+  verisi, okul deneyi, araç değişkeni, iş arama, bağış, çalışma saati, burs, sınıf, konut ve mesleki kurs verisi;
+  DGP'ler dosyada yazılıdır). Okuma kuralları İKT 217 ve İKT 305 uygulamalarıyla aynıdır.
 
 | Konu | Alternatif örnek | Kendi verinde roller |
 |---|---|---|
@@ -73,8 +83,12 @@ Sekmenin üstündeki seçim varsayılan olarak notlardaki örnektir; notların l
 | 6 | Card ve Krueger (1994), New Jersey ve Pennsylvania: 410 fast-food restoranı, iki tur; sonuç tam zamanlı çalışan sayısı, profil değişkeni restoranın günde açık kaldığı saat (spline düğümleri 12 ve 16); 44 kontrol (OLS, LAD ve Tobit profilleri, Tobit'in üç hedefi, model kontrolü) | sıfırda yığılan negatif olmayan sonuç, ana açıklayıcı (düğümleri çeyreklerde spline), ek kontroller |
 | 7 | Card (1995), NLSYM 1976: 3.010 erkek, log saatlik ücret; 45 kontrol (beş kantilde kantil regresyon, Hendricks–Koenker standart hataları, OLS, eğitim ve siyahi göstergesinin katsayı profili, kesin yüzde etkiler, 0,90–0,10 farkı ve ortak kovaryansla standart hatası) | sonuç (isteğe bağlı logaritma), ana açıklayıcı, karesiyle eklenen sürekli kontrol, iki kategorili grup, ek kontroller (en çok 6) |
 | 8 | Angrist ve Lavy (1999), İsrail 1991: 1.013 okulda 2.049 dördüncü sınıf, sınıfın ortalama matematik puanı ve okulun dezavantajlı öğrenci yüzdesi; 18 kontrol (birini dışarıda bırakan ve okul düzeyinde küme-silmeli CV ile h, doğrusal model, kübik polinom, kübik spline ve iki bantta yerel doğrusal tahmin) | sonuç, sürekli açıklayıcı (en az 20 farklı değer), isteğe bağlı küme (en az 10 küme; seçilmezse HC1) |
+| 9 | Angrist ve Lavy (1999), İsrail 1991: 1.001 okulda 2.018 beşinci sınıf; eşik değişkeni okulun 5. sınıf kaydı, Maimonides eşiği 41, sonuç sınıfın ortalama okuma puanı; 40 kontrol (tasarım satırları ve sınıf mevcudunda ilk aşama sıçraması, beş bant genişliğinde keskin RDD, eşikteki iki limit, dikdörtgen çekirdek ve bant genişliği ölçeği; okul düzeyinde küme SH, güven bantlı grafik) | sonuç, eşik değişkeni (en az 20 farklı değer), yazılan eşik değeri, isteğe bağlı ana h (varsayılan: ±h√6 penceresi gözlemlerin yaklaşık %40'ı; tablo 0,5h–1,5h), tedavi tarafı (sağ ya da sol), isteğe bağlı küme (küme SH; seçilmezse HC1) |
+| 10 | Duflo, Dupas ve Kremer (2011), Kenya: 121 okulda 5.795 öğrenci, toplam puanın tracking'e regresyonu; 10 kontrol (HC1, 1.000 tekrarlı pairs bootstrap, okul-kümeli SH ve okul düzeyinde küme bootstrap'ı: standart hata ve percentile aralığı) | sonuç, hedef açıklayıcı, kontroller (en çok 8), isteğe bağlı küme (en az 20 küme; seçilirse Adım 3'te küme SH ve küme bootstrap'ı); 1.000 tekrar, tohum 807 |
+| 11 | Card (1995), NLSYM 1976: ücreti ve IQ dahil 15 aday değişkeni gözlenen 2.034 erkek, açık kuralla 1.524 eğitim / 510 test; 13 kontrol (basit OLS, 132 terimli sözlükte zengin OLS, 5-katlı CV ile Ridge ve Lasso; test ve eğitim MSE, sıfırdan farklı katsayı, seçilen ceza) | sonuç, basit modelin 1–6 değişkeni, zengin model için ek sayısal adaylar (en çok 12) ve en çok üç kategorik değişken (her kategoride en az 10 gözlem), "kareler ve ikili etkileşimler" seçeneği |
+| 12 | Card (1995), NLSYM 1976: 2.997 erkek, eğitim yılının log ücrete etkisi, yalnız tedavi öncesi sekiz kontrol; 14 kontrol (kontrolsüz regresyon, doğrusal kontrollü OLS, 42 terimli sözlükte Lasso yardımcı modelli çapraz uyarlamalı DML, 11 kat kuralında duyarlılık ve medyan) | sonuç, tedavi (iki değerli ya da sürekli), 2–8 tedavi öncesi kontrol (sözlük: kareler ve ikili çarpımlar), isteğe bağlı küme (en az 20 küme) |
 
-Diğer konular blok blok eklenecektir; her blokta alternatif veri seti ve roller önceden onaylanır.
+Ek veri kaynakları bütün konular (1–12) için hazırdır; her blokta alternatif veri seti ve roller önceden onaylandı.
 
 ### Üç dilde aynı sayı sözleşmesi
 
@@ -145,19 +159,20 @@ $env:IKT807_HANSEN_AL1999_PATH = "C:\veri\AL1999.dta"
 ```
 
 Bu testler üretilen Python ve R betiklerini gerçekten çalıştırır (R için `Rscript` PATH'te olmalıdır;
-gerekli R paketleri: `sandwich`, `lmtest`, `haven`, `AER`, `quantreg`, kendi verin testleri için `readxl`; `readxl`
-kurulu değilse yalnız Excel okuyan R adımları atlanır).
+gerekli R paketleri: `sandwich`, `lmtest`, `haven`, `AER`, `quantreg`, Konu 11–12 için `glmnet`, kendi verin testleri
+için `readxl`; `readxl` kurulu değilse yalnız Excel okuyan R adımları atlanır).
 Stata lisans gerektirdiği için otomatik test edilemez; do-dosyası sonunda kendi kontrollerini yapar.
 
 Ek veri kaynaklarının testleri `tests/test_lab_variants.py` (alternatif örneğin sayıları, kendi verinde örnek dosya,
 Türkçe CSV, işaretli sütun adları, tam uyum, logaritması alınamayan sonuç, notların kod özeti) ve
 `tests/test_lab_sources_ui.py` (Streamlit AppTest: kaynak seçimi, dosya yükleme, seçimlerin korunması) içindedir;
 Konu 3–4'ün bağımsız hesapları ve kendi veri kuralları `tests/test_lab_variants_konu03_04.py`, Konu 5–8'inkiler
-`tests/test_lab_variants_konu05_08.py` içindedir. Alternatif örneklerin gerçek veri testleri
-`IKT807_HANSEN_CARD1995_PATH` (Konu 1, 2 ve 7), `IKT807_HANSEN_DS2004_PATH` (Konu 3), `IKT807_HANSEN_AK1991_PATH`
-(Konu 4), `IKT807_HANSEN_CHJ2004_PATH` (Konu 5), `IKT807_HANSEN_CK1994_PATH` (Konu 6) ve
-`IKT807_HANSEN_AL1999_PATH` (Konu 8) ile çalışır; kendi verin testleri veri dosyası gerektirmez (örnek dosyalar
-kurgusaldır).
+`tests/test_lab_variants_konu05_08.py`, Konu 9–12'ninkiler `tests/test_lab_variants_konu09_12.py` (RDD küme SH'sinin
+statsmodels ile eşitliği dahil) içindedir. Alternatif örneklerin gerçek veri testleri
+`IKT807_HANSEN_CARD1995_PATH` (Konu 1, 2, 7, 11 ve 12), `IKT807_HANSEN_DS2004_PATH` (Konu 3),
+`IKT807_HANSEN_AK1991_PATH` (Konu 4), `IKT807_HANSEN_CHJ2004_PATH` (Konu 5), `IKT807_HANSEN_CK1994_PATH` (Konu 6),
+`IKT807_HANSEN_AL1999_PATH` (Konu 8 ve 9) ve `IKT807_HANSEN_DDK2011_PATH` (Konu 10) ile çalışır; kendi verin testleri
+veri dosyası gerektirmez (örnek dosyalar kurgusaldır).
 
 ## Veri politikası
 
@@ -168,7 +183,7 @@ Ders notlarındaki uygulamalar Hansen'in *Econometrics* veri arşivine dayanır.
 
 `cps09mar` başlıksız `.txt` olarak okunur (değişken adları açıklama belgesindeki sırayla). DDK2011, Card1995 ve CHJ2004, değişken adlarını taşıyan `.dta` dosyalarından okunur; adlar üç dilde aynı olsun diye küçük harfe çevrilir. DDK2011 ve Card1995'te eksik değerler olağandır; analiz örneklemi laboratuvar adımlarında açıkça kurulur. CHJ2004, Hansen'in oluşturma dosyasının ham `urban.dta`'ya uygulanmış hâlidir (düzeltilmiş gelir, 8.684 hane). LM2007, Hansen'in `LM2007_create.do` dosyasıyla Ludwig ve Miller (2007) verisinden oluşturulmuştur: eşik değişkeni (`povrate60`) ve sonucu (`mort_age59_related_posths`) eksik olmayan 2.783 ilçe. DS2004 (Di Tella ve Schargrodsky 2004; 876 blok × Nisan–Aralık 1994 = 7.884 satır, Temmuz yalnız 1–17) ve AK1991 (Angrist ve Krueger 1991; 329.509 erkek) yalnız Uygulama sekmesinin alternatif örneklerinde kullanılır; ikisi de `.dta`'dan okunur, DS2004'te mahalle (`barrio`) metin sütunudur. CK1994 (Card ve Krueger 1994; 410
 fast-food restoranı × iki anket dalgası = 820 satır) ve AL1999 (Angrist ve Lavy 1999; 4. ve 5. sınıflar, 4.067 sınıf)
-de yalnız alternatif örneklerde (Konu 6 ve 8) kullanılır ve `.dta`'dan okunur. AK1991'in modelleri büyük olduğu için tasarım matrisi bellekte tutulmaz (`docs/ARCHITECTURE.md`).
+de yalnız alternatif örneklerde (Konu 6; Konu 8'de 4., Konu 9'da 5. sınıflar) kullanılır ve `.dta`'dan okunur. AK1991'in modelleri büyük olduğu için tasarım matrisi bellekte tutulmaz (`docs/ARCHITECTURE.md`).
 
 Yerel geliştirmede `IKT807_HANSEN_CPS09MAR_PATH` (eski adı `IKT807_CPS_PATH`), `IKT807_HANSEN_DDK2011_PATH`, `IKT807_HANSEN_CARD1995_PATH`, `IKT807_HANSEN_CHJ2004_PATH`, `IKT807_HANSEN_LM2007_PATH`, `IKT807_HANSEN_DS2004_PATH`, `IKT807_HANSEN_AK1991_PATH`, `IKT807_HANSEN_CK1994_PATH` ve
 `IKT807_HANSEN_AL1999_PATH` verilirse veri otomatik yüklenir. Öğrencilere verilen Python, R ve Stata kodları da veriyi aynı arşivden indirir; internet yoksa betiğin başındaki yerel dosya satırına yol yazılır.

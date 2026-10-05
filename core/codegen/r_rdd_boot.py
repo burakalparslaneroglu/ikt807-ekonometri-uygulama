@@ -7,7 +7,7 @@ RDD ağırlıklı ``lm`` ile tahmin edilir, standart hata ``sandwich::vcovHC(typ
 
 from __future__ import annotations
 
-from core.codegen.python_rdd_boot import KERNEL_NAMES, SCALE_NAMES, rdd_comment
+from core.codegen.python_rdd_boot import KERNEL_NAMES, SCALE_NAMES, rdd_comment, standard_error_text
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, bootstrap_key, uses_replicate_se
 from core.labs.spec import BOOT, RDD, Bootstrap, RDDTable, ScalarTable
@@ -62,6 +62,72 @@ CURVE_HELPER = [
     "}",
 ]
 
+RDD_CLUSTER_HELPER = [
+    "# Keskin RDD: eşikte yerel doğrusal sıçrama (D katsayısı), ağırlıklı EKK. SH: kume verilmezse",
+    "# vcovHC(type = \"HC1\"), verilirse vcovCL(cluster = model$kume, type = \"HC1\") (G/(G−1)·(n−1)/(n−k)).",
+    "# Pozitif ağırlıklı gözlemlerde Y'nin D = 1{X >= c}, R = X - c ve D·R üzerine çekirdek ağırlıklı EKK'si.",
+    "# Hansen ölçeği: çekirdek birim varyanslıdır ve h çekirdeğin standart sapmasıdır; üçgen çekirdekte ağırlık",
+    "# eşikten h√6, dikdörtgende h√3 uzaklıkta sıfırlanır. olcek = \"pencere\": h pencerenin yarı genişliğidir.",
+    'rdd_yerel_dogrusal <- function(veri, x, y, esik, h, cekirdek = "ucgen", olcek = "hansen", kume = NULL) {',
+    '  pencere <- if (olcek == "hansen") h * sqrt(if (cekirdek == "ucgen") 6 else 3) else h',
+    "  ornek <- data.frame(Y = veri[[y]], R = veri[[x]] - esik)",
+    "  if (!is.null(kume)) ornek$G <- veri[[kume]]",
+    "  ornek <- ornek[complete.cases(ornek), ]",
+    '  ornek$w <- if (cekirdek == "ucgen") pmax(1 - abs(ornek$R) / pencere, 0) else as.numeric(abs(ornek$R) <= pencere)',
+    "  ornek <- ornek[ornek$w > 0, ]",
+    "  ornek$D <- as.numeric(ornek$R >= 0)",
+    "  ornek$DR <- ornek$D * ornek$R",
+    "  model <- lm(Y ~ D + R + DR, data = ornek, weights = w)",
+    "  if (!is.null(kume)) model$kume <- ornek$G",
+    "  model",
+    "}",
+]
+
+CURVE_CLUSTER_HELPER = [
+    "# Eşiğin iki yanında ayrı yerel doğrusal tahmin ve noktasal %95 güven bandı. Her x0 noktasında yalnız o",
+    "# taraftaki gözlemlerle üçgen çekirdekli (pencere ±h√6) ağırlıklı EKK'nin sabit terimi:",
+    "# (S2·T0 − S1·T1)/(S0·S2 − S1²); SH o yerel regresyonun HC1 sandviçi (k/(k−2) çarpanıyla). kume verilirse",
+    "# skorlar kümelerde toplanır ve çarpan G/(G−1)·(k−1)/(k−2) olur (G o noktada pozitif ağırlıklı küme sayısı).",
+    "rdd_taraf <- function(x, y, noktalar, pencere, g = NULL) {",
+    "  t(sapply(noktalar, function(p) {",
+    "    d <- x - p",
+    "    w <- pmax(1 - abs(d) / pencere, 0)",
+    "    k <- sum(w > 0)",
+    "    if (k <= 2) return(c(NA, NA))",
+    "    s0 <- sum(w); s1 <- sum(w * d); s2 <- sum(w * d^2)",
+    "    t0 <- sum(w * y); t1 <- sum(w * d * y)",
+    "    det <- s0 * s2 - s1^2",
+    "    a <- (s2 * t0 - s1 * t1) / det",
+    "    b <- (s0 * t1 - s1 * t0) / det",
+    "    e <- w * (y - a - b * d)",
+    "    if (is.null(g)) {",
+    "      u <- e^2",
+    "      v <- (s2^2 * sum(u) - 2 * s1 * s2 * sum(u * d) + s1^2 * sum(u * d^2)) / det^2 * k / (k - 2)",
+    "    } else {",
+    "      G <- length(unique(g[w > 0]))",
+    "      if (G <= 1) return(c(NA, NA))",
+    "      S <- rowsum(cbind(e, e * d), g)",
+    "      v <- (s2^2 * sum(S[, 1]^2) - 2 * s1 * s2 * sum(S[, 1] * S[, 2]) + s1^2 * sum(S[, 2]^2)) / det^2 *",
+    "        G / (G - 1) * (k - 1) / (k - 2)",
+    "    }",
+    "    c(a, sqrt(v))",
+    "  }))",
+    "}",
+    "rdd_egrisi <- function(x, y, esik, h, alt, ust, nokta = 120, kume = NULL) {",
+    "  tamam <- !(is.na(x) | is.na(y))",
+    "  if (!is.null(kume)) tamam <- tamam & !is.na(kume)",
+    "  x <- x[tamam]",
+    "  y <- y[tamam]",
+    "  g <- if (is.null(kume)) NULL else kume[tamam]",
+    "  sol <- seq(alt, esik, length.out = nokta)",
+    "  sag <- seq(esik, ust, length.out = nokta)",
+    "  L <- rbind(rdd_taraf(x[x < esik], y[x < esik], sol, h * sqrt(6), if (is.null(g)) NULL else g[x < esik]),",
+    "             rdd_taraf(x[x >= esik], y[x >= esik], sag, h * sqrt(6), if (is.null(g)) NULL else g[x >= esik]))",
+    f"  data.frame(x = c(sol, sag), tahmin = L[, 1], alt = L[, 1] - {CI_MULTIPLIER} * L[, 2],",
+    f"             ust = L[, 1] + {CI_MULTIPLIER} * L[, 2], sag = rep(c(FALSE, TRUE), each = nokta))",
+    "}",
+]
+
 HC1_HELPER = [
     "# HC1 standart hataları: n/(n−k)·(X'X)⁻¹(Σ eᵢ²xᵢxᵢ')(X'X)⁻¹ (percentile-t için her tekrarda)",
     "hc1_sh <- function(X, y, b) {",
@@ -91,6 +157,8 @@ def operation(gen, op) -> list[str] | None:
             arguments.append(f'cekirdek = "{KERNEL_NAMES[op.kernel]}"')
         if op.scale != "hansen":
             arguments.append(f'olcek = "{SCALE_NAMES[op.scale]}"')
+        if op.cluster:
+            arguments.append(f'kume = "{op.cluster}"')
         return [
             f"# {rdd_comment(op)}",
             f"{op.name} <- rdd_yerel_dogrusal({', '.join(arguments)})",
@@ -113,17 +181,21 @@ def operation(gen, op) -> list[str] | None:
 
 
 def _rdd_table(gen, op: RDDTable) -> list[str]:
-    models = ", ".join(model for _, model in op.rows)
+    names = [model for _, model in op.rows]
+    models = ", ".join(names)
     rows = "c(" + ", ".join(_number(h) for h, _ in op.rows) + ")"
     table = op.result
+    kind = standard_error_text(gen, names)
+    clustered = kind != "HC1 SH"
+    vcov = 'sandwich::vcovCL(m, cluster = m$kume, type = "HC1")' if clustered else 'sandwich::vcovHC(m, type = "HC1")'
     return [
-        f"# Bant genişliği duyarlılığı: her h için sıçrama, HC1 SH ve %95 güven aralığı (tahmin ± {CI_MULTIPLIER}·SH)",
+        f"# Bant genişliği duyarlılığı: her h için sıçrama, {kind} ve %95 güven aralığı (tahmin ± {CI_MULTIPLIER}·SH)",
         f"{table} <- data.frame(t(sapply(list({models}), function(m) c(",
-        '  n = nobs(m), tahmin = coef(m)[["D"]], sh = sqrt(diag(sandwich::vcovHC(m, type = "HC1")))[["D"]]',
+        f'  n = nobs(m), tahmin = coef(m)[["D"]], sh = sqrt(diag({vcov}))[["D"]]',
         f"))), row.names = {rows})",
         f"{table}$alt <- {table}$tahmin - {CI_MULTIPLIER} * {table}$sh",
         f"{table}$ust <- {table}$tahmin + {CI_MULTIPLIER} * {table}$sh",
-        f"print(round({table}, 2))",
+        f"print(round({table}, {op.decimals}))",
         f"h_degerleri <- {rows}",
         f"plot(h_degerleri, {table}$tahmin, pch = 16, col = \"#107C89\", ylim = range(c({table}$alt, {table}$ust, 0)),",
         f'     xlab = "{op.x_label}", ylab = "{op.y_label}", main = "{op.title}")',

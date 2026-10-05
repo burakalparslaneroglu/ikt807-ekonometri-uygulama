@@ -19,7 +19,7 @@ jobs:
           use-public-rspm: true  # derlenmiş (binary) paketler: AER ve haven dakikalar yerine saniyelerde kurulur
 
       - name: R paketleri
-        run: Rscript -e 'install.packages(c("sandwich", "lmtest", "haven", "AER", "quantreg", "readxl"), repos = "https://cloud.r-project.org")'
+        run: Rscript -e 'install.packages(c("sandwich", "lmtest", "haven", "AER", "quantreg", "glmnet", "readxl"), repos = "https://cloud.r-project.org")'
 
       - name: Python bağımlılıkları
         run: python -m pip install -r requirements-dev.txt

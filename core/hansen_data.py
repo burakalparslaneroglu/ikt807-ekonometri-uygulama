@@ -49,7 +49,9 @@ DDK2011_REQUIRED = (
 CARD1995_REQUIRED = (
     "lwage76", "wage76", "ed76", "nearc4", "age76", "black", "smsa76r", "reg76r", "smsa66r",
     *(f"reg66{i}" for i in range(2, 10)),
+    "south66", "momed", "daded", "momdad14", "libcrd14", "enroll76", "kww", "iq",
 )
+"""Son sekiz sütun Konu 11–12'nin alternatif örneklerindedir (kww, iq ve libcrd14'te eksik değerler olağandır)."""
 CHJ2004_CONTROLS = (
     "primary", "somesecondary", "secondary", "someuniversity", "university", "age", "married", "female",
     "marriedf", "child1", "child7", "child15", "size", "bothwork", "notemployed",

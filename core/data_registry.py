@@ -63,7 +63,7 @@ DATASETS: tuple[DatasetMetadata, ...] = (
             "pupilid", "schoolid", "tracking", "sbm", "girl", "agetest",
             "etpteacher", "lowstream", "std_mark", "percentile", "totalscore",
         ),
-        allowed_topics=("konu03", "konu08", "konu12"),
+        allowed_topics=("konu03", "konu08", "konu10", "konu12"),
         cluster_variable="schoolid",
         resampling_unit="okul",
     ),
@@ -72,7 +72,9 @@ DATASETS: tuple[DatasetMetadata, ...] = (
         title="Card1995 - Koleje yakınlık ve eğitim",
         source="Card (1995); Hansen Econometrics kaynak veri paketi.",
         observation_unit="Birey",
-        sample_definition="Ücret, eğitim, araç ve kontrol setinde complete-case 3.010 gözlem.",
+        sample_definition="Ücret, eğitim, araç ve kontrol setinde complete-case 3.010 gözlem; Konu 11 alternatifinde IQ dahil "
+                          "aday değişkenlerin hepsi gözlenen 2.034, Konu 12 alternatifinde tedavi öncesi kontrolleri gözlenen "
+                          "2.997 erkek. NLSYM hane temelli bir örneklemdir (kardeşler); dosyada hane kimliği yoktur.",
         variables=tuple(
             _variable(name, label, label, unit)
             for name, label, unit in (
@@ -95,14 +97,23 @@ DATASETS: tuple[DatasetMetadata, ...] = (
                 ("reg667", "1966 bölge 7", "0/1"),
                 ("reg668", "1966 bölge 8", "0/1"),
                 ("reg669", "1966 bölge 9", "0/1"),
+                ("south66", "1966 güney", "0/1"),
+                ("momed", "Anne eğitimi", "yıl"),
+                ("daded", "Baba eğitimi", "yıl"),
+                ("momdad14", "14 yaşında anne ve babayla", "0/1"),
+                ("libcrd14", "14 yaşında kütüphane kartı", "0/1"),
+                ("enroll76", "1976'da okula kayıtlı", "0/1"),
+                ("kww", "KWW bilgi testi", "puan"),
+                ("iq", "IQ", "puan"),
             )
         ),
         expected_columns=(
             "lwage76", "wage76", "age76", "ed76", "nearc4", "exp76", "exp762_100", "black",
             "smsa76r", "reg76r", "smsa66r", "reg662", "reg663", "reg664",
-            "reg665", "reg666", "reg667", "reg668", "reg669",
+            "reg665", "reg666", "reg667", "reg668", "reg669", "south66", "momed", "daded", "momdad14", "libcrd14",
+            "enroll76", "kww", "iq",
         ),
-        allowed_topics=("konu01", "konu02", "konu04", "konu07"),
+        allowed_topics=("konu01", "konu02", "konu04", "konu07", "konu11", "konu12"),
     ),
     DatasetMetadata(
         dataset_id="chj2004",
@@ -243,7 +254,8 @@ DATASETS: tuple[DatasetMetadata, ...] = (
         source="Angrist ve Lavy (1999); Hansen Econometrics kaynak veri paketi.",
         observation_unit="Sınıf",
         sample_definition="İsrail'de 4. ve 5. sınıflar (1991); eksik test puanı, 44'ten büyük sınıf ve 6'dan küçük "
-                          "kayıt çıkarıldı; 4.067 sınıf. Uygulama sekmesinin alternatif örneği 4. sınıfları kullanır.",
+                          "kayıt çıkarıldı; 4.067 sınıf. Uygulama sekmesinin alternatif örnekleri Konu 8'de 4. sınıfları, "
+                          "Konu 9'da 5. sınıfları kullanır.",
         variables=tuple(
             _variable(name, label, label, unit)
             for name, label, unit in (
@@ -259,7 +271,7 @@ DATASETS: tuple[DatasetMetadata, ...] = (
         ),
         expected_columns=("schlcode", "grade", "classid", "classize", "enrollment", "avgmath", "avgverb",
                           "disadvantaged"),
-        allowed_topics=("konu08",),
+        allowed_topics=("konu08", "konu09"),
         cluster_variable="schlcode",
         resampling_unit="okul",
     ),

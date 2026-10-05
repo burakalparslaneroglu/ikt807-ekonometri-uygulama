@@ -438,6 +438,7 @@ def _plot_data(op: Plot, state: LabState) -> list[PlotLayerData]:
             curve = RD.rdd_curve(
                 frame[op.x], frame[layer.y], layer.cutoff, layer.bandwidth,
                 np.linspace(low, layer.cutoff, layer.points), np.linspace(layer.cutoff, high, layer.points),
+                cluster=None if layer.cluster is None else frame[layer.cluster],
             )
             data = curve.rename(columns={"x": op.x})
         elif isinstance(layer, VLine):
@@ -981,7 +982,8 @@ def execute(op: Operation, state: LabState, sources: dict[str, pd.DataFrame]) ->
         return
     if isinstance(op, RDD):
         frame = state.frames[op.frame]
-        state.models[op.name] = RD.rdd_fit(frame[op.x], frame[op.y], op.cutoff, op.bandwidth, op.kernel, op.scale)
+        state.models[op.name] = RD.rdd_fit(frame[op.x], frame[op.y], op.cutoff, op.bandwidth, op.kernel, op.scale,
+                                           None if op.cluster is None else frame[op.cluster])
     elif isinstance(op, RDDTable):
         table = RD.rdd_table({h: state.models[model] for h, model in op.rows})
         state.tables[op.result] = table

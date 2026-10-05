@@ -19,7 +19,7 @@ import pandas as pd
 import streamlit as st
 
 from core.labs import kendi_veri as K
-from core.labs.ornek import CustomChoices, CustomLab, custom_case, md
+from core.labs.ornek import CustomChoices, CustomLab, custom_case, md, number_text
 from core.labs.ornekler import get_variants
 from core.labs.spec import LabSpec
 
@@ -93,7 +93,7 @@ def _remove_file(topic_key: str) -> None:
 
 
 def _forget_choices(topic_key: str, names: tuple[str, ...] = ("rol_", "ek", "sira", "sayfa", "kategori_",
-                                                                 "secenek_")) -> None:
+                                                                 "secenek_", "sayi_")) -> None:
     """Yeni dosya yüklenince önceki dosyanın sütun seçimleri silinir (başka sayfa seçilince sayfa seçimi kalır,
     diğerleri silinir)."""
 
@@ -198,7 +198,8 @@ def _render_roles(topic_key: str, custom: CustomLab, table: K.UploadedTable) -> 
                              help="Tablolarda ve seçeneklerde kategorilerin sırası.")
         remember(key)
     options = _render_options(topic_key, custom, table, roles, extra)
-    return CustomChoices(roles=roles, extra=extra, order=order, options=options)
+    numbers = _render_numbers(topic_key, custom, table, roles, extra)
+    return CustomChoices(roles=roles, extra=extra, order=order, options=options, numbers=numbers)
 
 
 def _analysis_rows(custom: CustomLab, table: K.UploadedTable, roles: dict[str, str | None],
@@ -236,6 +237,45 @@ def _render_options(topic_key: str, custom: CustomLab, table: K.UploadedTable, r
             st.session_state[key] = option.default
         values[option.key] = bool(st.toggle(option.label, key=key, help=option.help))
         remember(key)
+    return values
+
+
+def _number_series(values: pd.Series) -> pd.Series:
+    """Sütunun sayı olarak okunabilen değerleri (metin hücrelerinde ondalık virgül de okunur)."""
+
+    if _numeric(values):
+        return values.dropna().astype(float)
+    text = values.map(K.clean_text).dropna().astype(str).str.replace(",", ".", regex=False)
+    return pd.to_numeric(text, errors="coerce").dropna()
+
+
+def _render_numbers(topic_key: str, custom: CustomLab, table: K.UploadedTable, roles: dict[str, str | None],
+                    extra: tuple[str, ...]) -> dict[str, str]:
+    """Öğrencinin yazdığı sayılar (ör. eşik). Varsayılan, bağlı olduğu rolün sütunundan hesaplanır; rolün sütunu
+    değişince alan varsayılana döner. Metin olarak saklanır; ``custom_case`` okur (ondalık virgül ya da nokta)."""
+
+    values: dict[str, str] = {}
+    if not custom.numbers:
+        return values
+    rows = _analysis_rows(custom, table, roles, extra)
+    columns = st.columns(len(custom.numbers))
+    for index, entry in enumerate(custom.numbers):
+        key = f"{topic_key}_kendi_sayi_{entry.key}"
+        source = f"{key}_kaynak"
+        restore(key)
+        restore(source)
+        original = roles.get(entry.role) if entry.role else None
+        if st.session_state.get(source) != original or key not in st.session_state:
+            default = None
+            if entry.default is not None and original:
+                series = _number_series(table.frame.loc[rows, original])
+                default = entry.default(series) if len(series) else None
+            st.session_state[key] = number_text(default)
+            st.session_state[source] = original
+        values[entry.key] = columns[index].text_input(entry.label, key=key, help=entry.help,
+                                                      placeholder=entry.placeholder or None)
+        remember(key)
+        remember(source)
     return values
 
 
@@ -328,7 +368,8 @@ def render_custom(topic_key: str, custom: CustomLab) -> LabSpec | None:
                 choices = replace(choices, picks=picks)
                 case, notes = custom_case(custom, table, choices)
             key = (token, sheet, tuple(sorted(choices.roles.items(), key=str)), choices.extra, choices.order,
-                   tuple(sorted(choices.picks.items())), tuple(sorted(choices.options.items())))
+                   tuple(sorted(choices.picks.items())), tuple(sorted(choices.options.items())),
+                   tuple(sorted(choices.numbers.items())))
             spec = session_cache(f"{topic_key}_kendi_uygulama", key, lambda: custom.build(case))
         except K.UploadError as error:
             st.error(md(str(error)), icon=":material/error:")

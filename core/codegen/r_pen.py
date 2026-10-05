@@ -594,6 +594,7 @@ def _crossfit(gen, op: CrossFitDML) -> list[str]:
 
 def _splits(gen, op: DMLSplits) -> list[str]:
     source: CrossFitDML = gen.models[op.dml]
+    d = op.decimals
     lines, features = _list(gen, source.features)
     arguments = [source.frame, f'"{source.outcome}"', f'"{source.treatment}"', features, "kat"]
     if source.learner == "lasso":
@@ -608,7 +609,7 @@ def _splits(gen, op: DMLSplits) -> list[str]:
     labels = ", ".join(f'"{label}"' for _, label, _ in op.rules)
     multipliers = ", ".join(_number(multiplier) for _, _, multiplier in op.rules)
     lines += [
-        f"# Bölme duyarlılığı: dış katlar ⌊{op.folds}{{r·c}}⌋ + 1; aynı veri, öğrenici ve kat sayısı, yalnız okulların",
+        f"# Bölme duyarlılığı: dış katlar ⌊{op.folds}{{r·c}}⌋ + 1; aynı veri, öğrenici ve kat sayısı, yalnız {op.unit}",
         "# katlara dağılımı değişir. Medyan birleştirme: θ̂_med = medyan θ̂_s, σ̂²_med = medyan{σ̂²_s + (θ̂_s − θ̂_med)²}",
         *_wrapped("carpanlar <- c(", multipliers.split(", "), ")"),
         f"{op.result} <- data.frame(etiket = c({labels}), theta = NA_real_, sh = NA_real_,",
@@ -626,7 +627,7 @@ def _splits(gen, op: DMLSplits) -> list[str]:
         f"{op.name}_min <- min({op.result}$theta)",
         f"{op.name}_max <- max({op.result}$theta)",
         f"print({op.result}, digits = 4)",
-        f'cat(sprintf("Medyan θ̂ = %.3f (SH %.3f); aralık %.3f – %.3f\\n", medyan, medyan_sh, {op.name}_min, '
+        f'cat(sprintf("Medyan θ̂ = %.{d}f (SH %.{d}f); aralık %.{d}f – %.{d}f\\n", medyan, medyan_sh, {op.name}_min, '
         f"{op.name}_max))",
     ]
     return lines
@@ -666,7 +667,7 @@ def _estimate_plot(gen, op: EstimatePlot) -> list[str]:
         ")",
         f"{op.result}$alt <- {op.result}$tahmin - {CI_MULTIPLIER} * {op.result}$sh",
         f"{op.result}$ust <- {op.result}$tahmin + {CI_MULTIPLIER} * {op.result}$sh",
-        f"print(round({op.result}, 3))",
+        f"print(round({op.result}, {op.decimals}))",
         f"konum <- rev(seq_len(nrow({op.result})))",
     ]
     extent = [f"{op.result}$alt", f"{op.result}$ust"]

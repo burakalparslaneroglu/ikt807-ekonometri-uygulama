@@ -395,8 +395,9 @@ class RDDCurve:
     """Grafik katmanı: eşiğin iki yanında ayrı yerel doğrusal tahmin ve noktasal %95 güven bandı.
 
     Her değerlendirme noktası x₀ için yalnız o taraftaki gözlemlerle, birim varyanslı üçgen çekirdekle
-    (Hansen ölçeği: pencere ±h√6) ağırlıklı EKK'nin sabit terimi; SH o yerel regresyonun HC1 sandviçi.
-    Noktalar grafik aralığında, her tarafta ``points`` adet (eşik iki tarafta da dahil).
+    (Hansen ölçeği: pencere ±h√6) ağırlıklı EKK'nin sabit terimi; SH o yerel regresyonun HC1 sandviçi
+    (``cluster`` verilirse küme-dayanıklı CR1). Noktalar grafik aralığında, her tarafta ``points`` adet (eşik
+    iki tarafta da dahil).
     """
 
     y: str
@@ -404,6 +405,7 @@ class RDDCurve:
     bandwidth: float
     label: str
     points: int = 120
+    cluster: str | None = None
 
 
 @dataclass(frozen=True)
@@ -805,7 +807,8 @@ class RDD:
     EKK'si; sıçrama D katsayısıdır. Çekirdek ``triangular`` veya ``rectangular``. ``scale="hansen"``:
     h çekirdeğin standart sapmasıdır (Hansen'in birim varyanslı çekirdekleri; üçgende pencere ±h√6,
     dikdörtgende ±h√3). ``scale="window"``: h pencerenin yarı genişliğidir. Standart hata ağırlıklı
-    regresyonun HC1 sandviçidir. Terimler: sabit, ``D``, ``R``, ``DR``.
+    regresyonun HC1 sandviçidir; ``cluster`` verilirse küme-dayanıklı (CR1, G/(G−1)·(n−1)/(n−k)). Terimler:
+    sabit, ``D``, ``R``, ``DR``.
     """
 
     name: str
@@ -816,6 +819,7 @@ class RDD:
     bandwidth: float
     kernel: str = "triangular"
     scale: str = "hansen"
+    cluster: str | None = None
 
 
 @dataclass(frozen=True)
@@ -823,7 +827,8 @@ class RDDTable:
     """Bant genişliği duyarlılık tablosu ve grafiği.
 
     ``rows`` (h, RDD modeli) çiftleridir. Sütunlar: ``n`` (pozitif ağırlık alan gözlem), ``tahmin`` (sıçrama),
-    ``sh`` (HC1), ``alt`` ve ``ust`` (normal yaklaşımla %95 güven aralığı, tahmin ± 1,96·SH).
+    ``sh`` (modelin standart hatası: HC1 ya da küme-dayanıklı), ``alt`` ve ``ust`` (normal yaklaşımla %95 güven
+    aralığı, tahmin ± 1,96·SH).
     """
 
     rows: tuple[tuple[float, str], ...]
@@ -831,6 +836,8 @@ class RDDTable:
     x_label: str
     y_label: str
     title: str
+    decimals: int = 2
+    """Tablonun gösterim ondalığı (sıçrama, SH ve güven aralığı)."""
 
 
 BOOT = "bootstrap_tekrari"
@@ -899,7 +906,9 @@ class GroupRank:
 @dataclass(frozen=True)
 class Dictionary:
     """Aday terim sözlüğü: ``base`` değişkenleri, ``powers`` içindeki her değişkenin 2, …, ``degree`` kuvvetleri
-    (``{ad}_{k}``) ve ``interactions`` ise ``base`` değişkenlerinin bütün ikili çarpımları (``{a}_x_{b}``)."""
+    (``{ad}_{k}``) ve ``interactions`` ise ``base`` değişkenlerinin bütün ikili çarpımları (``{a}_x_{b}``).
+    ``exclude``: terim listesine alınmayan terimler (ör. kendi verinde bir eğitim katında sabit kalan çarpımlar);
+    sütunları yine kurulur."""
 
     frame: str
     base: tuple[str, ...]
@@ -907,17 +916,19 @@ class Dictionary:
     degree: int
     interactions: bool
     comment: str
+    exclude: tuple[str, ...] = ()
 
 
 def dictionary_terms(op: Dictionary) -> tuple[str, ...]:
-    """Sözlüğün terimleri, üç dilde aynı sırayla: taban, kuvvetler, ikili etkileşimler."""
+    """Sözlüğün terimleri, üç dilde aynı sırayla: taban, kuvvetler, ikili etkileşimler (``exclude`` dışındakiler)."""
 
     terms = list(op.base)
     for name in op.powers:
         terms += [f"{name}_{power}" for power in range(2, op.degree + 1)]
     if op.interactions:
         terms += [f"{a}_x_{b}" for index, a in enumerate(op.base) for b in op.base[index + 1:]]
-    return tuple(terms)
+    excluded = set(op.exclude)
+    return tuple(term for term in terms if term not in excluded)
 
 
 @dataclass(frozen=True)
@@ -1079,7 +1090,8 @@ class DMLSplits:
     numarası, {·} kesirli kısım) her çarpan c için tekrarlanır. ``rules`` (anahtar, etiket, c) üçlüleridir. Birleştirme
     (Chernozhukov vd., 2018): θ̂_med = medyan θ̂_s, σ̂²_med = medyan{σ̂²_s + (θ̂_s − θ̂_med)²}. Sonuç tablosu satırları
     kural anahtarları, sütunları ``theta`` ve ``sh``; ``name`` modeli θ̂_med ve SH_med'i taşır (terim ``theta``).
-    Skalerler ``{name}_min`` ve ``{name}_max``."""
+    Skalerler ``{name}_min`` ve ``{name}_max``. ``unit``: üretilen koddaki açıklamada katlara dağılan birim (notlarda
+    okullar); ``decimals``: bölme tablosunun ve özetin gösterim ondalığı (kod çıktısı ve arayüz)."""
 
     name: str
     dml: str
@@ -1087,6 +1099,8 @@ class DMLSplits:
     rules: tuple[tuple[str, str, float], ...]
     folds: int
     result: str
+    unit: str = "okulların"
+    decimals: int = 3
 
 
 @dataclass(frozen=True)
@@ -1114,7 +1128,8 @@ class DoubleSelection:
 class EstimatePlot:
     """Tahminler ve %95 güven aralıkları (tahmin ± 1,96·SH), yatay. ``rows`` (etiket, model, terim); ``truth`` gerçek
     değer (dikey kesikli çizgi); ``splits`` bir ``DMLSplits`` sonuç tablosu verilirse ``splits_row`` satırının yanında
-    bölme tahminleri gri noktalardır. ``result`` tablosu: satırlar etiketler; sütunlar tahmin, sh, alt, ust."""
+    bölme tahminleri gri noktalardır. ``result`` tablosu: satırlar etiketler; sütunlar tahmin, sh, alt, ust.
+    ``decimals``: üretilen kodun tabloyu yazdırdığı ondalık."""
 
     rows: tuple[tuple[str, str, str], ...]
     result: str
@@ -1124,6 +1139,7 @@ class EstimatePlot:
     truth_label: str = ""
     splits: str | None = None
     splits_row: int = 0
+    decimals: int = 3
 
 
 @dataclass(frozen=True)

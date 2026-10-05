@@ -40,12 +40,25 @@ POSITIVE_WORDS = ("1", "evet", "var", "kadın", "kadin", "female", "geçti", "ba
 
 # --- Sayı yazımı (metinler için) --------------------------------------------------------
 
-def sayi(value: float, decimals: int = 0) -> str:
-    """Türkçe sayı: ondalık virgül, tipografik eksi (0,625; −1,5). Yuvarlanınca sıfır olan değer "−0" yazılmaz."""
+def sayi(value: float, decimals: int = 0, binlik: bool = False) -> str:
+    """Türkçe sayı: ondalık virgül, tipografik eksi (0,625; −1,5). Yuvarlanınca sıfır olan değer "−0" yazılmaz.
+    ``binlik``: binlik ayırıcı nokta (390.335,6)."""
 
     if abs(value) < 0.5 * 10 ** (-decimals):
         value = 0.0
+    if binlik:
+        text = f"{value:,.{decimals}f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+        return text.replace("-", "−")
     return f"{value:.{decimals}f}".replace(".", ",").replace("-", "−")
+
+
+def deger(value: float) -> str:
+    """Gereken en az ondalıkla Türkçe sayı, binlik ayırıcıyla (8; 4,5; 59,1984; 1.193,78; −0,5)."""
+
+    text = np.format_float_positional(float(value), precision=10, trim="-")
+    integer, _, fraction = text.lstrip("-").partition(".")
+    sign = "−" if text.startswith("-") and float(value) != 0 else ""
+    return sign + f"{int(integer):,}".replace(",", ".") + ("," + fraction if fraction else "")
 
 
 def yuzde(value: float, decimals: int = 1) -> str:
@@ -58,6 +71,55 @@ def sayim(value: float) -> str:
     """Sayım: binlik ayırıcı nokta (4.360)."""
 
     return f"{int(round(value)):,}".replace(",", ".")
+
+
+_BIRLER = ("sıfır", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz")
+_ONLAR = ("", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan")
+_GRUPLAR = ("bin", "milyon", "milyar", "trilyon")
+_UNLULER = "aeıioöuü"
+
+
+def _son_sozcuk(metin: str) -> str:
+    """Türkçe yazılmış bir sayının (ör. "1.200", "1,4", "−0,25") okunuşundaki son sözcük. Ondalıklı sayı "bir virgül
+    dört" diye okunur: son sözcük ondalık kısmın okunuşundandır (kısım sıfırsa tam kısmınkinden)."""
+
+    digits = metin.strip().lstrip("−-+")
+    integer, _, fraction = digits.partition(",")
+    part = fraction.lstrip("0") if fraction.strip("0") else integer.replace(".", "").lstrip("0")
+    if not part:
+        return "sıfır"
+    value = int(part)
+    if value % 10:
+        return _BIRLER[value % 10]
+    if value % 100:
+        return _ONLAR[value // 10 % 10]
+    if value % 1000:
+        return "yüz"
+    groups = 0
+    while value % 1000 == 0:
+        value //= 1000
+        groups += 1
+    return _GRUPLAR[min(groups, len(_GRUPLAR)) - 1]
+
+
+def ek(metin: str, tur: str) -> str:
+    """Yazılmış bir sayıya kesme işaretinden sonra gelen ek, okunuşa göre ünlü uyumu ve ünsüz benzeşmesiyle:
+    ``tur`` "e" (yönelme: 4'e, 6'ya, 10'a), "de" (bulunma: 4'te, 10'da), "den" (ayrılma: 4'ten, 10'dan) ya da "dir"
+    (ek fiil: 4'tür, 6'dır, 2,1'dir). Kullanım: ``f"h = {h}'{ek(h, 'dir')}"``."""
+
+    word = _son_sozcuk(metin)
+    last_vowel = [char for char in word if char in _UNLULER][-1]
+    back = last_vowel in "aıou"
+    vowel_final = word[-1] in _UNLULER
+    hard = word[-1] in "fstkçşhp"
+    if tur == "e":
+        return ("y" if vowel_final else "") + ("a" if back else "e")
+    if tur in ("de", "den"):
+        return ("t" if hard else "d") + ("a" if back else "e") + ("n" if tur == "den" else "")
+    if tur == "dir":
+        narrow = {"a": "ı", "ı": "ı", "o": "u", "u": "u", "e": "i", "i": "i", "ö": "ü", "ü": "ü"}[last_vowel]
+        return ("t" if hard else "d") + narrow + "r"
+    raise ValueError(f"Bilinmeyen ek türü: {tur}")
 
 
 def liste(items: list[str]) -> str:
@@ -351,6 +413,64 @@ class Option:
 
 
 @dataclass(frozen=True)
+class NumberInput:
+    """Kendi verinde öğrencinin yazdığı sayı (ör. RDD eşiği ya da bant genişliği).
+
+    ``role``: sayının dayandığı rol; ``default`` o rolün sütunundan (analiz satırları) varsayılan değeri hesaplar ve
+    rolün sütunu değişince alan bu değere döner. ``required=False``: boş bırakılabilir (``None``; uygulama kendi
+    kuralını kullanır, ``placeholder`` bunu söyler). Ondalık virgül ya da nokta kabul edilir.
+    """
+
+    key: str
+    label: str
+    help: str
+    role: str | None = None
+    default: Callable[[pd.Series], float | None] | None = None
+    required: bool = True
+    placeholder: str = ""
+
+
+class AmbiguousNumber(ValueError):
+    """Binlik ayırıcı mı ondalık mı olduğu anlaşılamayan sayı (ör. "5.000": 5 ya da 5000)."""
+
+
+def parse_number(text: object) -> float | None:
+    """Öğrencinin yazdığı sayı: "40,5", "40.5", "−3", "1.234,5" ve "1.234.567" (Türkçe binlik nokta) ya da boş
+    (``None``). Tek noktadan sonra üç basamak gelen ve binlik de olabilecek yazım ("5.000", "70.500") iki türlü
+    okunabildiği için ``AmbiguousNumber``; virgülün noktadan önce geldiği karma yazım ("1,234.5"), birden çok ayırıcı ya
+    da okunamayan metin ``ValueError``."""
+
+    if text is None:
+        return None
+    value = str(text).strip().replace("−", "-")
+    for space in (" ", "\u00a0", "\u202f", "\u2009"):
+        value = value.replace(space, "")
+    if not value:
+        return None
+    if re.fullmatch(r"[+-]?[1-9]\d{0,2}\.\d{3}", value):
+        raise AmbiguousNumber(value)
+    separators = value.count(",") + value.count(".")
+    if separators > 1 and re.fullmatch(r"[+-]?[1-9]\d{0,2}(\.\d{3})+(,\d+)?", value):
+        value = value.replace(".", "").replace(",", ".")
+    elif separators > 1:
+        raise ValueError(value)
+    else:
+        value = value.replace(",", ".")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(value)
+    return number
+
+
+def number_text(value: float | None) -> str:
+    """Sayının metin alanındaki yazımı: gereksiz sıfırlar olmadan, ondalık virgülle (41; 40,5)."""
+
+    if value is None:
+        return ""
+    return np.format_float_positional(float(value), precision=10, trim="-").replace(".", ",")
+
+
+@dataclass(frozen=True)
 class CustomLab:
     """Bir konunun "Kendi verini yükle" tanımı: roller, genel uygulamayı kuran fonksiyon ve örnek dosya.
 
@@ -377,6 +497,8 @@ class CustomLab:
     """Konuya özgü ek denetim; kullanılamıyorsa ``UploadError``."""
     suggest: Callable[[object], Mapping[str, str]] | None = None
     """Dosyanın ilk açılışında rollere önerilen sütunlar (``UploadedTable`` → rol → sütun)."""
+    numbers: tuple[NumberInput, ...] = ()
+    """Öğrencinin yazdığı sayılar (ör. eşik); değerleri ``Case.extra["sayilar"]`` içindedir."""
 
 
 @dataclass(frozen=True)
@@ -412,6 +534,8 @@ class CustomChoices:
     order: str = "alfabetik"
     picks: Mapping[str, str] = field(default_factory=dict)
     options: Mapping[str, bool] = field(default_factory=dict)
+    numbers: Mapping[str, str] = field(default_factory=dict)
+    """Sayı alanı → öğrencinin yazdığı metin (``parse_number`` ile okunur)."""
 
 
 def _selections(custom: CustomLab, table, choices: CustomChoices):
@@ -509,6 +633,20 @@ def custom_case(custom: CustomLab, table, choices: CustomChoices) -> tuple[Case,
             pick = choices.picks.get(role.key)
             levels[role.key] = pick if pick in orders[column] else default_pick(orders[column])
     options = {option.key: bool(choices.options.get(option.key, option.default)) for option in custom.options}
+    numbers: dict[str, float | None] = {}
+    for entry in custom.numbers:
+        text = choices.numbers.get(entry.key, "")
+        try:
+            numbers[entry.key] = parse_number(text)
+        except AmbiguousNumber:
+            raise K.UploadError(f"“{entry.label}” alanındaki “{text}” iki türlü okunabilir (binlik ayırıcı ya da ondalık "
+                                "nokta). Binlik ayırıcı kullanmadan yazın; ondalık için virgül ya da nokta kullanın (ör. "
+                                "5000 ya da 5,5).") from None
+        except ValueError:
+            raise K.UploadError(f"“{entry.label}” alanındaki “{text}” bir sayı olarak okunamadı (ör. 41 ya da "
+                                "40,5 yazın).") from None
+        if entry.required and numbers[entry.key] is None:
+            raise K.UploadError(f"“{entry.label}” için bir sayı yazın.")
     case = Case(
         source="kendi",
         load=(prepared.read,),
@@ -520,7 +658,7 @@ def custom_case(custom: CustomLab, table, choices: CustomChoices) -> tuple[Case,
         levels=levels,
         orders=orders,
         options=options,
-        extra={"order_text": ORDER_TEXT[choices.order], "file_name": table.file_name},
+        extra={"order_text": ORDER_TEXT[choices.order], "file_name": table.file_name, "sayilar": numbers},
     )
     if custom.validate is not None:
         custom.validate(case)

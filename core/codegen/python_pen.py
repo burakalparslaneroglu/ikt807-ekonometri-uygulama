@@ -638,6 +638,7 @@ def _crossfit(gen, op: CrossFitDML) -> list[str]:
 
 def _splits(gen, op: DMLSplits) -> list[str]:
     source: CrossFitDML = gen.models[op.dml]
+    d = op.decimals
     lines, features = _list(gen, source.features)
     rules = [f'("{key}", "{label}", {_number(multiplier)})' for key, label, multiplier in op.rules]
     arguments = [source.frame, f'"{source.outcome}"', f'"{source.treatment}"', features, "kat"]
@@ -650,7 +651,7 @@ def _splits(gen, op: DMLSplits) -> list[str]:
     if source.learner != "lasso":
         arguments.append(f'ogrenici="{source.learner}"')
     lines += [
-        f"# Bölme duyarlılığı: dış katlar ⌊{op.folds}{{r·c}}⌋ + 1; aynı veri, öğrenici ve kat sayısı, yalnız okulların",
+        f"# Bölme duyarlılığı: dış katlar ⌊{op.folds}{{r·c}}⌋ + 1; aynı veri, öğrenici ve kat sayısı, yalnız {op.unit}",
         "# katlara dağılımı değişir. Medyan birleştirme: θ̂_med = medyan θ̂_s, σ̂²_med = medyan{σ̂²_s + (θ̂_s − θ̂_med)²}",
         *_wrapped("kurallar = [", rules, "]"),
         "satirlar = []",
@@ -664,8 +665,9 @@ def _splits(gen, op: DMLSplits) -> list[str]:
         f'medyan_sh = np.sqrt(np.median({op.result}["sh"] ** 2 + ({op.result}["theta"] - medyan) ** 2))',
         f"{op.name} = DMLSonucu(medyan, medyan_sh, len({source.frame}))",
         f'{op.name}_min, {op.name}_max = {op.result}["theta"].min(), {op.result}["theta"].max()',
-        f"print({op.result}.round(3))",
-        f'print(f"Medyan θ̂ = {{medyan:.3f}} (SH {{medyan_sh:.3f}}); aralık {{{op.name}_min:.3f}} – {{{op.name}_max:.3f}}")',
+        f"print({op.result}.round({op.decimals}))",
+        f'print(f"Medyan θ̂ = {{medyan:.{d}f}} (SH {{medyan_sh:.{d}f}}); aralık {{{op.name}_min:.{d}f}} – '
+        f'{{{op.name}_max:.{d}f}}")',
     ]
     return lines
 
@@ -702,7 +704,7 @@ def _estimate_plot(op: EstimatePlot) -> list[str]:
         f'{op.result} = pd.DataFrame(satirlar, columns=["etiket", "tahmin", "sh"]).set_index("etiket")',
         f'{op.result}["alt"] = {op.result}["tahmin"] - {CI_MULTIPLIER} * {op.result}["sh"]',
         f'{op.result}["ust"] = {op.result}["tahmin"] + {CI_MULTIPLIER} * {op.result}["sh"]',
-        f"print({op.result}.round(3))",
+        f"print({op.result}.round({op.decimals}))",
         f"konum = np.arange(len({op.result}))[::-1]",
         "fig, ax = plt.subplots(figsize=(8, 5))",
         f'ax.errorbar({op.result}["tahmin"], konum, xerr={CI_MULTIPLIER} * {op.result}["sh"], fmt="o", color="{color}",',

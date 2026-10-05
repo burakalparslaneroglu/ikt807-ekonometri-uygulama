@@ -23,6 +23,7 @@ from core.codegen import python_pen as PN
 from core.codegen import r_np as RNP
 from core.codegen import r_pen as RPN
 from core.codegen import r_rdd_boot as RRB
+from core.codegen.python_rdd_boot import rdd_helper_names
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, coverage_key, uses_replicate_se
 from core.labs.spec import (
@@ -319,6 +320,8 @@ class RGenerator(Generator):
             return f"vcov({symbol})"
         if isinstance(settings, PN.DoubleSelection):
             return f'sandwich::vcovHC({symbol}, type = "HC1")'
+        if isinstance(settings, RDD) and settings.cluster:
+            return f'sandwich::vcovCL({symbol}, cluster = {symbol}$kume, type = "HC1")'
         if isinstance(settings, (IV, RDD)):
             return f'sandwich::vcovHC({symbol}, type = "HC1")'
         if isinstance(settings, BinaryChoice):
@@ -502,10 +505,7 @@ class RGenerator(Generator):
             names.append("cv")
         if any(isinstance(layer, BinMeans) for layer in layers):
             names.append("aralik")
-        if any(isinstance(op, RDD) for op in ops):
-            names.append("rdd")
-        if any(isinstance(layer, RDDCurve) for layer in layers):
-            names.append("rdd_egri")
+        names += rdd_helper_names(ops, layers)
         if any(isinstance(op, Bootstrap) and any(uses_replicate_se(e) for _, e in op.collect) for op in ops):
             names.append("hc1")
         return names + PN.helper_names(ops)
@@ -520,6 +520,8 @@ class RGenerator(Generator):
             "aralik": RNP.BINS_HELPER,
             "rdd": RRB.RDD_HELPER,
             "rdd_egri": RRB.CURVE_HELPER,
+            "rdd_kume": RRB.RDD_CLUSTER_HELPER,
+            "rdd_egri_kume": RRB.CURVE_CLUSTER_HELPER,
             "hc1": RRB.HC1_HELPER,
             **RPN.HELPERS,
         }
@@ -1269,8 +1271,11 @@ class RGenerator(Generator):
                 bands += 1
                 name = f"bant_egrisi_{bands}"
                 points = "" if layer.points == 120 else f", nokta = {layer.points}"
+                if layer.cluster:
+                    points += f", kume = {frame}${layer.cluster}"
+                band = "%95 bant" + (f" ({layer.cluster} düzeyinde küme SH)" if layer.cluster else "")
                 setup += [
-                    "# Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve %95 bant",
+                    f"# Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve {band}",
                     f"{name} <- rdd_egrisi({frame}${x}, {frame}${layer.y}, {E.format_number(layer.cutoff)}, "
                     f"{E.format_number(layer.bandwidth)}, {low}, {high}{points})",
                 ]

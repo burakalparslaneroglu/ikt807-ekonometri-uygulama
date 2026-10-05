@@ -75,7 +75,28 @@ SAMPLE_CHOICES = {
                "grup": "Cinsiyet"},
         extra=("Evli (1/0)", "Kıdem (yıl)"), picks={"grup": "Kadın"}),
     "konu08": CustomChoices(roles={"sonuc": "Sınav puanı", "aciklayici": "Haftalık çalışma saati", "kume": "Okul"}),
+    "konu09": CustomChoices(roles={"sonuc": "Mezuniyet not ortalaması", "esik_degiskeni": "Sınav puanı", "kume": "Okul"},
+                            numbers={"esik": "70", "h": ""}),
+    "konu10": CustomChoices(roles={"sonuc": "Matematik puanı", "hedef": "Program (1/0)", "kume": "Okul"},
+                            extra=("Başlangıç puanı", "Kız (1/0)")),
+    "konu11": CustomChoices(
+        roles={"sonuc": "Satış fiyatı (bin TL)", "temel1": "Alan (m²)", "temel2": "Bina yaşı", "kategori": "İlçe",
+               "kategori2": "Isıtma"},
+        extra=("Oda sayısı", "Kat", "Merkeze uzaklık (km)", "Asansör (1/0)", "Otopark (1/0)", "Manzara (1/0)")),
+    "konu12": CustomChoices(roles={"sonuc": "Log kazanç", "tedavi": "Kursa katıldı (1/0)", "kume": "Firma"},
+                            extra=("Önceki log kazanç", "Yaş", "Eğitim yılı", "Kadın (1/0)")),
 }
+STEP_EXCEPTIONS = {
+    ("konu09", 1): "reproducibility",
+    ("konu09", 3): "title",
+    ("konu10", 3): "operations",
+    ("konu12", 2): "title",
+}
+"""Alternatif adımın notlardakinden bilerek ayrıldığı yönler. Konu 9 Adım 1: ilk aşama sıçraması (sınıf mevcudu, okul
+kümeli SH) tasarım satırlarına eklenir; adım ayar sabitlenince aynı sayı sınıfındadır. Konu 9 Adım 3: notların başlığı
+"Hansen'in tahminini yeniden üretmek"tir; AL1999'da Hansen'in bir tahmini yoktur (aynı ölçek dersi, başka başlık).
+Konu 10 Adım 3: notlarda yalnız metin olan yeniden örnekleme birimi okul bootstrap'ıyla hesaplanır (yalnız dağılımda aynı).
+Konu 12 Adım 2: notların başlığı okul kümelerinden söz eder; Card verisinde birim kişidir."""
 WAGE_TOPICS = ("konu01", "konu02")
 """Örnek dosyası kurgusal ücret verisi olan konular (Blok A); bu verinin sütunlarını kullanan testler bunlarla sınırlı."""
 XLSX = "ornek.xlsx"
@@ -166,7 +187,7 @@ def _reproduces(spec: LabSpec, result: subprocess.CompletedProcess) -> None:
 # --- Kayıt ve notlar ------------------------------------------------------------------------------------------
 
 def test_registry_covers_the_approved_topics_and_labels() -> None:
-    assert TOPICS == ["konu01", "konu02", "konu03", "konu04", "konu05", "konu06", "konu07", "konu08"]
+    assert TOPICS == [f"konu{number:02d}" for number in range(1, 13)]
     assert SOURCE_LABELS == {"notlar": "Notlardaki örnek", "alternatif": "Alternatif örnek",
                              "kendi": "Kendi verini yükle"}
     for topic in TOPICS:
@@ -191,11 +212,15 @@ def test_alternative_mirrors_the_steps_of_the_notes(topic: str) -> None:
     notes, alternative = LABS[topic], VARIANTS[topic].alternative()
     assert alternative.source == "alternatif" and alternative.dataset in DATASET_MEMBERS
     assert [step.number for step in alternative.steps] == [step.number for step in notes.steps]
-    assert [step.title for step in alternative.steps] == [step.title for step in notes.steps]
     for mine, theirs in zip(alternative.steps, notes.steps):
+        exception = STEP_EXCEPTIONS.get((topic, mine.number))
         assert (mine.note.section, mine.note.step) == (theirs.note.section, theirs.note.step)
-        assert bool(mine.operations) == bool(theirs.operations)
-        assert mine.reproducibility == theirs.reproducibility
+        if exception != "title":
+            assert mine.title == theirs.title
+        if exception != "operations":
+            assert bool(mine.operations) == bool(theirs.operations)
+        if exception not in ("operations", "reproducibility"):
+            assert mine.reproducibility == theirs.reproducibility
         assert mine.explanation
     assert alternative.steps[0].explanation != notes.steps[0].explanation  # araştırma sorusu bu verinin sorusudur
     labels = [(step.number, check.label) for step in alternative.steps for check in step.checks]
@@ -231,7 +256,7 @@ def test_alternative_stata_follows_conventions(topic: str) -> None:
     code = render_script(spec, "Stata")
     assert "version 14" in code and "set type double" in code
     generates = re.findall(r"^generate\b.*$", code, flags=re.MULTILINE)
-    assert generates and all(line.startswith("generate double ") for line in generates)
+    assert all(line.startswith("generate double ") for line in generates)  # Konu 10'un alternatifinde türetme yok
     assert code.count("{") == code.count("}")
     assert code.count("kontrol_et `=") == _checks(spec)
     lines = [line.strip() for line in code.splitlines()]

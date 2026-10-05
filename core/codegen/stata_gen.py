@@ -19,6 +19,7 @@ from core.codegen import python_pen as PN
 from core.codegen import stata_np as SNP
 from core.codegen import stata_pen as SPN
 from core.codegen import stata_rdd_boot as SRB
+from core.codegen.python_rdd_boot import rdd_helper_names
 from core.codegen.base import (
     HANSEN_ARCHIVE_URL,
     Generator,
@@ -38,7 +39,6 @@ from core.labs.runner import CI_MULTIPLIER, coverage_key
 from core.labs.spec import (
     IV,
     OLS,
-    RDD,
     CompleteCases,
     GroupMean,
     Indicator,
@@ -296,18 +296,15 @@ class StataGenerator(Generator):
     def helper_names(self, operations: tuple[Operation, ...]) -> list[str]:
         ops = flatten(operations)
         layers = [layer for op in ops if isinstance(op, Plot) for layer in op.layers]
-        names = SNP.helper_names(ops, layers)
-        if any(isinstance(op, RDD) for op in ops):
-            names.append("rdd")
-        if any(isinstance(layer, RDDCurve) for layer in layers):
-            names.append("rdd_egri")
+        names = SNP.helper_names(ops, layers) + rdd_helper_names(ops, layers)
         return names + [name for name in PN.helper_names(ops) if name in SPN.HELPERS]
 
     def list_definition(self, name: str, values) -> list[str]:
         return SPN.list_definition(name, values)
 
     def helper_code(self, name: str) -> list[str]:
-        texts = {**SNP.HELPERS, "rdd": SRB.RDD_HELPER, "rdd_egri": SRB.CURVE_HELPER, **SPN.HELPERS}
+        texts = {**SNP.HELPERS, "rdd": SRB.RDD_HELPER, "rdd_egri": SRB.CURVE_HELPER, "rdd_kume": SRB.RDD_CLUSTER_HELPER,
+                 "rdd_egri_kume": SRB.CURVE_CLUSTER_HELPER, **SPN.HELPERS}
         return texts[name] + [""] if name in texts else []
 
     def _scalar_lines(self, name: str, expression: E.Expr) -> list[str]:
@@ -1024,10 +1021,12 @@ class StataGenerator(Generator):
             if isinstance(layer, RDDCurve):
                 name = f"egri{index}"
                 light = f'"{SRB.BAND_LIGHT.get(style.rgb, style.rgb)}"'
+                cluster = f'"{layer.cluster}", ' if layer.cluster else ""
+                band = "%95 bant" + (f" ({layer.cluster} düzeyinde küme SH)" if layer.cluster else "")
                 prefix += [
-                    "* Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve %95 bant",
+                    f"* Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve {band}",
                     *_command(
-                        f'mata: rdd_egrisi("{x}", "{layer.y}", `rdd_n0\', {E.format_number(layer.cutoff)}, '
+                        f'mata: rdd_egrisi("{x}", "{layer.y}", {cluster}`rdd_n0\', {E.format_number(layer.cutoff)}, '
                         f'{E.format_number(layer.bandwidth)}*sqrt(6), {low}, {high}, {layer.points}, "{name}")'
                     ),
                 ]

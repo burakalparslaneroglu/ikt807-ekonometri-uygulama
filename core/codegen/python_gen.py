@@ -537,10 +537,7 @@ class PythonGenerator(Generator):
             names.append("cv")
         if any(isinstance(layer, BinMeans) for layer in layers):
             names.append("aralik")
-        if any(isinstance(op, RDD) for op in ops):
-            names.append("rdd")
-        if any(isinstance(layer, RDDCurve) for layer in layers):
-            names.append("rdd_egri")
+        names += RB.rdd_helper_names(ops, layers)
         if any(isinstance(op, Bootstrap) and any(uses_replicate_se(e) for _, e in op.collect) for op in ops):
             names.append("hc1")
         return names + PN.helper_names(ops)
@@ -556,6 +553,8 @@ class PythonGenerator(Generator):
             "aralik": NP.BINS_HELPER,
             "rdd": RB.RDD_HELPER,
             "rdd_egri": RB.CURVE_HELPER,
+            "rdd_kume": RB.RDD_CLUSTER_HELPER,
+            "rdd_egri_kume": RB.CURVE_CLUSTER_HELPER,
             "hc1": RB.HC1_HELPER,
             **PN.HELPERS,
         }
@@ -1230,8 +1229,11 @@ class PythonGenerator(Generator):
                 curves += 1
                 name = f"egri_{curves}"
                 points = "" if layer.points == 120 else f", nokta={layer.points}"
+                if layer.cluster:
+                    points += f', kume={frame}["{layer.cluster}"]'
+                band = "%95 bant" + (f" ({layer.cluster} düzeyinde küme SH)" if layer.cluster else "")
                 lines += [
-                    "# Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve %95 bant",
+                    f"# Eşiğin iki yanında ayrı yerel doğrusal tahmin (üçgen çekirdek, pencere ±h√6) ve {band}",
                     f'{name} = rdd_egrisi({frame}["{x}"], {frame}["{layer.y}"], {E.format_number(layer.cutoff)}, '
                     f"{E.format_number(layer.bandwidth)}, {low}, {high}{points})",
                     f'for taraf, parca in {name}.groupby("taraf", sort=False):',

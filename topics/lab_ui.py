@@ -691,26 +691,46 @@ def render_bandwidth_cv(op: BandwidthCV, state, metrics: bool = True) -> None:
     show_figure(figure)
 
 
-def _rdd_compact(op: RDD, result) -> None:
+def _bandwidth_text(value: float) -> str:
+    """Bant genişliğinin yazımı: gereken en az ondalıkla (8; 4,5; 0,125)."""
+
+    text = np.format_float_positional(float(value), precision=6, trim="-")
+    return text.replace("-", "−").replace(".", ",")
+
+
+def _se_kind(result) -> str:
+    """RDD modelinin standart hata türü: küme-dayanıklı ya da HC1."""
+
+    return "küme SH" if getattr(result, "groups", None) else "HC1 SH"
+
+
+def _rdd_compact(op: RDD, result, outcome: str | None = None) -> None:
+    """Tek RDD tahmininin özeti. ``outcome`` verilirse sonucun adı da yazılır (alternatif örnek ve kendi verin: Konu 9
+    alternatifinde ilk aşamanın sonucu sınıf mevcududur); notlardaki satır değişmez."""
+
     scale = "pencere ±h" if op.scale == "window" else f"Hansen ölçeği, pencere ±{_number(result.window, 2)}"
+    named = f", sonuç: {outcome}" if outcome else ""
     st.markdown(
-        f"**Keskin RDD** ({_KERNEL_LABELS[op.kernel]} çekirdek, h = {_number(op.bandwidth, 0)}; {scale}): "
-        f"τ̂ = {_number(result.jump)} (HC1 SH {_number(float(result.bse['D']))}) · n = {_count(result.nobs)}"
+        f"**Keskin RDD**{named} ({_KERNEL_LABELS[op.kernel]} çekirdek, h = {_bandwidth_text(op.bandwidth)}; {scale}): "
+        f"τ̂ = {_number(result.jump)} ({_se_kind(result)} {_number(float(result.bse['D']))}) · n = {_count(result.nobs)}"
     )
 
 
-def _rdd_table(op: RDDTable, table: pd.DataFrame) -> None:
+def _rdd_table(op: RDDTable, table: pd.DataFrame, first=None, decimals: int = 2) -> None:
+    clustered = _se_kind(first) == "küme SH"
+    label = "SH (küme)" if clustered else "SH (HC1)"
     shown = pd.DataFrame(
         {
-            "h": [_number(h, 0) for h in table.index],
+            "h": [_bandwidth_text(h) for h in table.index],
             "n_h": [_count(v) for v in table["n"]],
-            "τ̂": [_number(v, 2) for v in table["tahmin"]],
-            "SH (HC1)": [_number(v, 2) for v in table["sh"]],
-            "Alt %95": [_number(v, 2) for v in table["alt"]],
-            "Üst %95": [_number(v, 2) for v in table["ust"]],
+            "τ̂": [_number(v, decimals) for v in table["tahmin"]],
+            label: [_number(v, decimals) for v in table["sh"]],
+            "Alt %95": [_number(v, decimals) for v in table["alt"]],
+            "Üst %95": [_number(v, decimals) for v in table["ust"]],
         }
     )
-    st.markdown("**Bant genişliği duyarlılığı** (üçgen çekirdek, Hansen ölçeği; güven aralığı τ̂ ± 1,96·SH)")
+    note = "; SH küme düzeyinde kümelenmiş" if clustered else ""
+    st.markdown(f"**Bant genişliği duyarlılığı** (üçgen çekirdek, Hansen ölçeği; güven aralığı τ̂ ± 1,96·SH{note})")
     st.dataframe(shown, hide_index=True, width="stretch")
     h = table.index.to_numpy(dtype=float)
     figure = go.Figure()
@@ -720,9 +740,9 @@ def _rdd_table(op: RDDTable, table: pd.DataFrame) -> None:
             marker={"size": 10, "color": _COLORS[0]},
             error_y={"type": "data", "symmetric": False, "array": table["ust"] - table["tahmin"],
                      "arrayminus": table["tahmin"] - table["alt"], "color": _COLORS[0], "thickness": 2, "width": 6},
-            customdata=table[["sh", "n"]],
-            hovertemplate="h = %{x:.0f}<br>τ̂ = %{y:.3f}<br>SH = %{customdata[0]:.3f}<br>n = %{customdata[1]:.0f}"
-                          "<extra></extra>",
+            customdata=np.column_stack([table["sh"], table["n"], [_bandwidth_text(v) for v in h]]),
+            hovertemplate="h = %{customdata[2]}<br>τ̂ = %{y:.3f}<br>SH = %{customdata[0]:.3f}<br>"
+                          "n = %{customdata[1]:.0f}<extra></extra>",
         )
     )
     figure.add_hline(y=0, line={"color": _COLORS[3], "width": 1, "dash": "dot"})
@@ -752,9 +772,9 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
         if render_lab_op(spec, op, state, step.operations):
             continue
         if isinstance(op, RDD) and not has_table:
-            _rdd_compact(op, state.models[op.name])
+            _rdd_compact(op, state.models[op.name], None if spec.source == "notlar" else escape(spec.label(op.y)))
         elif isinstance(op, RDDTable):
-            _rdd_table(op, state.tables[op.result])
+            _rdd_table(op, state.tables[op.result], state.models[op.rows[0][1]], op.decimals)
         elif isinstance(op, Bootstrap):
             _bootstrap(spec, op, state)
         elif isinstance(op, Histogram):

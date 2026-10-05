@@ -259,11 +259,11 @@ def folds_table(fit) -> pd.DataFrame:
     })
 
 
-def splits_table(table: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
+def splits_table(table: pd.DataFrame, decimals: int = 3, se_label: str = "Küme SH") -> pd.DataFrame:
     return pd.DataFrame({
         "Dış kat kuralı: ⌊5{r·c}⌋ + 1, c =": table["etiket"],
         "θ̂": [number(value, decimals) for value in table["theta"]],
-        "Küme SH": [number(value, decimals) for value in table["sh"]],
+        se_label: [number(value, decimals) for value in table["sh"]],
     })
 
 
@@ -327,12 +327,16 @@ def render_lab_op(spec, op, state: LabState, operations) -> bool:
             st.dataframe(folds_table(fit), hide_index=True, width="stretch")
     elif isinstance(op, DMLSplits):
         fit = state.models[op.name]
-        st.markdown("**Bölme duyarlılığı:** aynı veri, öğrenici ve kat sayısı; yalnız kümelerin katlara dağılımı değişir")
-        table = splits_table(state.tables[op.result])
+        source = state.ops.get(op.dml)
+        clustered = source is None or bool(getattr(source, "cluster", None))
+        unit, se_label = ("kümelerin", "Küme SH") if clustered else ("gözlemlerin", "HC1 SH")
+        d = op.decimals
+        st.markdown(f"**Bölme duyarlılığı:** aynı veri, öğrenici ve kat sayısı; yalnız {unit} katlara dağılımı değişir")
+        table = splits_table(state.tables[op.result], d, se_label)
         st.dataframe(table, hide_index=True, width="stretch", height=35 * (len(table) + 1) + 3)
         st.caption(
-            f"Medyan birleştirme (Chernozhukov vd., 2018): θ̂_med = {number(fit.theta, 3)}, SH_med = {number(fit.se, 3)}; "
-            f"aralık {number(state.scalars[f'{op.name}_min'], 3)} – {number(state.scalars[f'{op.name}_max'], 3)}."
+            f"Medyan birleştirme (Chernozhukov vd., 2018): θ̂_med = {number(fit.theta, d)}, SH_med = {number(fit.se, d)}; "
+            f"aralık {number(state.scalars[f'{op.name}_min'], d)} – {number(state.scalars[f'{op.name}_max'], d)}."
         )
     elif isinstance(op, DoubleSelection):
         scalars = state.scalars

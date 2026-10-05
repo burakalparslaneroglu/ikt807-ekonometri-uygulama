@@ -729,6 +729,7 @@ def _crossfit(gen, op: CrossFitDML, command) -> list[str]:
 
 def _splits(gen, op: DMLSplits, command) -> list[str]:
     source: CrossFitDML = gen.models[op.dml]
+    number = f"%{max(6, op.decimals + 3)}.{op.decimals}f"  # notlarda %6.3f
     lines, features = _list(gen, source.features)
     grid = _grid(source.grid) if source.grid is not None else "0"
     keys = " ".join(key for key, _, _ in op.rules)
@@ -739,7 +740,7 @@ def _splits(gen, op: DMLSplits, command) -> list[str]:
         f'"{source.inner or ""}", {grid}, "{source.rule}", "{source.cluster or ""}", "{source.learner}", "", "")'
     )
     lines += [
-        f"* Bölme duyarlılığı: dış katlar ⌊{op.folds}{{r·c}}⌋ + 1; aynı veri, öğrenici ve kat sayısı, yalnız okulların",
+        f"* Bölme duyarlılığı: dış katlar ⌊{op.folds}{{r·c}}⌋ + 1; aynı veri, öğrenici ve kat sayısı, yalnız {op.unit}",
         "* katlara dağılımı değişir. Medyan birleştirme: θ̂_med = medyan θ̂_s, σ̂²_med = medyan{σ̂²_s + (θ̂_s − θ̂_med)²}",
         f"local carpanlar {multipliers}",
         f"matrix {table} = J({len(op.rules)}, 2, .)",
@@ -755,7 +756,7 @@ def _splits(gen, op: DMLSplits, command) -> list[str]:
         f"    matrix {table}[`s', 2] = scalar(bolme_s_se)",
         "}",
         "drop bolme_kat",
-        f"matrix list {table}, format(%9.3f)",
+        f"matrix list {table}, format(%9.{op.decimals}f)",
         f'mata: T = st_matrix("{table}"); m = ortanca(T[., 1]); st_numscalar("{op.name}_theta", m); '
         f'st_numscalar("{op.name}_se", sqrt(ortanca(T[., 2] :^ 2 + (T[., 1] :- m) :^ 2)))',
         f'mata: st_numscalar("{op.name}_min", min(T[., 1])); st_numscalar("{op.name}_max", max(T[., 1])); '
@@ -766,8 +767,8 @@ def _splits(gen, op: DMLSplits, command) -> list[str]:
         f"matrix colnames {op.name}_V = theta",
         f"matrix rownames {op.name}_V = theta",
         f"dml_kaydet {op.name}",
-        f'display "Medyan θ̂ = " %6.3f scalar({op.name}_theta) " (SH " %6.3f scalar({op.name}_se) "); aralık " ///',
-        f'    %6.3f scalar({op.name}_min) " – " %6.3f scalar({op.name}_max)',
+        f'display "Medyan θ̂ = " {number} scalar({op.name}_theta) " (SH " {number} scalar({op.name}_se) "); aralık " ///',
+        f'    {number} scalar({op.name}_min) " – " {number} scalar({op.name}_max)',
     ]
     return lines
 
@@ -811,7 +812,7 @@ def _estimate_plot(op: EstimatePlot) -> list[str]:
         ]
     labels = " ".join(f'{count - index} "{label}"' for index, (label, _, _) in enumerate(op.rows))
     lines += [
-        f"matrix list {table}, format(%9.3f)",
+        f"matrix list {table}, format(%9.{op.decimals}f)",
         "preserve",
         "clear",
         f"quietly svmat double {table}, names(col)",

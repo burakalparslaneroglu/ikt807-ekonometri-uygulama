@@ -56,6 +56,47 @@ Bağış verisi (Konu 6; ``n`` = 800 hane, tohum 807):
   Gerçek koşullu ortalama tepe noktası 24 saatte olan bir paraboldür. Aynı okuldaki öğrenciler iki yoldan
   bağımlıdır: saatleri ortak okul ortalaması m_g çevresinde, puanları ortak okul etkisi u_g ile (u_g saatleri
   etkilemez; m_g ile bağımsızdır).
+
+Burs verisi (Konu 9; 40 okul × 30 öğrenci = 1.200 öğrenci, tohum 807):
+
+* okul etkileri a_g ~ N(0, 6²) (sınav puanında) ve b_g ~ N(0, 0,25²) (not ortalamasında);
+* bursluluk sınavı puanı = a_g + 69 + N(0, 12²), tam sayıya yuvarlanıp [20, 100] aralığına kırpılır; puanı 70 ve üstü
+  olan öğrenci burs alır (keskin kural; öğrencilerin %53'ü). Puanların medyanı 70'tir: uygulamanın eşik alanı ilk
+  değer olarak medyanı yazdığı için örnek dosya gerçek eşikle açılır;
+* mezuniyet not ortalaması = 1,2 + 0,025·puan + 0,20·burs + b_g + N(0, 0,35²), [0, 4] aralığına kırpılıp iki ondalığa
+  yuvarlanır: eşikteki gerçek sıçrama 0,20 puandır. Aynı okulun öğrencileri ortak okul etkileriyle bağımlıdır.
+
+Sınıf verisi (Konu 10; 30 okul × Tam sayı[18, 32] öğrenci, tohum 807):
+
+* okulların 15'i rastgele seçilir ve kodlama kursu programına alınır (Program = 1, okul düzeyinde atama);
+* okul etkisi s_g ~ N(0, 6²); başlangıç puanı = 50 + N(0, 10²), bir ondalığa yuvarlanır; kız öğrenci ~ Bernoulli(0,5);
+* matematik puanı = 20 + 0,6·başlangıç + 1,5·kız + 3·program + s_g + N(0, 8²), bir ondalığa yuvarlanır: programın
+  gerçek etkisi 3 puandır. Program okul düzeyinde atandığı ve okul etkisi ortak olduğu için öğrenci düzeyindeki
+  bootstrap belirsizliği küçük gösterir.
+
+Konut verisi (Konu 11; ``n`` = 800 daire, tohum 807):
+
+* alan (m²) = 40 + Gamma(şekil 3, ölçek 25), tam sayıya yuvarlanır; oda sayısı = min(1 + ⌊alan/40⌋, 6); bina yaşı ~
+  Tam sayı[0, 40]; kat ~ Tam sayı[0, 12]; merkeze uzaklık (km) = Gamma(şekil 2, ölçek 3), bir ondalığa yuvarlanır; asansör ~
+  Bernoulli(0,4 + 0,4·1{kat ≥ 4}); otopark ~ Bernoulli(0,45); manzara ~ Bernoulli(0,15); ilçe altı ilçeden biri (A–F,
+  eşit olasılıkla); ısıtma Kombi, Merkezi ya da Soba (olasılıklar 0,60; 0,25; 0,15; ayrı bir üreteçle, tohum (807, 11));
+* log fiyat = 7,4 + 0,85·log(alan/100) + 0,04·oda − 0,012·yaş + 0,00015·yaş² − 0,035·uzaklık + 0,10·asansör + 0,06·otopark
+  + 0,22·manzara + 0,015·kat·asansör + ilçe etkisi (A 0, B 0,10, C −0,08, D 0,18, E −0,15, F 0,05) + ısıtma etkisi
+  (Kombi 0, Merkezi 0,04, Soba −0,12) + N(0, 0,20²);
+* satış fiyatı (bin TL) = exp(log fiyat), bir ondalığa yuvarlanır. Doğrusal olmayan terimler (log alan, yaş², kat ×
+  asansör) gerçek modelde vardır; basit doğrusal model onları kaçırır.
+
+Kurs verisi (Konu 12; 50 firma × 30 çalışan = 1.500 çalışan, tohum 807):
+
+* yaş ~ Tam sayı[22, 60]; eğitim yılı ∈ {8, 11, 12, 14, 16} (eşit olasılıkla); kadın ~ Bernoulli(0,45); firma etkisi
+  f_g ~ N(0, 0,15²);
+* önceki log kazanç p = 2,5 + 0,06·(eğitim − 12) + 0,02·(yaş − 40) − 0,0008·(yaş − 40)² + N(0, 0,3²);
+* P(kursa katıldı) = Λ(−0,8 + 3·(p − 2,5)² + 0,04·(eğitim − 12) − 0,02·(yaş − 40)), Λ lojistik: önceki kazancı 2,5'ten
+  uzak (çok düşük ya da çok yüksek) olanlar kursa daha çok katılır;
+* log kazanç = 0,3 + 0,9·p + 1,0·(p − 2,5)² + 0,03·(eğitim − 12) − 0,05·kadın + 0,08·kurs + f_g + N(0, 0,25²): kursun
+  gerçek etkisi 0,08'dir. Katılım ve kazanç önceki kazancın aynı kare terimine bağlıdır: önceki kazancı doğrusal giren
+  OLS yukarı yanlıdır, kare terimleri içeren esnek ayarlama (DML) yanlılığı büyük ölçüde giderir. Bütün karıştırıcılar
+  gözlenir (koşullu bağımsızlık bu kurgusal veride doğrudur).
 """
 
 from __future__ import annotations
@@ -198,3 +239,108 @@ def calisma_verisi(schools: int = 40, students: int = 20, seed: int = SEED) -> p
     effect = rng.normal(0, 5, schools)[school - 1]
     score = np.round(35 + 2.4 * hours - 0.05 * hours ** 2 + effect + rng.normal(0, 7, len(school)), 1)
     return pd.DataFrame({"Sınav puanı": score, "Haftalık çalışma saati": hours, "Okul": school})
+
+
+def burs_verisi(schools: int = 40, students: int = 30, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal bursluluk sınavı verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    school = np.repeat(np.arange(1, schools + 1), students)
+    score_effect = rng.normal(0, 6, schools)[school - 1]
+    grade_effect = rng.normal(0, 0.25, schools)[school - 1]
+    score = np.clip(np.round(69 + score_effect + rng.normal(0, 12, len(school))), 20, 100)
+    scholarship = (score >= 70).astype(float)
+    gpa = np.round(np.clip(1.2 + 0.025 * score + 0.20 * scholarship + grade_effect
+                           + rng.normal(0, 0.35, len(school)), 0, 4), 2)
+    return pd.DataFrame({
+        "Mezuniyet not ortalaması": gpa,
+        "Sınav puanı": score.astype(int),
+        "Burs aldı": np.where(scholarship == 1, "Evet", "Hayır"),
+        "Okul": school,
+        "Öğrenci no": np.arange(1, len(school) + 1),
+    })
+
+
+def sinif_verisi(schools: int = 30, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal okul düzeyinde program verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    sizes = rng.integers(18, 33, size=schools)
+    school = np.repeat(np.arange(1, schools + 1), sizes)
+    program = np.zeros(schools, dtype=int)
+    program[rng.choice(schools, size=schools // 2, replace=False)] = 1
+    effect = rng.normal(0, 6, schools)[school - 1]
+    n = len(school)
+    baseline = np.round(50 + rng.normal(0, 10, n), 1)
+    girl = (rng.random(n) < 0.5).astype(int)
+    score = np.round(20 + 0.6 * baseline + 1.5 * girl + 3 * program[school - 1] + effect + rng.normal(0, 8, n), 1)
+    return pd.DataFrame({
+        "Matematik puanı": score,
+        "Program (1/0)": program[school - 1],
+        "Başlangıç puanı": baseline,
+        "Kız (1/0)": girl,
+        "Okul": school,
+    })
+
+
+def konut_verisi(n: int = 800, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal konut verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    area = np.round(40 + rng.gamma(3.0, 25.0, size=n))
+    rooms = np.clip(1 + np.floor(area / 40), 1, 6)
+    age = rng.integers(0, 41, size=n)
+    floor = rng.integers(0, 13, size=n)
+    distance = np.round(rng.gamma(2.0, 3.0, size=n), 1)
+    lift = (rng.random(n) < 0.4 + 0.4 * (floor >= 4)).astype(int)
+    parking = (rng.random(n) < 0.45).astype(int)
+    view = (rng.random(n) < 0.15).astype(int)
+    district = rng.choice(np.array(list("ABCDEF")), size=n)
+    effects = {"A": 0.0, "B": 0.10, "C": -0.08, "D": 0.18, "E": -0.15, "F": 0.05}
+    heating = np.random.default_rng([seed, 11]).choice(np.array(["Kombi", "Merkezi", "Soba"]), size=n,
+                                                       p=[0.60, 0.25, 0.15])
+    heating_effects = {"Kombi": 0.0, "Merkezi": 0.04, "Soba": -0.12}
+    log_price = (7.4 + 0.85 * np.log(area / 100) + 0.04 * rooms - 0.012 * age + 0.00015 * age**2 - 0.035 * distance
+                 + 0.10 * lift + 0.06 * parking + 0.22 * view + 0.015 * floor * lift
+                 + np.array([effects[d] for d in district]) + np.array([heating_effects[h] for h in heating])
+                 + rng.normal(0, 0.20, size=n))
+    return pd.DataFrame({
+        "Satış fiyatı (bin TL)": np.round(np.exp(log_price), 1),
+        "Alan (m²)": area.astype(int),
+        "Oda sayısı": rooms.astype(int),
+        "Bina yaşı": age,
+        "Kat": floor,
+        "Merkeze uzaklık (km)": distance,
+        "Asansör (1/0)": lift,
+        "Otopark (1/0)": parking,
+        "Manzara (1/0)": view,
+        "İlçe": district,
+        "Isıtma": heating,
+    })
+
+
+def kurs_verisi(firms: int = 50, workers: int = 30, seed: int = SEED) -> pd.DataFrame:
+    """Kurgusal mesleki kurs verisi (yukarıdaki DGP); sütun adları Excel'deki gibi Türkçedir."""
+
+    rng = np.random.default_rng(seed)
+    firm = np.repeat(np.arange(1, firms + 1), workers)
+    n = len(firm)
+    age = rng.integers(22, 61, size=n)
+    education = rng.choice(np.array((8, 11, 12, 14, 16)), size=n)
+    female = (rng.random(n) < 0.45).astype(int)
+    effect = rng.normal(0, 0.15, firms)[firm - 1]
+    previous = (2.5 + 0.06 * (education - 12) + 0.02 * (age - 40) - 0.0008 * (age - 40) ** 2
+                + rng.normal(0, 0.3, size=n))
+    index = -0.8 + 3.0 * (previous - 2.5) ** 2 + 0.04 * (education - 12) - 0.02 * (age - 40)
+    course = (rng.random(n) < 1.0 / (1.0 + np.exp(-index))).astype(int)
+    earnings = (0.3 + 0.9 * previous + 1.0 * (previous - 2.5) ** 2 + 0.03 * (education - 12) - 0.05 * female
+                + 0.08 * course + effect + rng.normal(0, 0.25, size=n))
+    return pd.DataFrame({
+        "Log kazanç": np.round(earnings, 4),
+        "Kursa katıldı (1/0)": course,
+        "Önceki log kazanç": np.round(previous, 4),
+        "Yaş": age,
+        "Eğitim yılı": education,
+        "Kadın (1/0)": female,
+        "Firma": firm,
+    })

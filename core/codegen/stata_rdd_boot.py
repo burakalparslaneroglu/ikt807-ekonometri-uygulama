@@ -9,7 +9,7 @@ Stata'nın rastgele sayı üreteci farklı olduğu için bootstrap sonuçları d
 
 from __future__ import annotations
 
-from core.codegen.python_rdd_boot import KERNEL_NAMES, SCALE_NAMES, rdd_comment
+from core.codegen.python_rdd_boot import KERNEL_NAMES, SCALE_NAMES, rdd_comment, standard_error_text
 from core.labs import expr as E
 from core.labs.runner import CI_MULTIPLIER, bootstrap_key, uses_replicate_se
 from core.labs.spec import BOOT, OLS, RDD, Bootstrap, RDDTable, ScalarTable
@@ -102,6 +102,140 @@ CURVE_HELPER = [
     "end",
 ]
 
+RDD_CLUSTER_HELPER = [
+    "* Keskin RDD: eşikte yerel doğrusal sıçrama (D katsayısı), ağırlıklı EKK. SH: kume() verilmezse HC1",
+    "* (vce(robust)), verilirse küme-dayanıklı (vce(cluster), G/(G−1)·(n−1)/(n−k)). Pozitif ağırlıklı",
+    "* gözlemlerde y'nin D = 1{x >= c}, R = x - c ve DR = D·R üzerine regresyonu. Hansen ölçeği: çekirdek",
+    "* birim varyanslıdır ve h çekirdeğin standart sapmasıdır; üçgen çekirdekte ağırlık eşikten h√6,",
+    "* dikdörtgende h√3 uzaklıkta sıfırlanır. olcek(pencere): h pencerenin yarı genişliğidir. D, R, DR ve",
+    "* rdd_w her çağrıda yeniden oluşturulur.",
+    "capture program drop rdd_yd",
+    "program define rdd_yd",
+    "    syntax varlist(min=2 max=2 numeric), esik(real) h(real) [cekirdek(string) olcek(string) kume(varname)]",
+    "    gettoken y x : varlist",
+    "    local pencere = `h'",
+    "    if \"`olcek'\" != \"pencere\" {",
+    "        local pencere = `h' * sqrt(cond(\"`cekirdek'\" == \"dikdortgen\", 3, 6))",
+    "    }",
+    "    local vce robust",
+    "    if \"`kume'\" != \"\" {",
+    "        local vce cluster `kume'",
+    "    }",
+    "    capture drop D R DR rdd_w",
+    "    quietly generate double R = `x' - `esik' if !missing(`x', `y')",
+    "    quietly generate double D = (R >= 0) if !missing(R)",
+    "    quietly generate double DR = D * R",
+    "    if \"`cekirdek'\" == \"dikdortgen\" {",
+    "        quietly generate double rdd_w = (abs(R) <= `pencere') if !missing(R)",
+    "    }",
+    "    else {",
+    "        quietly generate double rdd_w = max(1 - abs(R) / `pencere', 0) if !missing(R)",
+    "    }",
+    "    quietly regress `y' D R DR [aweight = rdd_w] if rdd_w > 0 & !missing(rdd_w), vce(`vce')",
+    "end",
+]
+
+CURVE_CLUSTER_HELPER = [
+    "* RDD grafiği: eşiğin iki yanında ayrı yerel doğrusal tahmin ve noktasal %95 güven bandı. Her nokta x0",
+    "* için yalnız o taraftaki gözlemlerle üçgen çekirdekli (pencere ±h√6) ağırlıklı EKK'nin sabit terimi:",
+    "* (S2·T0 − S1·T1)/(S0·S2 − S1²); SH o yerel regresyonun HC1 sandviçi (k/(k−2) çarpanıyla). Küme",
+    "* değişkeni verilirse (gad) skorlar kümelerde toplanır, çarpan G/(G−1)·(k−1)/(k−2) olur (G o noktada",
+    "* pozitif ağırlıklı küme sayısı); küme yoksa gad \"\" verilir. rdd_egrisi() ilk n0 satırdaki veriyi",
+    "* kullanır ve sonuçları sonraki 2×nokta satıra yazar: <önek>_x, <önek>_m (tahmin), <önek>_alt,",
+    "* <önek>_ust ve <önek>_sag (0: eşiğin solu, 1: sağı).",
+    "capture mata: mata drop rdd_taraf()",
+    "capture mata: mata drop rdd_egrisi()",
+    "mata:",
+    "real matrix rdd_taraf(real colvector x, real colvector y, real colvector g, real colvector p, real scalar pencere)",
+    "{",
+    "    real matrix sonuc, info",
+    "    real colvector o, xs, ys, gs, d, w, e, ed, u",
+    "    real scalar i, j, k, G, s0, s1, s2, t0, t1, det, a, b, m00, m01, m11, ea, eb",
+    "    sonuc = J(rows(p), 2, .)",
+    "    xs = x",
+    "    ys = y",
+    "    if (rows(g) > 0) {",
+    "        o = order(g, 1)",
+    "        xs = x[o]",
+    "        ys = y[o]",
+    "        gs = g[o]",
+    "        info = panelsetup(gs, 1)",
+    "    }",
+    "    for (i = 1; i <= rows(p); i++) {",
+    "        d = xs :- p[i]",
+    "        w = 1 :- abs(d) :/ pencere",
+    "        w = w :* (w :> 0)",
+    "        k = sum(w :> 0)",
+    "        if (k > 2) {",
+    "            s0 = sum(w)",
+    "            s1 = sum(w :* d)",
+    "            s2 = sum(w :* d :* d)",
+    "            t0 = sum(w :* ys)",
+    "            t1 = sum(w :* d :* ys)",
+    "            det = s0 * s2 - s1^2",
+    "            a = (s2 * t0 - s1 * t1) / det",
+    "            b = (s0 * t1 - s1 * t0) / det",
+    "            e = w :* (ys :- a :- b :* d)",
+    "            sonuc[i, 1] = a",
+    "            if (rows(g) == 0) {",
+    "                u = e:^2",
+    "                sonuc[i, 2] = sqrt((s2^2 * sum(u) - 2 * s1 * s2 * sum(u :* d) + s1^2 * sum(u :* d :* d)) / det^2 * k / (k - 2))",
+    "            }",
+    "            else {",
+    "                ed = e :* d",
+    "                m00 = 0",
+    "                m01 = 0",
+    "                m11 = 0",
+    "                G = 0",
+    "                for (j = 1; j <= rows(info); j++) {",
+    "                    ea = sum(e[|info[j, 1] \\ info[j, 2]|])",
+    "                    eb = sum(ed[|info[j, 1] \\ info[j, 2]|])",
+    "                    m00 = m00 + ea^2",
+    "                    m01 = m01 + ea * eb",
+    "                    m11 = m11 + eb^2",
+    "                    G = G + (sum(w[|info[j, 1] \\ info[j, 2]|] :> 0) > 0)",
+    "                }",
+    "                if (G > 1) {",
+    "                    sonuc[i, 2] = sqrt((s2^2 * m00 - 2 * s1 * s2 * m01 + s1^2 * m11) / det^2 * G / (G - 1) * (k - 1) / (k - 2))",
+    "                }",
+    "                else {",
+    "                    sonuc[i, 1] = .",
+    "                }",
+    "            }",
+    "        }",
+    "    }",
+    "    return(sonuc)",
+    "}",
+    "",
+    "void rdd_egrisi(string scalar xad, string scalar yad, string scalar gad, real scalar n0, real scalar esik, real scalar pencere, real scalar alt, real scalar ust, real scalar nokta, string scalar onek)",
+    "{",
+    "    real matrix A, L, S",
+    "    real colvector sol, sag, pl, pr, gl, gr",
+    "    string rowvector adlar",
+    "    if (gad == \"\") A = st_data((1, n0), (xad, yad))",
+    "    else A = st_data((1, n0), (xad, yad, gad))",
+    "    A = select(A, rowmissing(A) :== 0)",
+    "    if (missing(alt)) alt = min(A[., 1])",
+    "    if (missing(ust)) ust = max(A[., 1])",
+    "    sol = selectindex(A[., 1] :< esik)",
+    "    sag = selectindex(A[., 1] :>= esik)",
+    "    gl = J(0, 1, .)",
+    "    gr = J(0, 1, .)",
+    "    if (gad != \"\") {",
+    "        gl = A[sol, 3]",
+    "        gr = A[sag, 3]",
+    "    }",
+    "    pl = rangen(alt, esik, nokta)",
+    "    pr = rangen(esik, ust, nokta)",
+    "    L = rdd_taraf(A[sol, 1], A[sol, 2], gl, pl, pencere) \\ rdd_taraf(A[sag, 1], A[sag, 2], gr, pr, pencere)",
+    f"    S = ((pl \\ pr), L[., 1], (L[., 1] - {CI_MULTIPLIER} :* L[., 2]), (L[., 1] + {CI_MULTIPLIER} :* L[., 2]), (J(nokta, 1, 0) \\ J(nokta, 1, 1)))",
+    "    adlar = (onek + \"_x\", onek + \"_m\", onek + \"_alt\", onek + \"_ust\", onek + \"_sag\")",
+    "    (void) st_addvar(\"double\", adlar)",
+    "    st_store(((n0 + 1), (n0 + 2 * nokta)), adlar, S)",
+    "}",
+    "end",
+]
+
 _METHOD_COMMENTS = {
     "pairs": "Pairs bootstrap: gözlem satırları yerine koyarak çekilir (bsample); model her tekrarda baştan tahmin edilir.",
     "wild": "Wild bootstrap: regresörler sabit; y* = xb + e·ξ, ξ Rademacher (±1, eşit olasılıkla).",
@@ -135,6 +269,8 @@ def operation(gen, op, command) -> list[str] | None:
             options += f" cekirdek({KERNEL_NAMES[op.kernel]})"
         if op.scale != "hansen":
             options += f" olcek({SCALE_NAMES[op.scale]})"
+        if op.cluster:
+            options += f" kume({op.cluster})"
         return [
             f"* {rdd_comment(op)}",
             *command(f"rdd_yd {op.y} {op.x}, {options}"),
@@ -142,7 +278,7 @@ def operation(gen, op, command) -> list[str] | None:
             f"estimates table {op.name}, keep(D) b(%9.4f) se(%9.4f) stats(N)",
         ]
     if isinstance(op, RDDTable):
-        return _rdd_table(op)
+        return _rdd_table(op, standard_error_text(gen, [model for _, model in op.rows]))
     if isinstance(op, Bootstrap):
         return _bootstrap(gen, op, command)
     if isinstance(op, ScalarTable):
@@ -158,14 +294,14 @@ def operation(gen, op, command) -> list[str] | None:
     return None
 
 
-def _rdd_table(op: RDDTable) -> list[str]:
+def _rdd_table(op: RDDTable, kind: str = "HC1 SH") -> list[str]:
     count = len(op.rows)
     table = op.result
     models = " ".join(model for _, model in op.rows)
     values = " ".join(_number(h) for h, _ in op.rows)
     multiplier = CI_MULTIPLIER
     return [
-        f"* Bant genişliği duyarlılığı: her h için sıçrama, HC1 SH ve %95 güven aralığı (tahmin ± {multiplier}·SH)",
+        f"* Bant genişliği duyarlılığı: her h için sıçrama, {kind} ve %95 güven aralığı (tahmin ± {multiplier}·SH)",
         f"local modeller {models}",
         f"local h_degerleri {values}",
         f"matrix {table} = J({count}, 6, .)",
@@ -186,7 +322,7 @@ def _rdd_table(op: RDDTable) -> list[str]:
         f"    scalar {table}_alt_`h' = _b[D] - {multiplier}*_se[D]",
         f"    scalar {table}_ust_`h' = _b[D] + {multiplier}*_se[D]",
         "}",
-        f"matrix list {table}, format(%9.2f)",
+        f"matrix list {table}, format(%9.{op.decimals}f)",
         "preserve",
         "clear",
         f"quietly svmat double {table}, names(col)",

@@ -16,6 +16,10 @@ from core.labs import (
     ornek_konu06,
     ornek_konu07,
     ornek_konu08,
+    ornek_konu09,
+    ornek_konu10,
+    ornek_konu11,
+    ornek_konu12,
 )
 from core.labs.ornek import TopicVariants
 
@@ -28,6 +32,10 @@ VARIANTS: dict[str, TopicVariants] = {
     "konu06": ornek_konu06.VARIANTS,
     "konu07": ornek_konu07.VARIANTS,
     "konu08": ornek_konu08.VARIANTS,
+    "konu09": ornek_konu09.VARIANTS,
+    "konu10": ornek_konu10.VARIANTS,
+    "konu11": ornek_konu11.VARIANTS,
+    "konu12": ornek_konu12.VARIANTS,
 }
 
 
