@@ -406,7 +406,8 @@ QUESTIONS = (
         ),
         explanation=(
             "Yaklaşık yorum $100\\,b$'dir ve küçük $b$ için iyi çalışır. Kesin dönüşüm $100\\{e^{b}-1\\}$'dir: "
-            "$b=0{,}1148$ için %12,16, $b=-0{,}2596$ için %−22,87 (§1.13.10; Uygulama, Adım 6)."
+            "Model (3)'ün yuvarlanmamış katsayılarıyla eğitimde %12,16, kadın göstergesinde %−22,87; "
+            "tablodaki yuvarlanmış $b=-0{,}2596$ ile hesap %−22,86 verir (§1.13.10; Uygulama, Adım 6)."
         ),
     ),
 )
