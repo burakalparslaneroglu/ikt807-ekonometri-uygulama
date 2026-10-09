@@ -174,22 +174,22 @@ QUESTIONS = (
         key="k08", concept="ols-projeksiyonun-orneklem-karsiligi", note=_note("1.8"),
         prompt=(
             r"Anakütle projeksiyon katsayısı $\beta=(\mathbb{E}[XX'])^{-1}\mathbb{E}[XY]$ ise örneklem "
-            r"karşılığı olan OLS tahmin edicisi hangisidir? ($\mathbf{X}$: $n\times k$ regresör matrisi, "
-            r"$\mathbf{Y}$: $n\times 1$ vektör)"
+            r"karşılığı olan OLS tahmin edicisi hangisidir? ($\boldsymbol{X}$: $n\times k$ regresör matrisi, "
+            r"$\boldsymbol{Y}$: $n\times 1$ vektör)"
         ),
         answer=MultipleChoice(
             (
-                r"$(\mathbf{X}'\mathbf{X})^{-1}\mathbf{X}'\mathbf{Y}$",
-                r"$(\mathbf{X}\mathbf{X}')^{-1}\mathbf{X}\mathbf{Y}$",
-                r"$\mathbf{X}'\mathbf{Y}\,(\mathbf{X}'\mathbf{X})$",
-                r"$(\mathbf{X}'\mathbf{Y})^{-1}\mathbf{X}'\mathbf{X}$",
+                r"$(\boldsymbol{X}'\boldsymbol{X})^{-1}\boldsymbol{X}'\boldsymbol{Y}$",
+                r"$(\boldsymbol{X}\boldsymbol{X}')^{-1}\boldsymbol{X}\boldsymbol{Y}$",
+                r"$\boldsymbol{X}'\boldsymbol{Y}\,(\boldsymbol{X}'\boldsymbol{X})$",
+                r"$(\boldsymbol{X}'\boldsymbol{Y})^{-1}\boldsymbol{X}'\boldsymbol{X}$",
             ),
             correct=0,
         ),
         explanation=(
-            r"Beklentiler örneklem ortalamalarıyla değiştirilir: $\mathbb{E}[XX']\to n^{-1}\mathbf{X}'\mathbf{X}$, "
-            r"$\mathbb{E}[XY]\to n^{-1}\mathbf{X}'\mathbf{Y}$; $n^{-1}$'ler sadeleşir (§1.8). İkinci "
-            r"seçenekte $\mathbf{X}\mathbf{X}'$ $n\times n$ boyutludur ve $n>k$ iken terslenemez."
+            r"Beklentiler örneklem ortalamalarıyla değiştirilir: $\mathbb{E}[XX']\to n^{-1}\boldsymbol{X}'\boldsymbol{X}$, "
+            r"$\mathbb{E}[XY]\to n^{-1}\boldsymbol{X}'\boldsymbol{Y}$; $n^{-1}$'ler sadeleşir (§1.8). İkinci "
+            r"seçenekte $\boldsymbol{X}\boldsymbol{X}'$ $n\times n$ boyutludur ve $n>k$ iken terslenemez."
         ),
     ),
     # --- Doğru–yanlış -------------------------------------------------------------
@@ -208,17 +208,17 @@ QUESTIONS = (
         prompt="Sabit terim içeren bir OLS regresyonunda artıkların örneklem toplamı, doğrusal model yanlış olsa bile sıfırdır.",
         answer=TrueFalse(True),
         explanation=(
-            r"Normal denklemler $\mathbf{X}'\hat e=0$'ın sabit terime karşılık gelen satırı "
+            r"Normal denklemler $\boldsymbol{X}'\widehat{\boldsymbol e}=0_k$'ın sabit terime karşılık gelen satırı "
             r"$\sum_i \hat e_i=0$'dır. Bu bir cebir sonucudur, modelin doğruluğuna bağlı değildir "
             "(§1.8.2; Sezgi, Deney 2)."
         ),
     ),
     Question(
         key="d03", concept="orneklem-ortogonalligi-kanit-degildir", note=_note("1.8.2"),
-        prompt=r"Örneklemde $\mathbf{X}'\hat e=0$ sağlandığına göre anakütlede $\mathbb{E}[e\mid X]=0$ olduğu gösterilmiş olur.",
+        prompt=r"Örneklemde $\boldsymbol{X}'\widehat{\boldsymbol e}=0_k$ sağlandığına göre anakütlede $\mathbb{E}[e\mid X]=0$ olduğu gösterilmiş olur.",
         answer=TrueFalse(False),
         explanation=(
-            r"$\mathbf{X}'\hat e=0$ her örneklemde OLS'nin tanımı gereği sağlanır; hiçbir şey kanıtlamaz. "
+            r"$\boldsymbol{X}'\widehat{\boldsymbol e}=0_k$ her örneklemde OLS'nin tanımı gereği sağlanır; hiçbir şey kanıtlamaz. "
             r"$\mathbb{E}[Xe]=0$ projeksiyon özelliğidir; $\mathbb{E}[e\mid X]=0$ ise daha güçlü olan doğrusal "
             "koşullu ortalama varsayımıdır. Sezgi Deney 2'de eğrilik varken normal denklemler sağlandığı "
             "halde artık ortalamalarının U biçimli olduğunu görebilirsiniz (§1.8.2)."

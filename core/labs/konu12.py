@@ -143,7 +143,7 @@ STEPS = (
             "arasını tutar."
         ),
         code_note=(
-            "Lasso yazılım ölçeğinde, $\\lambda\\in[10^{-3},10]$ aralığında 41 noktalı logaritmik ızgarada iç CV "
+            "Lasso yazılım ölçeğinde, $\\lambda_y\\in[10^{-3},10]$ aralığında 41 noktalı logaritmik ızgarada iç CV "
             "hatasını en küçük yapan cezadır; özellikler her eğitim katında ölçeklenir. Python `enet_path`, R `glmnet`, "
             "Stata kodda yazılı Mata koordinat inişi aynı optimuma yakınsar. scikit-learn'deki `GroupKFold` okulları "
             "büyüklüklerine göre dengeler; eşit büyüklükteki okulların hangi kata gideceği kütüphanenin sıralama "
@@ -195,7 +195,7 @@ STEPS = (
             "katlara dağılımı değişmiştir, veri, öğrenici ve kat sayısı aynıdır. On bir bölme Chernozhukov vd. (2018) "
             "gibi birleştirilir:\n\n"
             "$$\\widehat\\theta_{med}=\\operatorname{medyan}_s\\widehat\\theta_s,\\qquad "
-            "\\widehat\\sigma^2_{med}=\\operatorname{medyan}_s\\{\\widehat\\sigma_s^2+(\\widehat\\theta_s-"
+            "\\widehat V_{\\widehat\\theta,med}=\\operatorname{medyan}_s\\{\\widehat V_{\\widehat\\theta,s}+(\\widehat\\theta_s-"
             "\\widehat\\theta_{med})^2\\}.$$"
         ),
         operations=(

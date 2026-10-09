@@ -346,7 +346,7 @@ ALT_TEXTS = {
         "ayarlama burada hassasiyetin yanında koşullu bağımsızlık varsayımını desteklemek için de yapılır.",
     ),
     3: (
-        "**Ham fark:** $thefts_{bt}=\\alpha+\\tau\\,sameblock_b+e_{bt}$, saldırı sonrası aylar. **Kovaryat ayarlı** "
+        "**Ham fark:** $thefts_{bt}=\\alpha+\\theta\\,sameblock_b+e_{bt}$, saldırı sonrası aylar. **Kovaryat ayarlı** "
         "model bloğun saldırı öncesi ortalamasını, kamu binası, benzin istasyonu ve banka göstergelerini ve iki mahalle "
         "göstergesini ekler. İki modelde de standart hatalar blok düzeyinde kümelenir; değişkenlerde eksik değer "
         "olmadığı için iki sütunun örneklemi aynıdır (4.380 blok-ay).",

@@ -102,13 +102,13 @@ QUESTIONS = (
             "Uyumluların (compliers)",
         ), correct=2),
         explanation=(
-            "Monotonluk $P\\{D(1)-D(0)<0\\}=0$ demektir: araç kimsenin tedavi alma olasılığını düşürmez. Defier olsaydı "
+            "Monotonluk $P\\{D_1-D_0<0\\}=0$ demektir: araç kimsenin tedavi alma olasılığını düşürmez. Defier olsaydı "
             "Wald oranı uyumluların etkisinden farklı bir karışımı ölçerdi (§4.12)."
         ),
     ),
     Question(
         key="k06", concept="xhat-anlami", note=_note("4.7"),
-        prompt="2SLS'de $\\widehat X=P_ZX$ neyi temsil eder?",
+        prompt="2SLS'de $\\widehat{\\boldsymbol X}=\\boldsymbol P_Z\\boldsymbol X$ neyi temsil eder?",
         answer=MultipleChoice((
             "$X$'in araçlar ve dışsal kontroller tarafından açıklanan bileşenini",
             "$X$'in yapısal hatayla ilişkili kısmını",
@@ -228,7 +228,7 @@ QUESTIONS = (
             "uyumlular (compliers)",
         ),)),
         explanation=(
-            "$D(1)=1$, $D(0)=0$. Monotonluk ve diğer IV koşulları altında Wald oranı bu grubun ortalama etkisini, "
+            "$D_1=1$, $D_0=0$. Monotonluk ve diğer IV koşulları altında Wald oranı bu grubun ortalama etkisini, "
             "LATE'i verir (§4.12)."
         ),
     ),
@@ -336,7 +336,7 @@ QUESTIONS = (
         key="f04", concept="ate-tip-karisimi", note=_note("4.12"),
         prompt=(
             "Anakütlede her zaman alan, uyumlu ve hiç almayan payları $p_a$, $p_c$, $p_n$; ortalama etkileri "
-            "$\\tau_a$, $\\tau_c$, $\\tau_n$ olsun (defier yok). ATE'yi yazın."
+            "$\\theta_a$, $\\theta_c$, $\\theta_n$ olsun (defier yok). ATE'yi yazın."
         ),
         answer=Equation(
             lhs="ATE",
@@ -344,15 +344,18 @@ QUESTIONS = (
                 Symbol("pa", "p_a", "her zaman alan payı", 0.05, 0.4, aliases=("p_a",)),
                 Symbol("pc", "p_c", "uyumlu payı", 0.1, 0.6, aliases=("p_c",)),
                 Symbol("pn", "p_n", "hiç almayan payı", 0.05, 0.4, aliases=("p_n",)),
-                Symbol("ta", r"\tau_a", "her zaman alanların etkisi", -1.0, 2.0, aliases=("τ_a", "τa", "tau_a")),
-                Symbol("tc", r"\tau_c", "uyumluların etkisi", -1.0, 2.0, aliases=("τ_c", "τc", "tau_c")),
-                Symbol("tn", r"\tau_n", "hiç almayanların etkisi", -1.0, 2.0, aliases=("τ_n", "τn", "tau_n")),
+                Symbol("ta", r"\theta_a", "her zaman alanların etkisi", -1.0, 2.0,
+                       aliases=("θ_a", "θa", "theta_a", "τ_a", "τa", "tau_a")),
+                Symbol("tc", r"\theta_c", "uyumluların etkisi", -1.0, 2.0,
+                       aliases=("θ_c", "θc", "theta_c", "τ_c", "τc", "tau_c")),
+                Symbol("tn", r"\theta_n", "hiç almayanların etkisi", -1.0, 2.0,
+                       aliases=("θ_n", "θn", "theta_n", "τ_n", "τn", "tau_n")),
             ),
             answer="pa*ta + pc*tc + pn*tn",
-            shown=r"ATE=p_a\tau_a+p_c\tau_c+p_n\tau_n",
+            shown=r"ATE=p_a\theta_a+p_c\theta_c+p_n\theta_n",
         ),
         explanation=(
-            "ATE bütün tiplerin ağırlıklı ortalamasıdır; IV ise yalnız $\\tau_c$'yi (LATE) tanımlar. İkisi ancak etkiler "
+            "ATE bütün tiplerin ağırlıklı ortalamasıdır; IV ise yalnız $\\theta_c$'yi (LATE) tanımlar. İkisi ancak etkiler "
             "tipler arasında aynıysa çakışır; Sezgi Deney 3'te karşılaştırın (§4.12)."
         ),
     ),

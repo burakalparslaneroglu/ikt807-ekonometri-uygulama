@@ -157,7 +157,7 @@ def _selection_dgp(p: Parameters) -> tuple[str, ...]:
         r"X,\,Z,\,u,\,v\sim N(0,1)\ \text{bağımsız}, \qquad e=\rho u+\sqrt{1-\rho^2}\,v",
         rf"Y^*=1+2X+e, \qquad S=\mathbf 1\{{0{{,}}2+0{{,}}8X+\gamma_Z Z+u>0\}}, \quad \rho={number(p['rho'], 2)}, \ "
         rf"\gamma_Z={number(p['gz'], 2)}",
-        r"Y=Y^*\ \text{yalnız } S=1 \text{ iken}, \qquad \mathbb E[Y\mid X,Z,S=1]=1+2X+\rho\,\lambda(Z'\gamma)",
+        r"Y=Y^*\ \text{yalnız } S=1 \text{ iken}, \qquad \mathbb E[Y\mid X,Z,S=1]=1+2X+\rho\,\lambda(0{,}2+0{,}8X+\gamma_Z Z)",
     )
 
 
@@ -186,7 +186,7 @@ def _selection_metrics(state: LabState, p: Parameters) -> tuple[SimMetric, ...]:
         SimMetric("Naif OLS eğimi", plain(float(state.models["naif"].params["x"]), 3), "Gerçek eğim 2."),
         SimMetric("Heckman eğimi", plain(float(heckman["x"]), 3), "Seçim düzeltmeli sonuç denklemi."),
         SimMetric("λ̂ katsayısı", plain(float(heckman["mills"]), 3),
-                  f"σ_eu = Cov(e, u)'yu tahmin eder; DGP'de ρ = {plain(p['rho'], 2)}."),
+                  f"σ₂₁ = Cov(e, u)'yu tahmin eder; DGP'de ρ = {plain(p['rho'], 2)}."),
         SimMetric("Corr(λ̂, X | S = 1)", plain(mills_correlation(state), 3),
                   "Seçilmiş örneklemde ters Mills oranı ile X'in korelasyonu; 1'e yaklaştıkça tanımlama kırılganlaşır."),
     )
@@ -234,7 +234,7 @@ SELECTION = SimExperiment(
     dgp_note=(
         "Varsayılan ayarlar (n = 10.000, ρ = 0,6, γ_Z = 0,6, tohum 807) notlardaki Tablo 6.3'ün benzetimidir. Birinci "
         "aşama tam örneklemde Probit, ikinci aşama yalnız S = 1 gözlemlerinde X ve λ̂ ile OLS'dir. λ̂'nın katsayısı "
-        "σ_eu = Cov(e, u) = ρ'yu tahmin eder (Var(u) = 1)."
+        "σ₂₁ = Cov(e, u) = ρ'yu tahmin eder (Var(u) = 1)."
     ),
     look_at=(
         "**Grafik** — gerçek sonuç denklemi (kesikli), seçilmiş örneklemde naif OLS doğrusu ve Heckman düzeltmesinin "

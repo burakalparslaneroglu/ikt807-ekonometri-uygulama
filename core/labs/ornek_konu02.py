@@ -306,7 +306,7 @@ ALT_TEXTS = {
     5: (
         "M3'te siyahi olmayanlar referans gruptur: eğitim katsayısı 0,0701 siyahi olmayanların eğimidir; etkileşim "
         "0,0182 ise siyahilerin eğiminin bundan farkıdır. Siyahiler için eğim bir **doğrusal birleşimdir**: "
-        "$0{,}0701+0{,}0182\\approx0{,}088$. Standart hatası $\\sqrt{a'Va}$ ile, $a=(1,1)'$ ve $V$ HC1 kovaryans "
+        "$0{,}0701+0{,}0182\\approx0{,}088$. Standart hatası $\\sqrt{\\boldsymbol a'\\widehat{\\boldsymbol V}_{\\hat\\beta}\\boldsymbol a}$ ile, $\\boldsymbol a=(1,1)'$ (iki katsayıya ait HC1 kovaryans alt matrisiyle) ve $\\widehat{\\boldsymbol V}_{\\hat\\beta}$ ilgili HC1 kovaryans alt "
         "matrisi olmak üzere hesaplanır.",
         INTERACTION_RULE + " Etkileşimli modelde siyahi göstergesinin katsayısı (−0,4146) eğitim sıfırken iki grubun "
         "farkıdır; örneklemde eğitimi sıfır olan kimse yoktur, bu yüzden tek başına yorumlanmaz.",
@@ -491,7 +491,7 @@ def _own_texts(case: Case, plan: Plan, exact: bool) -> dict:
             "regresörleriyle açıklanabiliyor mu?", ""),
         (4, "not"): step4,
         5: (f"M3'te “{other}” referans gruptur. “{pick}” grubunun eğimi bir **doğrusal birleşimdir**: ana etki + "
-            "etkileşim. Standart hatası $\\sqrt{a'Va}$ ile, $a=(1,1)'$ ve $V$ HC1 kovaryans matrisi olmak üzere "
+            "etkileşim. Standart hatası $\\sqrt{\\boldsymbol a'\\widehat{\\boldsymbol V}_{\\hat\\beta}\\boldsymbol a}$ ile, $\\boldsymbol a=(1,1)'$ (iki katsayıya ait HC1 kovaryans alt matrisiyle) ve $\\widehat{\\boldsymbol V}_{\\hat\\beta}$ ilgili HC1 kovaryans alt matrisi olmak üzere "
             "hesaplanır.", INTERACTION_RULE),
         (5, "not"): step5,
         6: (HC1_EXPLAIN + (DELTA_EXPLAIN if plan.log else

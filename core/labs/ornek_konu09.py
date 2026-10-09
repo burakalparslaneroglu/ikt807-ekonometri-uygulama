@@ -329,12 +329,12 @@ def _model_text(plan: Plan) -> str:
     hs = ";\\,".join(_value(bw).replace(",", "{,}") for bw in plan.bandwidths)
     return (
         "Yerel doğrusal RDD, pencere içindeki gözlemlerde\n\n"
-        "$$Y_i=\\alpha+\\tau D_i+\\beta_1R_i+\\beta_2D_iR_i+u_i,\\qquad R_i=X_i-c,$$\n\n"
-        "regresyonunu çekirdek ağırlıklarıyla tahmin eder; $\\widehat\\tau$ eşikteki sıçramadır. Hansen çekirdekleri "
+        "$$Y_i=\\alpha+\\theta D_i+\\beta_1R_i+\\beta_2D_iR_i+u_i,\\qquad R_i=X_i-c,$$\n\n"
+        "regresyonunu çekirdek ağırlıklarıyla tahmin eder; $\\widehat\\theta$ eşikteki sıçramadır. Hansen çekirdekleri "
         "birim varyansa ölçekler: $h$ çekirdeğin standart sapmasıdır. Birim varyanslı üçgen çekirdek\n\n"
         "$$K(u)=\\frac{1}{\\sqrt6}\\Bigl(1-\\frac{|u|}{\\sqrt6}\\Bigr)\\mathbf 1\\{|u|\\le\\sqrt6\\}$$\n\n"
         "olup gözlem $i$'nin ağırlığı $K(R_i/h)$'dir: ağırlık eşikten $h\\sqrt6$ uzaklıkta sıfıra iner. $n_h$ pozitif "
-        f"ağırlık alan gözlem sayısıdır. {se}; güven aralığı $\\widehat\\tau\\pm1{{,}}96\\cdot\\text{{SH}}$'dir. Aynı "
+        f"ağırlık alan gözlem sayısıdır. {se}; güven aralığı $\\widehat\\theta\\pm1{{,}}96\\cdot\\text{{SH}}$'dir. Aynı "
         f"tahmin $h\\in\\{{{hs}\\}}$ için tekrarlanır."
     )
 
@@ -343,7 +343,7 @@ def _scale_text(plan: Plan, what: str) -> str:
     h = _value(plan.h_main)
     return (
         f"Eşikteki iki limit tahmini aynı regresyondan okunur: solda $\\widehat\\alpha$, sağda "
-        f"$\\widehat\\alpha+\\widehat\\tau$ ({what}). Aynı bant genişliğinin dikdörtgen çekirdek karşılığı "
+        f"$\\widehat\\alpha+\\widehat\\theta$ ({what}). Aynı bant genişliğinin dikdörtgen çekirdek karşılığı "
         f"$\\pm{h.replace(',', '{,}')}\\sqrt3$ genişliğinde bir penceredir; bu pencerede $D$, $R$ ve $D\\cdot R$ üzerine "
         f"basit EKK ikinci tahmini verir.\n\n"
         f"Aynı \"$h={h.replace(',', '{,}')}$\" pencerenin yarı genişliği olarak okunursa (ölçeklenmemiş üçgen çekirdek) "
@@ -655,8 +655,8 @@ def _own_texts(case: Case, plan: Plan) -> dict:
     _, chosen = _numbers(case)
     side = "sağında ($X\\ge c$)" if plan.right else "solunda ($X<c$)"
     sign = 1.0 if plan.right else -1.0
-    effect = ("Tedavi eşiğin sağında olduğu için tedavinin eşikteki etkisi $\\widehat\\tau$'dur." if plan.right else
-              "Tedavi eşiğin solunda olduğu için tedavinin eşikteki etkisi $-\\widehat\\tau$'dur: tablo sağ limitten sol "
+    effect = ("Tedavi eşiğin sağında olduğu için tedavinin eşikteki etkisi $\\widehat\\theta$'dur." if plan.right else
+              "Tedavi eşiğin solunda olduğu için tedavinin eşikteki etkisi $-\\widehat\\theta$'dur: tablo sağ limitten sol "
               "limiti çıkarır.")
     rule = (f"Ana bant genişliği sizin yazdığınız h = {h}'{ek(h, 'dir')}." if chosen else
             f"Ana bant genişliği önceden tanımlı bir kuralla h = {h} alındı: üçgen pencere $\\pm h\\sqrt6$ eşiğe en "
@@ -697,7 +697,7 @@ def _own_texts(case: Case, plan: Plan) -> dict:
     def step3(state) -> str:
         s, models = state.scalars, state.models
         rect, narrow = models["rdd_dikdortgen"], models["rdd_pencere"]
-        jump = ("Sıçrama $\\widehat\\tau$ (sağ limit − sol limit" + ("" if plan.right else "; tedavinin etkisi $-\\widehat\\tau$")
+        jump = ("Sıçrama $\\widehat\\theta$ (sağ limit − sol limit" + ("" if plan.right else "; tedavinin etkisi $-\\widehat\\theta$")
                 + ")")
         return (f"h = {h} iken eşiğin solunda tahmin {_sayi(float(s['sol']), d)}, sağında {_sayi(float(s['sag']), d)}. "
                 f"{jump}: aynı yerellikte dikdörtgen çekirdek "

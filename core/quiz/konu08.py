@@ -173,7 +173,7 @@ QUESTIONS = (
         prompt="Seri regresyonunda esneklik, örneklem büyüdükçe baz sayısı $K$'nın sabit tutulmasından gelir.",
         answer=TrueFalse(False),
         explanation=(
-            "Sabit $K$ için model sıradan OLS'tir; esneklik $K$'nın örneklemle birlikte artmasına izin verilmesinden gelir. "
+            "Sabit $K$ için model sıradan OLS'dir; esneklik $K$'nın örneklemle birlikte artmasına izin verilmesinden gelir. "
             "Çok küçük $K$ yetersiz, çok büyük $K$ aşırı uyum yaratır (§8.7)."
         ),
     ),
@@ -295,7 +295,7 @@ QUESTIONS = (
     Question(
         key="f02", concept="yerel-dogrusal-kapali-form", note=_note("8.4"),
         prompt=(
-            "$x$ noktasında $S_k=\\sum_iK_i(X_i-x)^k$ ve $T_k=\\sum_iK_i(X_i-x)^kY_i$ olsun. Yerel doğrusal tahmini "
+            "$x$ noktasında $K_i=K((X_i-x)/h)$ ağırlıklarıyla $S_k=\\sum_iK_i(X_i-x)^k$ ve $T_k=\\sum_iK_i(X_i-x)^kY_i$ olsun. Yerel doğrusal tahmini "
             "$\\hat m(x)=\\hat a(x)$'i $S_0,S_1,S_2,T_0,T_1$ cinsinden yazın."
         ),
         answer=Equation(
@@ -333,7 +333,8 @@ QUESTIONS = (
         ),
         explanation=(
             "$\\mathbb E[Y\\mid X]=\\theta\\,\\mathbb E[D\\mid X]+g(X)$ olduğu için $g(X)$ düşer. Artıklaştırılmış $D$ ile "
-            "$e$ ortogonal olduğundan $\\theta$ artık regresyonuyla tanımlanır (Robinson; §8.10)."
+            "$e$ ortogonal olduğundan, $\\mathbb E[v^2]>0$ ise (yani $D$, $X$ tarafından tamamen belirlenmiyorsa) "
+            "$\\theta$ artık regresyonuyla tanımlanır: $\\theta=\\mathbb E[v\\{Y-\\mathbb E[Y\\mid X]\\}]/\\mathbb E[v^2]$ (Robinson; §8.10)."
         ),
     ),
     Question(
@@ -364,7 +365,7 @@ QUESTIONS = (
         ),
         explanation=(
             "Kübik polinomun dört katsayısı ($\\beta_0,\\ldots,\\beta_3$) ve her düğüm için bir $\\gamma_j$. DDK'deki üç "
-            "düğümlü spline yedi katsayılı bir OLS'tir (§8.7.1)."
+            "düğümlü spline yedi katsayılı bir OLS'dir (§8.7.1)."
         ),
     ),
 )

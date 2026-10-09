@@ -85,7 +85,7 @@ QUESTIONS = (
             "Katsayılar sıfıra doğru küçülür ama genellikle tam sıfır olmaz; Ridge bir küçültme yöntemidir",
         ), correct=3),
         explanation=(
-            "$(X'X+\\lambda I)^{-1}X'Y$ çözümü her öz-yönde ölçeği $1/d_j$ yerine $1/(d_j+\\lambda)$ yapar; katsayılar "
+            "$(\\boldsymbol X'\\boldsymbol X+\\lambda\\boldsymbol I_p)^{-1}\\boldsymbol X'\\boldsymbol Y$ çözümü her öz-yönde ölçeği $1/r_j$ yerine $1/(r_j+\\lambda)$ yapar; katsayılar "
             "küçülür, sıfırlanmaz. $\\lambda=0$ OLS'dir ve $\\lambda>0$ iken Ridge genel olarak yanlıdır (§11.8)."
         ),
     ),
@@ -157,10 +157,10 @@ QUESTIONS = (
     ),
     Question(
         key="d03", concept="p-buyuk-n-tekillik", note=_note("11.6"),
-        prompt="$p\\ge n$ olduğunda $X'X$ tekildir ve standart OLS çözümü tek değildir.",
+        prompt="$p\\ge n$ olduğunda $\\boldsymbol X'\\boldsymbol X$ tekildir ve standart OLS çözümü tek değildir.",
         answer=TrueFalse(True),
         explanation=(
-            "$p$ büyüdükçe $X'X$ kötü koşullu hâle gelir; $p\\ge n$ iken tersi yoktur. Yüksek boyutlu regresyon bu "
+            "$p$ büyüdükçe $\\boldsymbol X'\\boldsymbol X$ kötü koşullu hâle gelir; $p\\ge n$ iken tersi yoktur. Yüksek boyutlu regresyon bu "
             "nedenle seyreklik ve düzenlileştirme gibi ek yapı ister (§11.6)."
         ),
     ),
@@ -263,7 +263,7 @@ QUESTIONS = (
         prompt="Genel cezalı amaç fonksiyonunda ceza parametresi $\\lambda=$ **(1)** ______ olduğunda çözüm OLS'dir.",
         answer=FillBlanks((NumberBlank(0.0, 1e-9, "0"),)),
         explanation=(
-            "$\\|Y-X\\beta\\|_2^2+\\lambda P(\\beta)$ ölçütünde $\\lambda$ büyüdükçe katsayıların serbestliği azalır; ceza "
+            "$\\|\\boldsymbol Y-\\boldsymbol X\\beta\\|_2^2+\\lambda P(\\beta)$ ölçütünde $\\lambda$ büyüdükçe katsayıların serbestliği azalır; ceza "
             "bilinçli bir yanlılık karşılığında varyansı düşürmeyi amaçlar (§11.7)."
         ),
     ),
@@ -285,24 +285,24 @@ QUESTIONS = (
     Question(
         key="f02", concept="lasso-olcek-donusumu", note=_note("11.9"),
         prompt=(
-            "Yazılımlar Lasso'yu $\\frac{1}{2n}(Y-X\\beta)'(Y-X\\beta)+\\lambda_y\\sum_j|\\beta_j|$ biçiminde çözer. Aynı "
+            "Yazılımlar Lasso'yu $\\frac{1}{2n}(\\boldsymbol Y-\\boldsymbol X\\beta)'(\\boldsymbol Y-\\boldsymbol X\\beta)+\\lambda_y\\sum_j|\\beta_j|$ biçiminde çözer. Aynı "
             "çözümü veren Hansen SSE ölçeğindeki cezayı $n$ ve $\\lambda_y$ cinsinden yazın."
         ),
         answer=Equation(lhs=r"\lambda", symbols=(_N, _LAMBDA_Y), answer="2*n*ly", shown=r"2n\lambda_y"),
         explanation=(
-            "Yazılımın amacını $2n$ ile çarpmak çözümü değiştirmez ve Hansen'in ölçütünü verir: $(Y-X\\beta)'(Y-X\\beta)"
+            "Yazılımın amacını $2n$ ile çarpmak çözümü değiştirmez ve Hansen'in ölçütünü verir: $(\\boldsymbol Y-\\boldsymbol X\\beta)'(\\boldsymbol Y-\\boldsymbol X\\beta)"
             "+2n\\lambda_y\\sum_j|\\beta_j|$ (§11.9)."
         ),
     ),
     Question(
         key="f03", concept="ridge-olcek-donusumu", note=_note("11.8"),
         prompt=(
-            "R `glmnet` Ridge amacını $\\frac{1}{2n}(Y-X\\beta)'(Y-X\\beta)+\\frac{\\lambda_y}{2}\\beta'\\beta$ "
+            "R `glmnet` Ridge amacını $\\frac{1}{2n}(\\boldsymbol Y-\\boldsymbol X\\beta)'(\\boldsymbol Y-\\boldsymbol X\\beta)+\\frac{\\lambda_y}{2}\\beta'\\beta$ "
             "biçiminde yazar. Hansen ölçeğindeki Ridge cezasını $n$ ve $\\lambda_y$ cinsinden yazın."
         ),
         answer=Equation(lhs=r"\lambda", symbols=(_N, _LAMBDA_Y), answer="n*ly", shown=r"n\lambda_y"),
         explanation=(
-            "Amacı $2n$ ile çarpmak $(Y-X\\beta)'(Y-X\\beta)+n\\lambda_y\\beta'\\beta$ verir. scikit-learn "
+            "Amacı $2n$ ile çarpmak $(\\boldsymbol Y-\\boldsymbol X\\beta)'(\\boldsymbol Y-\\boldsymbol X\\beta)+n\\lambda_y\\beta'\\beta$ verir. scikit-learn "
             "`Ridge(alpha)` ise doğrudan Hansen ölçeğini kullanır (§11.8)."
         ),
     ),

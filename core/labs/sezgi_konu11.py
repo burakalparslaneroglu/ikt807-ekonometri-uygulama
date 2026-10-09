@@ -154,8 +154,8 @@ def _regularization_takeaway(state: LabState, p: Parameters) -> str:
         f"Bu örneklemde en düşük test MSE'yi {labels[best]} verdi ({plain(table.loc[best, 'test_mse'], 3)}); "
         f"bütün X'lerle OLS {plain(table.loc['ols_tum', 'test_mse'], 3)}. Lasso {lasso.nonzero} değişken seçti, beş "
         f"gerçek sinyalin {captured_signals(state)} tanesini yakaladı; Ridge {int(p['p'])} katsayının hiçbirini sıfırlamaz, "
-        f"yalnız küçültür (λ = {plain(ridge.lam, 1)}, SSE ölçeği). Lasso cezası λ = {plain(lasso.lam, 3)} yazılım "
-        f"ölçeğindedir; Hansen'in SSE ölçeğinde 2·{train}·λ ≈ {plain(hansen, 0)}. Post-Lasso seçilen değişkenlerde "
+        f"yalnız küçültür (λ = {plain(ridge.lam, 1)}, SSE ölçeği). Lasso cezası λ_y = {plain(lasso.lam, 3)} yazılım "
+        f"ölçeğindedir; Hansen'in SSE ölçeğinde 2·{train}·λ_y ≈ {plain(hansen, 0)}. Post-Lasso seçilen değişkenlerde "
         "küçültmeyi geri alır. Bu tek bir örneklemdir: sıralama sinyal gücüne, korelasyona ve n/p oranına bağlıdır."
     )
     if p["rho"] >= 0.8:

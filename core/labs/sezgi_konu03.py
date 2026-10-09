@@ -32,7 +32,7 @@ FRAME = "sim"
 TOPIC = "konu03"
 EFFECT = 1.0
 SELECTION_SCALE = 2.0 * 2.0 * 0.3989422804014327 / 0.5
-"""Deney 1'de E[Y(0) | D=1] − E[Y(0) | D=0] = 2·(E[A | D=1] − E[A | D=0]) = 3,1915·s/√(1+s²)."""
+"""Deney 1'de E[Y_0 | D=1] − E[Y_0 | D=0] = 2·(E[A | D=1] − E[A | D=0]) = 3,1915·s/√(1+s²)."""
 
 SAMPLE_SIZE = SimParameter(
     "n", "Gözlem sayısı", 200, 5000, 2000, 200,
@@ -53,16 +53,16 @@ def _build_selection(p: Parameters) -> tuple:
         Draw(FRAME, "a", "normal", 0, 1, "Başlangıç potansiyeli A (araştırmacı gözlemez)"),
         Draw(FRAME, "e", "normal", 0, 1, "Sonucu etkileyen diğer etkenler"),
         Derive(FRAME, "y0", E.add(E.add(10, E.mul(2, E.var("a"))), E.var("e")),
-               "Potansiyel sonuç Y(0): tedavi olmasaydı gözlenecek sonuç"),
+               "Potansiyel sonuç Y_0: tedavi olmasaydı gözlenecek sonuç"),
         Draw(FRAME, "nu", "normal", 0, 1, "Tedavi kararındaki rastlantısal kısım"),
         Derive(FRAME, "d", E.positive(E.add(E.mul(s, E.var("a")), E.var("nu"))),
                "Tedavi kararı: D = 1{s·A + ν > 0}; s = 0 rastgele atamadır"),
-        Derive(FRAME, "y", E.add(E.var("y0"), E.mul(EFFECT, E.var("d"))), "Gözlenen sonuç: Y = Y(0) + τ·D, τ = 1"),
+        Derive(FRAME, "y", E.add(E.var("y0"), E.mul(EFFECT, E.var("d"))), "Gözlenen sonuç: Y = Y_0 + θ·D, θ = 1"),
         OLS("gozlenen", FRAME, "y", ("d",)),
         OLS("secim", FRAME, "y0", ("d",)),
         Plot(FRAME, "d",
              (MeanPoints("y", "Gözlenen Y ortalaması"),
-              MeanPoints("y0", "Y(0) ortalaması (yalnız simülasyonda görülür)"),
+              MeanPoints("y0", "Y_0 ortalaması (yalnız simülasyonda görülür)"),
               ModelLine("gozlenen", "Gözlenen fark"),
               ModelLine("secim", "Seçim farkı", dashed=True)),
              "Tedavi D (0: almadı, 1: aldı)", "Ortalama sonuç", "Gözlenen fark = tedavi etkisi + seçim farkı"),
@@ -74,10 +74,10 @@ def _selection_metrics(state: LabState, p: Parameters) -> tuple[SimMetric, ...]:
     selection = float(state.models["secim"].params["d"])
     return (
         SimMetric("Gözlenen fark", plain(observed), "Ȳ(D=1) − Ȳ(D=0); OLS Y ~ D eğimi."),
-        SimMetric("Tedavi etkisi τ", plain(EFFECT), "DGP: her bireyde τ = 1; bu yüzden ATT = ATE = 1."),
+        SimMetric("Tedavi etkisi θ", plain(EFFECT), "DGP: her bireyde θ = 1; bu yüzden ATT = ATE = 1."),
         SimMetric("Seçim farkı", plain(selection),
-                  "Y(0) ortalamalarının farkı. Gerçek veride hesaplanamaz: tedavi alanların Y(0)'ı karşı-olgusaldır."),
-        SimMetric("Gözlenen − seçim", plain(observed - selection), "Gözlenen fark eksi seçim farkı: ayrıştırma örneklemde birebir tutar, τ = 1."),
+                  "Y_0 ortalamalarının farkı. Gerçek veride hesaplanamaz: tedavi alanların Y_0'ı karşı-olgusaldır."),
+        SimMetric("Gözlenen − seçim", plain(observed - selection), "Gözlenen fark eksi seçim farkı: ayrıştırma örneklemde birebir tutar, θ = 1."),
         SimMetric("Seçim farkı (DGP)", plain(expected_selection(p["s"])), "Beklenen seçim farkı: 3,1915·s/√(1+s²)."),
     )
 
@@ -87,7 +87,7 @@ def _selection_takeaway(state: LabState, p: Parameters) -> str:
     selection = float(state.models["secim"].params["d"])
     if abs(p["s"]) < 1e-9:
         return (
-            "s = 0: tedavi rastgele atanıyor, potansiyel sonuçlardan bağımsız. İki grubun Y(0) ortalamaları yalnız "
+            "s = 0: tedavi rastgele atanıyor, potansiyel sonuçlardan bağımsız. İki grubun Y_0 ortalamaları yalnız "
             f"örnekleme dalgalanması kadar farklı ({plain(selection, 3)}); gözlenen fark ({plain(observed, 3)}) "
             "ATE = 1'i tahmin eder. Rassal atama seçim farkını beklentide sıfırlar."
         )
@@ -114,22 +114,22 @@ SELECTION = SimExperiment(
     ),
     dgp=lambda p: (
         r"A_i\sim N(0,1)\ \text{(gözlenmez)}, \quad e_i\sim N(0,1), \quad \nu_i\sim N(0,1)",
-        r"Y_i(0)=10+2A_i+e_i, \qquad Y_i(1)=Y_i(0)+\tau, \quad \tau=1",
-        rf"D_i=\mathbf 1\{{s\,A_i+\nu_i>0\}}, \quad s={number(p['s'], 2)}, \qquad Y_i=Y_i(0)+\tau D_i",
+        r"Y_{0i}=10+2A_i+e_i, \qquad Y_{1i}=Y_{0i}+\theta, \quad \theta=1",
+        rf"D_i=\mathbf 1\{{s\,A_i+\nu_i>0\}}, \quad s={number(p['s'], 2)}, \qquad Y_i=Y_{{0i}}+\theta D_i",
     ),
     dgp_note=(
-        "Tedavinin etkisi herkes için aynı: τ = 1. Tedavi kararı, araştırmacının gözlemediği başlangıç potansiyeli A'ya "
-        "bağlı olabilir. Simülasyonda her bireyin Y(0)'ı bilindiği için gözlenen farkı iki bileşenine ayırabiliriz; "
-        "gerçek veride tedavi alanların Y(0)'ı karşı-olgusaldır."
+        "Tedavinin etkisi herkes için aynı: θ = 1. Tedavi kararı, araştırmacının gözlemediği başlangıç potansiyeli A'ya "
+        "bağlı olabilir. Simülasyonda her bireyin Y_0'ı bilindiği için gözlenen farkı iki bileşenine ayırabiliriz; "
+        "gerçek veride tedavi alanların Y_0'ı karşı-olgusaldır."
     ),
     look_at=(
-        "**Grafik** — D = 0 ve D = 1 gruplarında gözlenen Y ortalaması ile Y(0) ortalaması. D = 0 grubunda ikisi "
-        "aynıdır. D = 1'deki dikey fark tedavi etkisidir (τ = 1); kesikli çizginin eğimi seçim farkıdır.",
+        "**Grafik** — D = 0 ve D = 1 gruplarında gözlenen Y ortalaması ile Y_0 ortalaması. D = 0 grubunda ikisi "
+        "aynıdır. D = 1'deki dikey fark tedavi etkisidir (θ = 1); kesikli çizginin eğimi seçim farkıdır.",
         "**Ölçüler** — gözlenen fark, tedavi etkisi ve seçim farkı: "
-        "$\\Delta_{obs}=ATT+\\{E[Y(0)\\mid D=1]-E[Y(0)\\mid D=0]\\}$.",
+        "$\\Delta_{obs}=ATT+\\{E[Y_0\\mid D=1]-E[Y_0\\mid D=0]\\}$.",
     ),
     build=_build_selection, metrics=_selection_metrics, takeaway=_selection_takeaway,
-    labels=(("d", "Tedavi"), ("y", "Gözlenen sonuç"), ("y0", "Y(0)")),
+    labels=(("d", "Tedavi"), ("y", "Gözlenen sonuç"), ("y0", "Y_0")),
 )
 
 

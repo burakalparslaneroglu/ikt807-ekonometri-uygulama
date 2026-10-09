@@ -134,9 +134,9 @@ STEPS = (
             "göstergesidir. Seyrek modelin test hatası Zengin OLS'ten yalnız dördüncü ondalıkta farklıdır."
         ),
         code_note=(
-            "Ceza ölçekleri: Ridge SSE ölçeğinde, $(Y-X\\beta)'(Y-X\\beta)+\\lambda\\beta'\\beta$ (scikit-learn `Ridge`, "
-            "Hansen); Lasso yazılım ölçeğinde, $\\frac{1}{2n}\\|Y-X\\beta\\|^2+\\lambda\\|\\beta\\|_1$ (scikit-learn, R "
-            "`glmnet`, Stata `lasso`; Hansen'in SSE ölçeğinde ceza $2n\\lambda$). Ridge kapalı biçimle, Lasso koordinat "
+            "Ceza ölçekleri: Ridge SSE ölçeğinde, $(\\boldsymbol Y-\\boldsymbol X\\beta)'(\\boldsymbol Y-\\boldsymbol X\\beta)+\\lambda\\beta'\\beta$ (scikit-learn `Ridge`, "
+            "Hansen); Lasso yazılım ölçeğinde, $\\frac{1}{2n}\\|\\boldsymbol Y-\\boldsymbol X\\beta\\|^2+\\lambda_y\\|\\beta\\|_1$ (scikit-learn, R "
+            "`glmnet`, Stata `lasso`; Hansen'in SSE ölçeğinde ceza $2n\\lambda_y$). Ridge kapalı biçimle, Lasso koordinat "
             "inişiyle çözülür (Python `enet_path`, R `glmnet`, Stata'da kodda yazılı Mata fonksiyonu); tolerans çok küçük "
             "tutulduğu için üç dil aynı optimuma yakınsar. Paketlerin varsayılan ayarları (otomatik ızgara, ölçekleme, "
             "rastgele katlar) farklıdır; ızgara, ölçekleme ve katlar kodda açıkça verildiği için sayılar aynıdır."
@@ -148,7 +148,7 @@ STEPS = (
         note=NoteRef(SECTION, 2),
         explanation=(
             "Lasso ve Ridge ceza parametreleri eğitim verisi içinde 5-katlı çapraz doğrulama ile, aynı katlarda seçildi: "
-            "Ridge için $\\lambda\\in[10^{-3},10^{3}]$, Lasso için $\\lambda\\in[10^{-4},10^{-1}]$ aralığında logaritmik "
+            "Ridge için $\\lambda\\in[10^{-3},10^{3}]$, Lasso için $\\lambda_y\\in[10^{-4},10^{-1}]$ aralığında logaritmik "
             "40 noktalı ızgarada kat ortalama karesel hatalarının ortalamasını en küçük yapan ceza. Test örneklemi yalnız "
             "nihai performans karşılaştırması için kullanılır. Araştırmacı farklı $\\lambda$ değerlerini test setinde "
             "deneyip en iyi sonucu seçerse test seti artık bağımsız değerlendirme verisi değildir.\n\n"

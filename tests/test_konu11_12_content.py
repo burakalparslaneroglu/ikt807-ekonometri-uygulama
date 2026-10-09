@@ -409,7 +409,8 @@ def test_code_conventions_for_regularization_and_dml() -> None:
     (Q12, "f02", ["d*b*g/(1 + g^2)", "δβγ/(1+γ^2)", "delta*beta*gamma/(1 + gamma^2)"],
      ["d^2*b*g/(1 + d^2*g^2)", "d*b*g", "b*g/(1 + g^2)"]),
     (Q12, "f03", ["A/B^2", "A/(B*B)", "A*B^-2"], ["A/B", "A^2/B", "sqrt(A)/B"]),
-    (Q12, "f04", ["s^2 + (t - m)^2", "σ_s^2 + (θ_s - θ_med)^2", "(m - t)^2 + s^2"], ["s + (t - m)^2", "s^2", "(t - m)^2"]),
+    (Q12, "f04", ["s^2 + (t - m)^2", "SH_s^2 + (θ_s - θ_med)^2",
+                  "σ_s^2 + (θ_s - θ_med)^2", "(m - t)^2 + s^2"], ["s + (t - m)^2", "s^2", "(t - m)^2"]),
     (Q12, "f05", ["k^2/(1 + k^2)", "κ^2/(1+κ^2)", "1 - 1/(1 + k^2)"], ["k^2", "k/(1 + k^2)", "k^2/(1 + k)"]),
 ])
 def test_equation_answers_accept_equivalent_forms(questions, key, right, wrong) -> None:

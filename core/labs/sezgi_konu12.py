@@ -341,8 +341,8 @@ ORTHOGONAL = SimExperiment(
         rf"X,\ V,\ \varepsilon\sim N(0,1),\quad D=\gamma X+V,\quad Y=\theta D+\beta X+\varepsilon,\quad \theta=1,\ "
         rf"\gamma={number(p['gamma'], 1)},\ \beta={number(p['beta'], 1)}",
         r"\text{naif: }\hat\theta=\frac{\sum D_i(Y_i-\tilde\beta X_i)}{\sum D_i^2};\qquad "
-        r"\text{ortogonal: }\hat\theta=\frac{\sum \hat V_i\hat U_i}{\sum \hat V_i^2},\ \hat V=D-\tilde\gamma X,\ "
-        r"\hat U=Y-\tilde\eta X",
+        r"\text{ortogonal: }\hat\theta=\frac{\sum \hat V_i\hat U_i}{\sum \hat V_i^2},\ \hat V_i=D_i-\tilde\gamma X_i,\ "
+        r"\hat U_i=Y_i-\tilde\eta X_i",
         rf"\tilde\beta=(1-\delta)\beta,\ \tilde\gamma=(1-\delta)\gamma,\ \tilde\eta=(1-\delta)(\beta+\gamma\theta),"
         rf"\quad \delta={number(p['delta'], 2)},\ n={int(p['n'])}",
     ),

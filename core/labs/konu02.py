@@ -144,8 +144,10 @@ STEPS = (
         explanation=(
             "M3'te erkekler referans gruptur: eğitim katsayısı 0,1083 erkeklerin eğimidir; etkileşim "
             "0,0044 ise kadınların eğiminin bundan farkıdır. Kadınlar için eğim bir **doğrusal "
-            "birleşimdir**: $0{,}1083+0{,}0044\\approx0{,}1127$. Standart hatası $\\sqrt{a'Va}$ ile, "
-            "$a=(1,1)'$ ve $V$ HC1 kovaryans matrisi olmak üzere hesaplanır."
+            "birleşimdir**: $0{,}1083+0{,}0044\\approx0{,}1127$. Standart hatası "
+            "$\\sqrt{\\boldsymbol a'\\widehat{\\boldsymbol V}_{\\hat\\beta}\\boldsymbol a}$ ile hesaplanır. "
+            "$\\boldsymbol a=(1,1)'$ için $\\widehat{\\boldsymbol V}_{\\hat\\beta}$ bu iki katsayının "
+            "$2\\times2$ HC1 kovaryans alt matrisidir."
         ),
         operations=(
             OLS("m3_hc1", FRAME, "lwage", M3, vcov="HC1", categorical=CATEGORICAL),

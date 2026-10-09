@@ -28,15 +28,15 @@ QUESTIONS = (
     # --- Çoktan seçmeli -----------------------------------------------------------
     Question(
         key="k01", concept="fwl-arindirilmis-degiskenlik", note=_note("2.1.1"),
-        prompt="Frisch–Waugh–Lovell teoremine göre çoklu regresyondaki $x_1$ katsayısı hangi regresyondan **birebir** elde edilir?",
+        prompt="Frisch–Waugh–Lovell teoremine göre çoklu regresyondaki $X_1$ katsayısı hangi regresyondan **birebir** elde edilir?",
         answer=MultipleChoice((
-            "$Y$'nin yalnız $x_1$ üzerindeki basit regresyonundan",
-            "$Y$'nin, $x_1$'in diğer regresörler üzerindeki regresyonundan kalan artıklar üzerindeki regresyonundan",
-            "$x_1$'in $Y$ üzerindeki regresyonundan",
+            "$Y$'nin yalnız $X_1$ üzerindeki basit regresyonundan",
+            "$Y$'nin, $X_1$'in diğer regresörler üzerindeki regresyonundan kalan artıklar üzerindeki regresyonundan",
+            "$X_1$'in $Y$ üzerindeki regresyonundan",
             "$Y$'nin diğer regresörler üzerindeki regresyonunun uyum değerlerinden",
         ), correct=1),
         explanation=(
-            "Katsayı yalnız $x_1$'in diğer regresörlerle ortak olmayan değişkenliğinden öğrenir. Sezgi "
+            "Katsayı yalnız $X_1$'in diğer regresörlerle ortak olmayan değişkenliğinden öğrenir. Sezgi "
             "Deney 2'de FWL eğimi ile çoklu regresyon katsayısı makine duyarlığında eşittir (§2.1.1)."
         ),
     ),
@@ -59,15 +59,15 @@ QUESTIONS = (
     ),
     Question(
         key="k04", concept="eksik-degisken-iki-kosul", note=_note("2.4"),
-        prompt="Dışarıda bırakılan $x_2$, kısa regresyonda $x_1$'in katsayısını hangi durumda yanlı yapar?",
+        prompt="Dışarıda bırakılan $X_2$, kısa regresyonda $X_1$'in katsayısını hangi durumda yanlı yapar?",
         answer=MultipleChoice((
-            "$x_2$ $Y$'yi etkiliyorsa, $x_1$ ile ilişkisi ne olursa olsun",
-            "$x_2$ $x_1$ ile ilişkiliyse, $Y$'yi etkilemese bile",
+            "$X_2$ $Y$'yi etkiliyorsa, $X_1$ ile ilişkisi ne olursa olsun",
+            "$X_2$ $X_1$ ile ilişkiliyse, $Y$'yi etkilemese bile",
             "Örneklem küçükse",
-            "$x_2$ hem $Y$'yi etkiliyor hem de $x_1$ ile ilişkiliyse",
+            "$X_2$ hem $Y$'yi etkiliyor hem de $X_1$ ile ilişkiliyse",
         ), correct=3),
         explanation=(
-            r"Yanlılık $\beta_2\cdot\operatorname{Cov}(x_1,x_2)/\operatorname{Var}(x_1)$ biçimindedir; iki çarpandan "
+            r"Yanlılık $\beta_2\cdot\operatorname{Cov}(X_1,X_2)/\operatorname{Var}(X_1)$ biçimindedir; iki çarpandan "
             "biri sıfırsa yanlılık yoktur. Sezgi Deney 2'de β2 veya ρ sıfıra çekilince fark kaybolur (§2.4)."
         ),
     ),
@@ -240,7 +240,7 @@ QUESTIONS = (
             shown=r"\operatorname{Var}(\hat\beta_1)+\operatorname{Var}(\hat\beta_3)+2\operatorname{Cov}(\hat\beta_1,\hat\beta_3)",
         ),
         explanation=(
-            r"Genel kural $a'Va$; $a=(1,1)'$ için kovaryans iki kez girer. Kovaryansı unutmak, grup eğiminin "
+            r"Genel kural $\boldsymbol a'\boldsymbol V_{\hat\beta}\boldsymbol a$; $\boldsymbol a=(1,1)'$ (iki katsayının kovaryans alt matrisiyle) için kovaryans iki kez girer. Kovaryansı unutmak, grup eğiminin "
             "standart hatasını yanlış hesaplamanın en yaygın yoludur (§2.13, Adım 5)."
         ),
     ),

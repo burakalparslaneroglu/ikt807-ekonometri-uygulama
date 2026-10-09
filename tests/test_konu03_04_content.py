@@ -44,7 +44,8 @@ Q4 = {q.key: q for q in KONU04_QUIZ.questions}
 # --- Kendini sına: yazım çeşitleri ----------------------------------------------------
 
 @pytest.mark.parametrize(("questions", "key", "right", "wrong"), [
-    (Q3, "f01", ["d*y1 + (1-d)*y0", "D*Y(1) + (1-D)*Y(0)", "Y(0) + D(Y(1) - Y(0))", "DY1 + Y0 - DY0"],
+    (Q3, "f01", ["d*y1 + (1-d)*y0", "D*Y_1 + (1-D)*Y_0", "Y_0 + D(Y_1-Y_0)",
+                 "D*Y(1) + (1-D)*Y(0)", "Y(0) + D(Y(1) - Y(0))", "DY1 + Y0 - DY0"],
      ["d*y1 + d*y0", "y1 - y0", "d*(y1 + y0)"]),
     (Q3, "f02", ["(ud - us)/(bd + bs)", "(u_d - u_s)/(β_d + β_s)"], ["(ud - us)/(bd - bs)", "(ud + us)/(bd + bs)"]),
     (Q3, "f03", ["b*vz/(vz + vu)", "β Var(Z)/(Var(Z)+Var(u))"], ["b*vu/(vz + vu)", "b/(1 + vu)", "b*vz/vu"]),
@@ -53,7 +54,8 @@ Q4 = {q.key: q for q in KONU04_QUIZ.questions}
     (Q4, "f01", ["l/p", "λ/π", "lambda/pi"], ["p/l", "l*p", "l - p"]),
     (Q4, "f02", ["b + k/p", "β + κ/π", "beta + kappa/pi"], ["b + k*p", "b + k", "(b + k)/p"]),
     (Q4, "f03", ["(p/s)^2", "p^2/s^2", "(π/SE)^2"], ["p/s", "(s/p)^2", "p^2/s"]),
-    (Q4, "f04", ["pa*ta + pc*tc + pn*tn", "p_a τ_a + p_c τ_c + p_n τ_n"], ["tc", "pc*tc", "(ta + tc + tn)/3"]),
+    (Q4, "f04", ["pa*ta + pc*tc + pn*tn", "p_a θ_a + p_c θ_c + p_n θ_n",
+                 "p_a τ_a + p_c τ_c + p_n τ_n"], ["tc", "pc*tc", "(ta + tc + tn)/3"]),
     (Q4, "f05", ["b*v + e", "βv + e", "e + v*beta"], ["v + e", "b*(v + e)", "b*v"]),
 ])
 def test_equation_variants(questions, key, right, wrong) -> None:

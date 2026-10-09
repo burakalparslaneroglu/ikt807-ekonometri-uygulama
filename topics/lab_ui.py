@@ -712,7 +712,7 @@ def _rdd_compact(op: RDD, result, outcome: str | None = None) -> None:
     named = f", sonuç: {outcome}" if outcome else ""
     st.markdown(
         f"**Keskin RDD**{named} ({_KERNEL_LABELS[op.kernel]} çekirdek, h = {_bandwidth_text(op.bandwidth)}; {scale}): "
-        f"τ̂ = {_number(result.jump)} ({_se_kind(result)} {_number(float(result.bse['D']))}) · n = {_count(result.nobs)}"
+        f"θ̂ = {_number(result.jump)} ({_se_kind(result)} {_number(float(result.bse['D']))}) · n = {_count(result.nobs)}"
     )
 
 
@@ -723,14 +723,14 @@ def _rdd_table(op: RDDTable, table: pd.DataFrame, first=None, decimals: int = 2)
         {
             "h": [_bandwidth_text(h) for h in table.index],
             "n_h": [_count(v) for v in table["n"]],
-            "τ̂": [_number(v, decimals) for v in table["tahmin"]],
+            "θ̂": [_number(v, decimals) for v in table["tahmin"]],
             label: [_number(v, decimals) for v in table["sh"]],
             "Alt %95": [_number(v, decimals) for v in table["alt"]],
             "Üst %95": [_number(v, decimals) for v in table["ust"]],
         }
     )
     note = "; SH küme düzeyinde kümelenmiş" if clustered else ""
-    st.markdown(f"**Bant genişliği duyarlılığı** (üçgen çekirdek, Hansen ölçeği; güven aralığı τ̂ ± 1,96·SH{note})")
+    st.markdown(f"**Bant genişliği duyarlılığı** (üçgen çekirdek, Hansen ölçeği; güven aralığı θ̂ ± 1,96·SH{note})")
     st.dataframe(shown, hide_index=True, width="stretch")
     h = table.index.to_numpy(dtype=float)
     figure = go.Figure()
@@ -741,12 +741,12 @@ def _rdd_table(op: RDDTable, table: pd.DataFrame, first=None, decimals: int = 2)
             error_y={"type": "data", "symmetric": False, "array": table["ust"] - table["tahmin"],
                      "arrayminus": table["tahmin"] - table["alt"], "color": _COLORS[0], "thickness": 2, "width": 6},
             customdata=np.column_stack([table["sh"], table["n"], [_bandwidth_text(v) for v in h]]),
-            hovertemplate="h = %{customdata[2]}<br>τ̂ = %{y:.3f}<br>SH = %{customdata[0]:.3f}<br>"
+            hovertemplate="h = %{customdata[2]}<br>θ̂ = %{y:.3f}<br>SH = %{customdata[0]:.3f}<br>"
                           "n = %{customdata[1]:.0f}<extra></extra>",
         )
     )
     figure.add_hline(y=0, line={"color": _COLORS[3], "width": 1, "dash": "dot"})
-    style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label, legend_title="")
+    style_figure(figure, title=op.title, x_title=op.x_label, y_title=op.y_label.replace("τ", "θ"), legend_title="")
     show_figure(figure)
 
 
@@ -929,7 +929,7 @@ def _render_results(spec: LabSpec, step: LabStep, run: LabRun) -> None:
             column.metric(op.comment, f"%{value}" if op.percent else value)
 
 
-def _render_checks(step: LabStep, run: LabRun) -> None:
+def _render_checks(step: LabStep, run: LabRun, *, topic_key: str) -> None:
     results = run.step_checks(step.number)
     if not results:
         return
@@ -938,7 +938,8 @@ def _render_checks(step: LabStep, run: LabRun) -> None:
     with st.expander(label, icon=":material/fact_check:" if passed == len(results) else ":material/error:"):
         rows = [
             {
-                "Değer": item.check.label,
+                "Değer": (item.check.label.replace("τ", "θ") if topic_key in ("konu03", "konu09")
+                          else item.check.label.replace("Lasso seçilen λ ", "Lasso seçilen λ_y ")),
                 "Uygulama": f"{item.value:.{item.check.decimals}f}",
                 "Notlar": f"{item.check.expected:.{item.check.decimals}f}",
                 "Durum": "✓" if item.passed else "✗",
@@ -1067,7 +1068,7 @@ def _render_steps(spec: LabSpec, run: LabRun | None) -> None:
         if run is not None:
             _render_results(spec, step, run)
             if spec.source == "notlar":
-                _render_checks(step, run)
+                _render_checks(step, run, topic_key=spec.topic_key)
         else:
             st.info("Sonuçları görmek için yukarıdan veriyi yükleyin. Kod aşağıda her durumda görünür.")
     note = _note(step, run)

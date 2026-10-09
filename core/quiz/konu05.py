@@ -105,7 +105,7 @@ QUESTIONS = (
             "Sayım değişkeninin logaritması alınıp OLS yapılmalıdır",
         ), correct=1),
         explanation=(
-            "Koşullu ortalama doğruysa Poisson QMLE katsayıları anlamlıdır; eşvaryans bozulduğu için klasik standart "
+            "Koşullu ortalama doğruysa Poisson QMLE katsayıları anlamlıdır; ortalama–varyans eşitliği bozulduğu için klasik standart "
             "hatalar geçersizdir, dayanıklı kovaryans kullanılır (§5.12)."
         ),
     ),
@@ -128,12 +128,12 @@ QUESTIONS = (
         prompt="Uygulamada ırkın ayrıntılı kodlarıyla (18 kategori) kurulan Logit neden yakınsamaz?",
         answer=MultipleChoice((
             "Örneklem çok büyük olduğu için",
-            "Birkaç küçük kategoride herkes evli ya da herkes bekâr; bu katsayıların MLE'si sonsuza gider (ayrışma)",
+            "Birkaç küçük kategoride herkes evli ya da herkes bekâr; bu katsayılar ±∞'a ıraksar, sonlu MLE yoktur (ayrışma)",
             "Logit kategorik değişken kabul etmediği için",
             "Eğitim ile ırk birbiriyle ilişkili olduğu için",
         ), correct=1),
         explanation=(
-            "1–2 gözlemli dört kategoride sonuç hep 0 veya hep 1'dir: olabilirlik o katsayı sonsuza giderken artmaya devam "
+            "1–2 gözlemli dört kategoride sonuç hep 0 veya hep 1'dir: olabilirlik o katsayı ±∞'a giderken artmaya devam "
             "eder, sonlu bir MLE yoktur (yarı-tam ayrışma). Çözüm kategorileri anlamlı gruplara toplamaktır (§5.15, Adım 1)."
         ),
     ),
@@ -171,8 +171,8 @@ QUESTIONS = (
         ),
         answer=TrueFalse(True),
         explanation=(
-            "Doğru belirtimde $\\mathcal S=\\mathcal H$ (bilgi matrisi eşitliği) ve sandviç $\\mathcal H^{-1}\\mathcal "
-            "S\\mathcal H^{-1}$ klasik $\\mathcal H^{-1}$'e indirgenir (§5.7.2)."
+            "Doğru belirtimde $\\boldsymbol\\Omega=\\boldsymbol Q$ (bilgi matrisi eşitliği) ve sandviç "
+            "$\\boldsymbol Q^{-1}\\boldsymbol\\Omega\\boldsymbol Q^{-1}$ klasik $\\boldsymbol Q^{-1}$'e indirgenir (§5.7.2)."
         ),
     ),
     Question(
@@ -248,8 +248,10 @@ QUESTIONS = (
         ),
         answer=FillBlanks((TextBlank(("delta", "delta yöntemi", "delta method"), "delta"),)),
         explanation=(
-            "AME katsayıların doğrusal olmayan bir fonksiyonudur: $\\operatorname{SH}=\\sqrt{\\nabla'V\\nabla}$. Hangi "
-            "$V$'nin (klasik mi, dayanıklı mı) kullanıldığı raporlanmalıdır (§5.7.3)."
+            "AME katsayıların doğrusal olmayan bir fonksiyonudur: "
+            "$\\operatorname{SH}=\\sqrt{\\boldsymbol a'\\widehat{\\boldsymbol V}_{\\hat\\beta}\\boldsymbol a}$. "
+            "$\\boldsymbol a=\\nabla_\\beta AME(\\hat\\beta)$ gradyan vektörüdür. Hangi "
+            "$\\widehat{\\boldsymbol V}_{\\hat\\beta}$'nın (klasik mi, dayanıklı mı) kullanıldığı raporlanmalıdır (§5.7.3)."
         ),
     ),
     Question(
@@ -336,21 +338,21 @@ QUESTIONS = (
     Question(
         key="f04", concept="sandvic-tek-parametre", note=_note("5.7.1"),
         prompt=(
-            "Tek parametreli bir MLE'de ortalama eğrilik $\\mathcal H$ ve skor varyansı $\\mathcal S$ ise "
+            "Tek parametreli bir MLE'de ortalama eğrilik $Q$ ve skor varyansı $\\Omega$ ise "
             "$\\sqrt n(\\hat\\beta-\\beta_0)$'ın asimptotik varyansını yazın."
         ),
         answer=Equation(
             lhs=r"\operatorname{avar}",
             symbols=(
-                Symbol("H", r"\mathcal H", "ortalama eğrilik", 0.5, 3.0),
-                Symbol("S", r"\mathcal S", "skor varyansı", 0.5, 3.0),
+                Symbol("H", r"Q", "ortalama eğrilik", 0.5, 3.0, aliases=("Q",)),
+                Symbol("S", r"\Omega", "skor varyansı", 0.5, 3.0, aliases=("Omega", "Ω")),
             ),
             answer="S/H^2",
-            shown=r"\mathcal S/\mathcal H^2",
+            shown=r"\Omega/Q^2",
         ),
         explanation=(
-            "Sandviç $\\mathcal H^{-1}\\mathcal S\\mathcal H^{-1}$ tek boyutta $\\mathcal S/\\mathcal H^2$'dir; doğru "
-            "belirtimde $\\mathcal S=\\mathcal H$ ve varyans $1/\\mathcal H$ olur (§5.7.1)."
+            "Sandviç $Q^{-1}\\Omega Q^{-1}$ tek boyutta $\\Omega/Q^2$'dir; doğru "
+            "belirtimde $\\Omega=Q$ ve varyans $1/Q$ olur (§5.7.1)."
         ),
     ),
     Question(

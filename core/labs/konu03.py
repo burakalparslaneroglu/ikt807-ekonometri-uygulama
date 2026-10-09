@@ -121,7 +121,7 @@ STEPS = (
         title="Ham fark ile kovaryat ayarlı tahmini karşılaştırmak",
         note=NoteRef(SECTION, 3, ("Tablo 3.2",)),
         explanation=(
-            "**Ham fark:** $totalscore_i=\\alpha+\\tau\\,tracking_i+e_i$. **Kovaryat ayarlı** model başlangıç "
+            "**Ham fark:** $totalscore_i=\\alpha+\\theta\\,tracking_i+e_i$. **Kovaryat ayarlı** model başlangıç "
             "standart puanını, kadın göstergesini, test yaşını, SBM ve ek öğretmen göstergelerini ekler. İki "
             "modelde de standart hatalar okul düzeyinde kümelenir. Kovaryat ayarlı modelde yalnız bütün "
             "kontrolleri gözlenen öğrenciler kalır."

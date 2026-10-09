@@ -763,7 +763,7 @@ def validate(case: Case) -> None:
                             "Dosyada birimini değiştirin (ör. TL yerine bin TL).")
     if _separated(data, Y01, regressors):
         raise K.UploadError("Logit modeli bu seçimlerle tahmin edilemiyor: bir değişken ya da değişkenlerin birleşimi "
-                            "sonucu kesin olarak ayırıyor (tam ya da yarı-tam ayrışma; MLE sonsuza gider). Bu değişkeni "
+                            "sonucu kesin olarak ayırıyor (tam ya da yarı-tam ayrışma; sonlu MLE yoktur, katsayılar ±∞'a ıraksar). Bu değişkeni "
                             "çıkarın ya da kategorileri birleştirin.")
     if not _converges(data, Y01, regressors):
         raise K.UploadError("Logit modeli bu seçimlerle yakınsamıyor. Ek kontrolleri azaltın ya da değişkenlerin "

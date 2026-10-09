@@ -7,8 +7,8 @@ erkekler (9.137 gözlem). Her ``Check`` notlarda basılı bir sayıdır.
 Spesifikasyon: evli = medeni durum kodu 1–3; açıklayıcılar yaş, eğitim yılı, dört gruplu ırk
 (beyaz referans; siyah, Asyalı, diğer), Hispanik göstergesi ve bölge (Kuzeydoğu referans).
 Irkın ayrıntılı kodlarıyla (bu alt örneklemde 18 kategori) kurulan model yakınsamaz: dört küçük
-kategoride (1–2 gözlem) herkes evli veya herkes bekârdır (yarı-tam ayrışma) ve bu katsayıların
-MLE'si sonsuza gider.
+kategoride (1–2 gözlem) herkes evli veya herkes bekârdır (yarı-tam ayrışma); bu katsayıların sonlu
+MLE'si yoktur, katsayılar ±∞'a ıraksar.
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ STEPS = (
             "karşılaştırma **ortalama marjinal etki (AME)** üzerinden yapılır. Kovaryans: LPM'de HC1, Logit/Probit'te "
             "sandviç (dayanıklı). Irk dört gruba toplanır (beyaz referans). Ayrıntılı ırk kodlarıyla (bu alt örneklemde 18 "
             "kategori) Logit yakınsamaz: 1–2 gözlemli dört kategoride herkes evli ya da herkes bekârdır, bu kategorilerin "
-            "katsayısının MLE'si sonsuza gider (yarı-tam ayrışma)."
+            "katsayısı ±∞'a giderken olabilirlik artmaya devam eder, sonlu MLE yoktur (yarı-tam ayrışma)."
         ),
         operations=(
             LoadHansen("cps09mar", "cps09mar.txt", FRAME, CPS09MAR_COLUMNS),
@@ -190,7 +190,7 @@ STEPS = (
         reproducibility=ReproClass.EXACT,
         takeaway=(
             "Logit yaş katsayısı 0,2165 ama ortalama ölçek çarpanı Λ(1−Λ) 0,2036; çarpımları AME'yi (0,0441) verir. "
-            "Probit'te katsayı 0,1315, ortalama φ 0,3380; çarpım 0,0445. Ham katsayıların oranı yaklaşık 1,65'tir: bu fark "
+            "Probit'te katsayı 0,1315, ortalama φ 0,3380; yuvarlanmamış değerlerle çarpım 0,0445. Ham katsayıların oranı yaklaşık 1,65'tir: bu fark "
             "ekonomik değil, iki modelin gizli hata ölçeğini farklı normalize etmesinden gelir (§5.5). Bu nedenle bir "
             "makalede Logit katsayısı 0,40 görmek \"olasılık 40 yüzde puan artar\" anlamına gelmez."
         ),
@@ -215,7 +215,7 @@ STEPS = (
         reproducibility=ReproClass.EXACT,
         takeaway=(
             "Ortalama tahmin edilen evlilik olasılığı 18 yaşında yaklaşık 0,11, 35 yaşında 0,82'dir. Profil S biçimlidir: "
-            "eğim orta yaşlarda en büyük, uçlarda daha küçüktür. Doğrusal yaş indeksi 35 yaş altı alt örneklemde makul bir "
+            "eğim orta yaşlarda en büyük, uçlarda daha küçüktür. Doğrusal yaş indeksi 35 yaş ve altındaki alt örneklemde makul bir "
             "yerel yaklaşımdır; tam yaş aralığında aynı spesifikasyon yanıltıcı olabilir."
         ),
         code_note="Stata'da aynı hesap `margins, at(age=(18(1)35))` komutudur; grafik `marginsplot` ile çizilir.",

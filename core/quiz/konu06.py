@@ -93,7 +93,7 @@ QUESTIONS = (
             "Seçim denkleminin gücünü ölçer",
         ), correct=1),
         explanation=(
-            "$\\mathbb E[e\\mid X,Z,S=1]=\\sigma_{eu}\\lambda(Z'\\gamma)$: $\\hat\\lambda$ eksik değişkeni geri koyar. "
+            "$\\mathbb E[e\\mid X,Z,S=1]=\\sigma_{21}\\lambda(Z'\\gamma)$: $\\hat\\lambda$ eksik değişkeni geri koyar. "
             "Bireysel imputasyon yapmaz; standart hataları da kendiliğinden düzeltmez (§6.11)."
         ),
     ),
@@ -296,20 +296,21 @@ QUESTIONS = (
         key="f02", concept="heckman-kosullu-ortalama", note=_note("6.10"),
         prompt=(
             "Normal seçim modelinde ($\\operatorname{Var}(u)=1$) seçilmiş örneklem koşullu ortalamasını $\\mu=X'\\beta$, "
-            "$c=\\sigma_{eu}$ ve $\\lambda=\\lambda(Z'\\gamma)$ cinsinden yazın."
+            "$c=\\sigma_{21}$ ve $\\lambda=\\lambda(Z'\\gamma)$ cinsinden yazın."
         ),
         answer=Equation(
             lhs=r"\mathbb E[Y\mid X,Z,S=1]",
             symbols=(
                 Symbol("m", r"\mu", "sonuç denkleminin indeksi X'β", -2.0, 2.0, aliases=("μ", "mu")),
-                Symbol("c", r"\sigma_{eu}", "Cov(e, u)", -1.0, 1.0, aliases=("σ_eu", "sigma_eu")),
+                Symbol("c", r"\sigma_{21}", "Cov(e, u)", -1.0, 1.0,
+                       aliases=("σ_21", "sigma_21", "σ₂₁", "σ_eu", "sigma_eu")),
                 Symbol("l", r"\lambda", "ters Mills oranı", 0.1, 2.0, aliases=("λ", "lambda")),
             ),
             answer="m + c*l",
-            shown=r"X'\beta+\sigma_{eu}\,\lambda(Z'\gamma)",
+            shown=r"X'\beta+\sigma_{21}\,\lambda(Z'\gamma)",
         ),
         explanation=(
-            "Naif OLS $\\sigma_{eu}\\lambda$ terimini dışarıda bırakır; bu terim $X$ ile ilişkili olduğunda eksik değişken "
+            "Naif OLS $\\sigma_{21}\\lambda$ terimini dışarıda bırakır; bu terim $X$ ile ilişkili olduğunda eksik değişken "
             "yanlılığı doğar (§6.10)."
         ),
     ),
@@ -317,16 +318,16 @@ QUESTIONS = (
         key="f03", concept="mills-katsayisi-hedefi", note=_note("6.13"),
         prompt=(
             "$\\operatorname{Var}(u)=1$, $\\operatorname{Var}(e)=\\sigma_e^2$ ve $\\operatorname{Corr}(e,u)=\\rho$ ise "
-            "$\\hat\\lambda$'nın katsayısının hedeflediği $\\sigma_{eu}$'yu $\\rho$ ve $\\sigma_e$ cinsinden yazın."
+            "$\\hat\\lambda$'nın katsayısının hedeflediği $\\sigma_{21}$'yu $\\rho$ ve $\\sigma_e$ cinsinden yazın."
         ),
         answer=Equation(
-            lhs=r"\sigma_{eu}",
+            lhs=r"\sigma_{21}",
             symbols=(
                 Symbol("r", r"\rho", "korelasyon", -0.9, 0.9, aliases=("ρ", "rho")),
                 Symbol("s", r"\sigma_e", "sonuç hatasının standart sapması", 0.5, 3.0, aliases=("σ_e", "σe", "σ", "sigma")),
             ),
             answer="r*s",
-            shown=r"\sigma_{eu}=\rho\,\sigma_e",
+            shown=r"\sigma_{21}=\rho\,\sigma_e",
         ),
         explanation=(
             "Kovaryans = korelasyon × standart sapmalar çarpımı ve $\\operatorname{sd}(u)=1$. Benzetimde (Tablo 6.3) "

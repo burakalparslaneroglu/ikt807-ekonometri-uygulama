@@ -267,7 +267,7 @@ def test_the_konu09_cutoff_and_bandwidth_are_typed_and_checked(monkeypatch) -> N
     app.text_input(key="konu09_kendi_sayi_h").set_value("3,2").run()
     assert not app.exception and not app.error
     app.segmented_control(key="konu09_lab_step").set_value(2).run()
-    table = next(frame.value for frame in app.dataframe if "τ̂" in frame.value.columns)
+    table = next(frame.value for frame in app.dataframe if "θ̂" in frame.value.columns)
     assert list(table["h"]) == ["1,6", "2,4", "3,2", "4", "4,8"] and "SH (küme)" in table.columns
     app.text_input(key="konu09_kendi_sayi_esik").set_value("yetmiş").run()
     assert any("sayı olarak okunamadı" in item.value for item in app.error)

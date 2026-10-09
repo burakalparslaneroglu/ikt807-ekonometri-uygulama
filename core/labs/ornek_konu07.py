@@ -213,7 +213,7 @@ def _steps(plan: Plan, texts: dict) -> tuple[LabStep, ...]:
         ),
         LabStep(
             number=3,
-            title="Koşullu kantil heterojenliğini bireysel etki heterojenliğiyle karıştırmamak",
+            title="Koşullu kantil heterojenliğini bireysel tedavi heterojenliğiyle karıştırmamak",
             note=NoteRef(SECTION, 3),
             explanation=texts[3][0],
             takeaway=texts[3][1],
@@ -247,18 +247,18 @@ def _spec(plan: Plan, texts: dict, *, source: str, title: str, dataset: str) -> 
 ESTIMATOR = (
     "Kantil tahmini $\\sum_i\\rho_\\tau(Y_i-X_i'b)$ kontrol kaybını en küçük yapan $b$'dir; bu bir doğrusal programlama "
     "problemidir ve kesin çözümü hesaplanır.\n\n"
-    "Standart hatalar **Hendricks–Koenker** sandviçidir: $\\hat V_\\tau=\\tau(1-\\tau)H^{-1}X'XH^{-1}$, "
-    "$H=\\sum_i\\hat f_iX_iX_i'$. Her gözlemin koşullu yoğunluğu $\\hat f_i$, aynı modelin $\\tau\\pm h$ kantillerindeki "
+    "Standart hatalar **Hendricks–Koenker** sandviçidir: $\\widehat{\\boldsymbol V}_{\\hat\\beta_\\tau}=\\tau(1-\\tau)\\boldsymbol H_\\tau^{-1}\\boldsymbol X'\\boldsymbol X\\boldsymbol H_\\tau^{-1}$, "
+    "$\\boldsymbol H_\\tau=\\sum_i\\hat f_iX_iX_i'$. Her gözlemin koşullu yoğunluğu $\\hat f_i$, aynı modelin $\\tau\\pm h$ kantillerindeki "
     "tahmin farkından bulunur: iki kantil doğrusu $X_i$'de birbirine yakınsa, o noktada yoğunluk yüksektir."
 )
 DIFFERENCE = (
-    "İki kantilde katsayıların ayrı ayrı anlamlı olması, aralarındaki farkın anlamlı olduğunu göstermez. "
-    "$H_0:\\beta_{0{,}10}=\\beta_{0{,}90}$ için farkın örnekleme dağılımı gerekir. İki tahmin **aynı veriden** geldiği "
+    "Aynı regresörün katsayısı için $j$ indeksini sabit tutuyoruz (eğitimde $j=1$). İki kantilde katsayıların ayrı ayrı anlamlı olması, aralarındaki farkın anlamlı olduğunu göstermez. "
+    "$H_0:\\beta_{j,0{,}10}=\\beta_{j,0{,}90}$ için farkın örnekleme dağılımı gerekir. İki tahmin **aynı veriden** geldiği "
     "için bağımsız değildir; ortak asimptotik kovaryansları\n\n"
-    "$$\\mathrm{Cov}(\\hat\\beta_{\\tau_1},\\hat\\beta_{\\tau_2})=\\{\\min(\\tau_1,\\tau_2)-\\tau_1\\tau_2\\}"
-    "\\,H_{\\tau_1}^{-1}X'XH_{\\tau_2}^{-1}$$\n\n"
+    "$$\\widehat{\\operatorname{Cov}}(\\hat\\beta_{\\tau_1},\\hat\\beta_{\\tau_2})=\\{\\min(\\tau_1,\\tau_2)-\\tau_1\\tau_2\\}"
+    "\\,\\boldsymbol H_{\\tau_1}^{-1}\\boldsymbol X'\\boldsymbol X\\boldsymbol H_{\\tau_2}^{-1}$$\n\n"
     "ile verilir (Hendricks–Koenker yoğunluklarıyla). Farkın varyansı iki varyansın toplamından bu kovaryansın iki katı "
-    "çıkarılarak bulunur ve $z=(\\hat\\beta_{0{,}90}-\\hat\\beta_{0{,}10})/SH$ normal dağılımla değerlendirilir. Aynı test "
+    "çıkarılarak bulunur ve $z=(\\hat\\beta_{j,0{,}90}-\\hat\\beta_{j,0{,}10})/SH$ normal dağılımla değerlendirilir. Aynı test "
     "ortak bootstrap ile de yapılabilir (Konu 10)."
 )
 REPORTING = (
@@ -293,7 +293,7 @@ CODE_NOTE_1 = (
     "`qreg` standart hatası (iid) de farklıdır."
 )
 CODE_NOTE_2 = (
-    "Ortak kovaryans için her modelin $H^{-1}$ ve $X'X$ matrisleri saklanır: R'de `summary(m, se = \"nid\", "
+    "Ortak kovaryans için her modelin $\\boldsymbol H_\\tau^{-1}$ ve $\\boldsymbol X'\\boldsymbol X$ matrisleri saklanır: R'de `summary(m, se = \"nid\", "
     "covariance = TRUE)` sonucunun `$Hinv` ve `$J` öğeleri, Python'da `KantilSonucu` nesnesinin `Hinv` ve `J` alanları, "
     "Stata'da `hk_sh` programının oluşturduğu `Hinv_model` ve `J_model` matrisleri."
 )
@@ -338,8 +338,8 @@ ALT_TEXTS = {
         "Konu 1'in alternatif örneğindeki Card (1995) verisi: Ulusal Boylamsal Genç Erkekler Araştırması'ndan (NLSYM) "
         "1976 log saatlik ücreti (`lwage76`) gözlenen 3.010 erkek (saatlik ücreti 1 doların altında olan 7 gözlem "
         "dışarıda). Aynı spesifikasyonu beş kantilde tahmin ediyoruz:\n\n"
-        "$$Q_\\tau[\\log(wage_i)\\mid X_i]=\\beta_{0\\tau}+\\beta_{1\\tau}ed76_i+\\beta_{2\\tau}black_i"
-        "+\\beta_{3\\tau}experience_i+\\beta_{4\\tau}experience_i^2/100,$$\n\n"
+        "$$Q_\\tau[\\log(wage_i)\\mid X_i]=\\beta_{0,\\tau}+\\beta_{1,\\tau}ed76_i+\\beta_{2,\\tau}black_i"
+        "+\\beta_{3,\\tau}experience_i+\\beta_{4,\\tau}experience_i^2/100,$$\n\n"
         "$\\tau\\in\\{0{,}10;\\,0{,}25;\\,0{,}50;\\,0{,}75;\\,0{,}90\\}$; $ed76$ 1976'da tamamlanmış eğitim yılı, "
         "$experience_i=age76_i-ed76_i-6$ potansiyel deneyimdir. Örneklem yalnız erkeklerden oluştuğu için "
         "notlardaki kadın göstergesinin yerinde siyahi göstergesi vardır. Karşılaştırma için aynı spesifikasyonun OLS "

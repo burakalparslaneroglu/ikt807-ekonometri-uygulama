@@ -312,12 +312,12 @@ def _build_late(p: Parameters) -> tuple:
         Derive(FRAME, "d", E.add(E.var("her_zaman"), E.mul(E.var("uyumlu"), E.var("z"))), "Tedavi: D = D(Z)"),
         Draw(FRAME, "e", "normal", 0, 1, "Diğer etkenler"),
         Derive(FRAME, "y0", E.add(E.sub(E.mul(0.5, E.var("her_zaman")), E.mul(0.5, E.var("hic"))), E.var("e")),
-               "Y(0): her zaman alanlar daha yüksek, hiç almayanlar daha düşük başlar"),
+               "Y_0: her zaman alanlar daha yüksek, hiç almayanlar daha düşük başlar"),
         Derive(FRAME, "etki",
                E.add(E.add(E.mul(EFFECT_ALWAYS, E.var("her_zaman")), E.mul(tau_c, E.var("uyumlu"))),
                      E.mul(EFFECT_NEVER, E.var("hic"))),
                "Bireysel etki: tipe göre farklı (heterojen)"),
-        Derive(FRAME, "y", E.add(E.var("y0"), E.mul(E.var("etki"), E.var("d"))), "Y = Y(0) + etki·D"),
+        Derive(FRAME, "y", E.add(E.var("y0"), E.mul(E.var("etki"), E.var("d"))), "Y = Y_0 + etki·D"),
         OLS("ilk", FRAME, "d", ("z",)),
         OLS("indirgenmis", FRAME, "y", ("z",)),
         IV("iv", FRAME, "y", ("d",), ("z",)),
@@ -355,7 +355,7 @@ def _late_takeaway(state: LabState, p: Parameters) -> str:
     else:
         text += "Bu ayarda LATE ile ATE rastlantısal olarak eşit. "
     return text + (
-        "OLS ise tedavi seçimi Y(0) ile ilişkili olduğu için hiçbirini tahmin etmez. Yorum monotonluğa dayanır: "
+        "OLS ise tedavi seçimi Y_0 ile ilişkili olduğu için hiçbirini tahmin etmez. Yorum monotonluğa dayanır: "
         "bu DGP'de davete rağmen tedaviden vazgeçen (defier) yoktur."
     )
 
@@ -369,19 +369,19 @@ LATE = SimExperiment(
         SimParameter("n", "Gözlem sayısı", 1000, 10000, 4000, 1000, "Örneklem büyüklüğü.", integer=True, decimals=0),
         SimParameter("p_c", "Uyumlu payı", 0.2, 0.8, 0.4, 0.1,
                      "Kalan pay her zaman alan ve hiç almayanlar arasında eşit bölünür.", decimals=1),
-        SimParameter("tau_c", "Uyumluların etkisi $\\tau_C$", 0.0, 2.0, 0.5, 0.25,
+        SimParameter("tau_c", "Uyumluların etkisi $\\theta_c$", 0.0, 2.0, 0.5, 0.25,
                      f"Her zaman alanlarda etki {EFFECT_ALWAYS:g}, hiç almayanlarda {EFFECT_NEVER:g}.".replace(".", ","),
                      decimals=2),
     ),
     dgp=lambda p: (
-        r"Z_i\sim\text{Bernoulli}(0{,}5)\ \text{(rastgele davet)}, \qquad D_i=D_i(Z_i)",
-        rf"\text{{uyumlu}}: D(1)=1,\,D(0)=0 \ (\text{{pay}}={number(p['p_c'], 1)}); \quad "
+        r"Z_i\sim\text{Bernoulli}(0{,}5)\ \text{(rastgele davet)}, \qquad D_i=Z_iD_{1i}+(1-Z_i)D_{0i}",
+        rf"\text{{uyumlu}}: D_1=1,\,D_0=0 \ (\text{{pay}}={number(p['p_c'], 1)}); \quad "
         r"\text{her zaman alan}: D\equiv1; \quad \text{hiç almayan}: D\equiv0",
-        rf"Y_i=Y_i(0)+\tau_i D_i, \qquad \tau_i\in\{{1{{,}}5;\ \tau_C;\ 0{{,}}5\}}, \quad \tau_C={number(p['tau_c'], 2)}",
+        rf"Y_i=Y_{{0i}}+\theta_i D_i, \qquad \theta_i\in\{{1{{,}}5;\ \theta_c;\ 0{{,}}5\}}, \quad \theta_c={number(p['tau_c'], 2)}",
     ),
     dgp_note=(
         "Etkiler tipe göre farklı: her zaman alanlar tedaviden en çok, hiç almayanlar en az yararlanıyor. Başlangıç "
-        "düzeyi Y(0) de tipe göre değişiyor; tedavi seçimi bu yüzden içsel. Defier yok (monotonluk sağlanıyor)."
+        "düzeyi Y_0 de tipe göre değişiyor; tedavi seçimi bu yüzden içsel. Defier yok (monotonluk sağlanıyor)."
     ),
     look_at=(
         "**Grafik** — davet edilen (Z = 1) ve edilmeyen (Z = 0) gruplarda tedavi alma oranı ve Y ortalaması. "

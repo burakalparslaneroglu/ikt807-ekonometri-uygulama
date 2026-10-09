@@ -16,6 +16,7 @@ from core.session_utils import (
     toggle_answer,
 )
 from core.topic_registry import get_topic
+from core.notation import COMMON_NOTATION, TOPIC_NOTATION
 
 
 def render_topic_header(topic_key: str) -> None:
@@ -29,6 +30,9 @@ def render_topic_header(topic_key: str) -> None:
         ),
         unsafe_allow_html=True,
     )
+    with st.expander("Notasyon rehberi: tek gözlem, örneklem ve bu konunun sembolleri"):
+        st.markdown(COMMON_NOTATION)
+        st.markdown(TOPIC_NOTATION[topic_key])
     st.markdown(
         (
             "<div class='guiding-question'>"

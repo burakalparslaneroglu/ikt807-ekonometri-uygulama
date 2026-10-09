@@ -194,8 +194,8 @@ STEPS = (
         ),
         takeaway=(
             "Elle ikinci aşamanın standart hatası 2SLS standart hatası değildir: $\\widehat{education}$ aynı "
-            "örneklemden tahmin edilmiştir ve ikinci aşama artığı $Y-\\widehat X'\\hat\\beta$ yapısal hata için doğru "
-            "artık değildir; doğru artık $Y-X'\\hat\\beta_{2SLS}$'dir (§4.8). Bu veride iki SH'nin farkı küçüktür "
+            "örneklemden tahmin edilmiştir ve ikinci aşama artığı $\\boldsymbol Y-\\widehat{\\boldsymbol X}\\hat\\beta$ yapısal hata için doğru "
+            "artık değildir; doğru artık $\\boldsymbol Y-\\boldsymbol X\\hat\\beta_{2SLS}$'dir (§4.8). Bu veride iki SH'nin farkı küçüktür "
             "(tabloda karşılaştırın); genel olarak fark büyük olabilir ve yönü önceden bilinemez. Çıkarım için "
             "2SLS rutininin IV-robust kovaryansı kullanılır. Bir ayrıntı: elle ikinci aşamanın p-değeri indirgenmiş "
             "biçiminkiyle aynıdır, çünkü tam tanımlı modelde tahmin edilen eğitim araç ve kontrollerin doğrusal bir "

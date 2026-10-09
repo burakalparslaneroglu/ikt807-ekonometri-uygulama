@@ -168,7 +168,7 @@ QUESTIONS = (
         answer=TrueFalse(False),
         explanation=(
             "Artıkları karıştırmak büyük artıkları küçük varyanslı gözlemlere taşır ve deseni bozar. Wild bootstrap her "
-            "gözlemin artığını kendi yerinde tutar ve yalnız işaretini rastgele değiştirir (§10.10)."
+            "gözlemin artığını kendi yerinde tutar; Rademacher çarpanıyla yalnız işaretini rastgele değiştirir (§10.10)."
         ),
     ),
     Question(
@@ -210,8 +210,8 @@ QUESTIONS = (
         ),
         answer=FillBlanks((TextBlank(("pairs", "pair", "pairs bootstrap", "case", "cases"), "pairs"),)),
         explanation=(
-            "Bootstrap tasarım matrisi ve bağımlı değişken $(Y^*,X^*)$ birlikte oluşur ve OLS her tekrarda "
-            "$\\hat\\beta^*=(X^{*\\prime}X^*)^{-1}X^{*\\prime}Y^*$ olarak yeniden hesaplanır (§10.5)."
+            "Bootstrap tasarım matrisi ve bağımlı değişken $(\\boldsymbol Y^*,\\boldsymbol X^*)$ birlikte oluşur ve OLS her tekrarda "
+            "$\\hat\\beta^*=(\\boldsymbol X^{*\\prime}\\boldsymbol X^*)^{-1}\\boldsymbol X^{*\\prime}\\boldsymbol Y^*$ olarak yeniden hesaplanır (§10.5)."
         ),
     ),
     Question(
@@ -300,7 +300,8 @@ QUESTIONS = (
         ),
         explanation=(
             "Bir gözlemi çıkarmak tahmini çok az değiştirir; ham yayılım gerçek değişkenliği küçük gösterir. $(n-1)/n$ "
-            "çarpanı ortalama için tam doğru varyansı verecek biçimde seçilmiştir (§10.2)."
+            "çarpanı, örneklem ortalaması için alışılmış varyans tahminini ($s^2/n$, $s^2$: örneklem varyansı) tam olarak "
+            "verecek biçimde seçilmiştir (§10.2)."
         ),
     ),
     Question(

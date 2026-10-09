@@ -272,7 +272,7 @@ SPLITS_TEXT = (
     "tekrarlıyoruz; yalnız gözlemlerin katlara dağılımı değişir, veri, öğrenici ve kat sayısı aynıdır. On bir bölme "
     "Chernozhukov vd. (2018) gibi birleştirilir:\n\n"
     "$$\\widehat\\theta_{med}=\\operatorname{medyan}_s\\widehat\\theta_s,\\qquad "
-    "\\widehat\\sigma^2_{med}=\\operatorname{medyan}_s\\{\\widehat\\sigma_s^2+(\\widehat\\theta_s-"
+    "\\widehat V_{\\widehat\\theta,med}=\\operatorname{medyan}_s\\{\\widehat V_{\\widehat\\theta,s}+(\\widehat\\theta_s-"
     "\\widehat\\theta_{med})^2\\}.$$"
 )
 
@@ -283,7 +283,7 @@ def _grid_text(grid: tuple[float, float, int]) -> str:
     def power(value: float) -> str:
         return _sayi(value, 1 if value % 1 else 0).replace(",", "{,}")
 
-    return f"$\\lambda\\in[10^{{{power(low)}}},10^{{{power(high)}}}]$ aralığında {count} noktalı logaritmik ızgarada"
+    return f"$\\lambda_y\\in[10^{{{power(low)}}},10^{{{power(high)}}}]$ aralığında {count} noktalı logaritmik ızgarada"
 
 
 # --- Alternatif örnek: Card (1995) ----------------------------------------------------------------------------

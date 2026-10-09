@@ -121,7 +121,7 @@ BANDWIDTH = SimExperiment(
     dgp=lambda p: (
         r"X\sim U[0,10], \qquad e\sim N(0,\sigma^2)",
         rf"Y=2\sin(X)+e, \qquad \sigma={number(p['sigma'], 2)}, \ h={number(p['h'], 2)}",
-        r"\hat m(x)=\arg\min_{a}\min_{b}\sum_i K\!\left(\tfrac{X_i-x}{h}\right)\{Y_i-a-b(X_i-x)\}^2, \quad K=\phi",
+        r"(\hat a(x),\hat b(x))=\arg\min_{a,b}\sum_i K\!\left(\tfrac{X_i-x}{h}\right)\{Y_i-a-b(X_i-x)\}^2,\quad\hat m(x)=\hat a(x),\quad K=\phi",
     ),
     dgp_note=(
         "Gerçek koşullu ortalama m(x) = 2·sin(x) bilindiği için tahminin gerçek eğriden sapması doğrudan ölçülebilir. "

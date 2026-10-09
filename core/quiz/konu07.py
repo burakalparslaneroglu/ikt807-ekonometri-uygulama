@@ -79,7 +79,7 @@ QUESTIONS = (
         key="k04", concept="kantil-tahmin-hesabi", note=_note("7.6"),
         prompt="Kantil regresyon tahmin edicisi $\\hat\\beta_\\tau$ nasıl hesaplanır?",
         answer=MultipleChoice((
-            "Kapalı form $(X'X)^{-1}X'Y$ ile",
+            "Kapalı form $(\\boldsymbol X'\\boldsymbol X)^{-1}\\boldsymbol X'\\boldsymbol Y$ ile",
             "Parçalı doğrusal amaç fonksiyonunun doğrusal programlama (veya başka bir sayısal yöntem) ile en "
             "küçüklenmesiyle",
             "Normal dağılım varsayımıyla en çok olabilirlikle",
@@ -125,7 +125,7 @@ QUESTIONS = (
     Question(
         key="k07", concept="fark-testi-ortak-kovaryans", note=_note("7.16", 2),
         prompt=(
-            "CPS uygulamasında $\\operatorname{Var}(\\hat\\beta_{0,90}-\\hat\\beta_{0,10})$, iki kantil varyansının "
+            "CPS uygulamasında $\\operatorname{Var}(\\hat\\beta_{j,0{,}90}-\\hat\\beta_{j,0{,}10})$, iki kantil varyansının "
             "toplamından küçüktür. Neden?"
         ),
         answer=MultipleChoice((
@@ -135,8 +135,8 @@ QUESTIONS = (
             "İki tahmin aynı veriden geldiği için kovaryansları pozitiftir; varyanstan kovaryansın iki katı çıkarılır",
         ), correct=3),
         explanation=(
-            "Ortak kovaryans $\\{\\min(\\tau_1,\\tau_2)-\\tau_1\\tau_2\\}H_1^{-1}X'XH_2^{-1}$'dir; 0,10 ve 0,90 için ağırlık "
-            "0,01. Eğitimde farkın SH'si 0,0021; bağımsızlık varsayılsaydı $\\sqrt{0{,}0017^2+0{,}0014^2}\\approx0{,}0023$ "
+            "Ortak kovaryans $\\{\\min(\\tau_1,\\tau_2)-\\tau_1\\tau_2\\}H_1^{-1}\\boldsymbol X'\\boldsymbol XH_2^{-1}$'dir; 0,10 ve 0,90 için ağırlık "
+            "0,01. Eğitimde farkın SH'si 0,0021; bağımsızlık varsayılsaydı $\\sqrt{0{,}0017^2+0{,}0014^2}\\approx0{,}0022$ "
             "olurdu (§7.16, Adım 2)."
         ),
     ),
@@ -328,17 +328,17 @@ QUESTIONS = (
         ),
         explanation=(
             "Pay kantilin altında kalma göstergesinin varyansı, payda kantili olasılık ölçeğinden değer ölçeğine "
-            "çeviren yoğunluktur. Regresyonda aynı yapı sandviç biçimini alır: $\\tau(1-\\tau)H^{-1}X'XH^{-1}$ (§7.11)."
+            "çeviren yoğunluktur. Regresyonda aynı yapı sandviç biçimini alır: $\\tau(1-\\tau)\\boldsymbol H_\\tau^{-1}\\boldsymbol X'\\boldsymbol X\\boldsymbol H_\\tau^{-1}$ (§7.16.1)."
         ),
     ),
     Question(
         key="f03", concept="fark-varyansi", note=_note("7.16", 2),
         prompt=(
-            "$v_1=\\operatorname{Var}(\\hat\\beta_{\\tau_1})$, $v_2=\\operatorname{Var}(\\hat\\beta_{\\tau_2})$ ve "
-            "$c=\\operatorname{Cov}(\\hat\\beta_{\\tau_1},\\hat\\beta_{\\tau_2})$ ise farkın varyansını yazın."
+            "$v_1=\\operatorname{Var}(\\hat\\beta_{j,\\tau_1})$, $v_2=\\operatorname{Var}(\\hat\\beta_{j,\\tau_2})$ ve "
+            "$c=\\operatorname{Cov}(\\hat\\beta_{j,\\tau_1},\\hat\\beta_{j,\\tau_2})$ ise farkın varyansını yazın."
         ),
         answer=Equation(
-            lhs=r"\operatorname{Var}(\hat\beta_{\tau_2}-\hat\beta_{\tau_1})",
+            lhs=r"\operatorname{Var}(\hat\beta_{j,\tau_2}-\hat\beta_{j,\tau_1})",
             symbols=(
                 Symbol("v1", "v_1", "birinci kantil tahmininin varyansı", 0.5, 3.0, aliases=("v_1", "v₁")),
                 Symbol("v2", "v_2", "ikinci kantil tahmininin varyansı", 0.5, 3.0, aliases=("v_2", "v₂")),
@@ -359,7 +359,7 @@ QUESTIONS = (
             "$\\gamma$ ve $z=\\Phi^{-1}(\\tau)$ cinsinden yazın."
         ),
         answer=Equation(
-            lhs=r"\partial Q_\tau(Y\mid X)/\partial X",
+            lhs=r"\partial Q_\tau[Y\mid X]/\partial X",
             symbols=(
                 Symbol("g", r"\gamma", "ölçek eğimi", 0.0, 1.0, aliases=("γ", "gamma")),
                 Symbol("z", "z", "standart normal kantil Φ⁻¹(τ)", -2.0, 2.0),
@@ -368,7 +368,7 @@ QUESTIONS = (
             shown=r"1+\gamma\,\Phi^{-1}(\tau)",
         ),
         explanation=(
-            "$Q_\\tau(Y\\mid X)=1+z+(1+\\gamma z)X$. $\\gamma=0$ iken bütün eğimler 1'dir (paralel kantiller); $\\gamma>0$ "
+            "$Q_\\tau[Y\\mid X]=1+z+(1+\\gamma z)X$. $\\gamma=0$ iken bütün eğimler 1'dir (paralel kantiller); $\\gamma>0$ "
             "iken üst kantil eğimi büyür, alt kantil eğimi küçülür. Sezgi Deney 1 bunu gösterir (§7.8)."
         ),
     ),

@@ -100,7 +100,7 @@ def _sample(frame: str, n: int, seed: int | None, h: float, degree: int, suffix:
         Draw(frame, "e", "normal", 0, GLOBAL_SIGMA, "e ~ N(0; 0,3²)"),
         Derive(frame, "d", E.compare("ge", x, 0), "Keskin tasarım: D = 1{X ≥ 0}"),
         Derive(frame, "y", E.add(E.add(_untreated(x), E.mul(TAU, E.var("d"))), E.var("e")),
-               "Y = m0(X) + τD + e, m0(x) = 0,5x + 1,5·Λ(20(x − 0,5)), τ = 1"),
+               "Y = m0(X) + θD + e, m0(x) = 0,5x + 1,5·Λ(20(x − 0,5)), θ = 1"),
         RDD(f"yerel{suffix}", frame, "x", "y", 0, h),
         *derived,
         OLS(f"polinom{suffix}", frame, "y", _global_terms(degree), vcov="HC1"),
@@ -117,7 +117,7 @@ def _build_global(p: Parameters) -> tuple:
             FRAME, "x",
             (
                 Scatter("y", "Gözlemler"),
-                Curve(truth, "Gerçek E[Y | X] (sıçrama τ = 1)", dashed=True),
+                Curve(truth, "Gerçek E[Y | X] (sıçrama θ = 1)", dashed=True),
                 RDDCurve("y", 0, h, f"Yerel doğrusal, h = {plain(h, 2)} ve %95 bant"),
                 Curve(_global_fit(degree), f"Global polinom, p = {degree}"),
                 VLine(0, "Eşik c = 0"),
@@ -131,7 +131,7 @@ def _build_global(p: Parameters) -> tuple:
         ),
         Histogram(
             "mc", (("tau_yerel", f"Yerel doğrusal, h = {plain(h, 2)}"), ("tau_polinom", f"Global polinom, p = {degree}")),
-            0.0, 2.0, ((TAU, "Gerçek τ = 1"),), "Sıçrama tahmini τ̂", f"{REPS} örneklemde τ̂'nin dağılımı", bins=50,
+            0.0, 2.0, ((TAU, "Gerçek θ = 1"),), "Sıçrama tahmini θ̂", f"{REPS} örneklemde θ̂'nin dağılımı", bins=50,
         ),
     )
 
@@ -147,7 +147,7 @@ def _global_numbers(state: LabState) -> dict[str, float]:
 def _global_metrics(state: LabState, p: Parameters) -> tuple[SimMetric, ...]:
     values = _global_numbers(state)
     return (
-        SimMetric("Yerel doğrusal: yanlılık", plain(values["local_bias"], 3), f"{REPS} örneklemde τ̂ − 1 ortalaması."),
+        SimMetric("Yerel doğrusal: yanlılık", plain(values["local_bias"], 3), f"{REPS} örneklemde θ̂ − 1 ortalaması."),
         SimMetric("Yerel doğrusal: std. sapma", plain(values["local_sd"], 3), "Tekrarlar arası."),
         SimMetric("Global polinom: yanlılık", plain(values["global_bias"], 3), f"p = {int(p['p'])}."),
         SimMetric("Global polinom: std. sapma", plain(values["global_sd"], 3), "Tekrarlar arası."),
@@ -198,20 +198,20 @@ GLOBAL = SimExperiment(
     ),
     dgp=lambda p: (
         r"X\sim U[-1,1],\qquad D=\mathbf 1\{X\ge 0\},\qquad e\sim N(0,\,0{,}3^2)",
-        r"Y=m_0(X)+\tau D+e,\qquad m_0(x)=0{,}5x+1{,}5\,\Lambda\bigl(20(x-0{,}5)\bigr),\qquad \tau=1",
+        r"Y=m_0(X)+\theta D+e,\qquad m_0(x)=0{,}5x+1{,}5\,\Lambda\bigl(20(x-0{,}5)\bigr),\qquad \theta=1",
         rf"h={number(p['h'], 2)}\ (\text{{pencere}}\ \pm h\sqrt6={number(p['h'] * np.sqrt(6), 2)}),"
         rf"\qquad p={int(p['p'])}",
     ),
     dgp_note=(
         "Tedavi yokken koşullu ortalama m0(x) eşikte düzgündür; sağ tarafta, eşikten uzakta (x = 0,5) dik bir "
-        "yükseliş vardır (Λ lojistik fonksiyon). Gerçek sıçrama τ = 1 bilinir. Global polinom her tarafta ayrı "
+        "yükseliş vardır (Λ lojistik fonksiyon). Gerçek sıçrama θ = 1 bilinir. Global polinom her tarafta ayrı "
         f"p. dereceden polinomdur: Y ~ D + X + … + X^p + D·X + … + D·X^p. Grafik tek örneklemdir (tohum 809); "
         f"yanlılık ve standart sapma {REPS} yeni örneklemden (tohum 909)."
     ),
     look_at=(
         "**Grafik 1** — bir örneklemde gözlemler, gerçek koşullu ortalama (kesikli), eşiğin iki yanında yerel doğrusal "
         "tahmin ve %95 bandı, global polinom uyumu.",
-        f"**Grafik 2** — {REPS} örneklemde iki tahmin edicinin sıçrama tahminleri; gerçek τ = 1 (dikey çizgi).",
+        f"**Grafik 2** — {REPS} örneklemde iki tahmin edicinin sıçrama tahminleri; gerçek θ = 1 (dikey çizgi).",
         "**Ölçüler** — iki tahmin edicinin yanlılığı ve standart sapması.",
     ),
     build=_build_global, metrics=_global_metrics, takeaway=_global_takeaway,
@@ -239,7 +239,7 @@ def _bandwidth_body(n: int, h: float) -> tuple:
         Draw(FRAME, "e", "normal", 0, SIGMA, "e ~ N(0; 0,5²)"),
         Derive(FRAME, "y", E.add(E.add(E.add(x, E.mul(CURVATURE, E.mul(x, E.absolute(x)))),
                                        E.mul(TAU, E.compare("ge", x, 0))), E.var("e")),
-               "Y = X + 2X|X| + τ·1{X ≥ 0} + e, τ = 1"),
+               "Y = X + 2X|X| + θ·1{X ≥ 0} + e, θ = 1"),
         RDD("rdd", FRAME, "x", "y", 0, h),
     )
 
@@ -253,8 +253,8 @@ def _build_bandwidth(p: Parameters) -> tuple:
             "Monte Carlo: her tekrarda yeni örneklem ve aynı h ile yerel doğrusal sıçrama tahmini",
             coverage=(("tau", "tau_se", TAU),),
         ),
-        Histogram("mc", (("tau", f"Yerel doğrusal τ̂, h = {plain(h, 2)}"),), 0.0, 2.0,
-                  ((TAU, "Gerçek τ = 1"),), "Sıçrama tahmini τ̂", f"{REPS} örneklemde τ̂'nin dağılımı", bins=50),
+        Histogram("mc", (("tau", f"Yerel doğrusal θ̂, h = {plain(h, 2)}"),), 0.0, 2.0,
+                  ((TAU, "Gerçek θ = 1"),), "Sıçrama tahmini θ̂", f"{REPS} örneklemde θ̂'nin dağılımı", bins=50),
     )
 
 
@@ -271,12 +271,12 @@ def _bandwidth_numbers(state: LabState) -> dict[str, float]:
 def _bandwidth_metrics(state: LabState, p: Parameters) -> tuple[SimMetric, ...]:
     values = _bandwidth_numbers(state)
     return (
-        SimMetric("Yanlılık (Monte Carlo)", plain(values["bias"], 3), "τ̂'lerin ortalaması − 1."),
+        SimMetric("Yanlılık (Monte Carlo)", plain(values["bias"], 3), "θ̂'lerin ortalaması − 1."),
         SimMetric("Yaklaşık yanlılık −2,4h²", plain(approximate_bias(p["h"]), 3),
                   "Eğrilik ve çekirdekten hesaplanan birinci derece yanlılık."),
         SimMetric("Std. sapma", plain(values["sd"], 3), "Tekrarlar arası."),
         SimMetric("Ortalama SH", plain(values["se"], 3), "HC1 standart hatalarının ortalaması."),
-        SimMetric("%95 GA kapsama", f"%{plain(100 * values['coverage'], 1)}", "τ̂ ± 1,96·SH aralığının τ = 1'i kapsama oranı."),
+        SimMetric("%95 GA kapsama", f"%{plain(100 * values['coverage'], 1)}", "θ̂ ± 1,96·SH aralığının θ = 1'i kapsama oranı."),
     )
 
 
@@ -317,8 +317,8 @@ BANDWIDTH = SimExperiment(
                      integer=True, decimals=0),
     ),
     dgp=lambda p: (
-        r"X\sim U[-1,1],\qquad e\sim N(0,\,0{,}5^2),\qquad \tau=1",
-        r"Y=X+2X|X|+\tau\,\mathbf 1\{X\ge0\}+e \quad (m_0''=-4\ \text{solda},\ +4\ \text{sağda})",
+        r"X\sim U[-1,1],\qquad e\sim N(0,\,0{,}5^2),\qquad \theta=1",
+        r"Y=X+2X|X|+\theta\,\mathbf 1\{X\ge0\}+e \quad (m_0''=-4\ \text{solda},\ +4\ \text{sağda})",
         rf"h={number(p['h'], 2)},\qquad \text{{yaklaşık yanlılık}}\ -2{{,}}4h^2={number(approximate_bias(p['h']), 3)}",
     ),
     dgp_note=(
@@ -328,7 +328,7 @@ BANDWIDTH = SimExperiment(
         "Tohum 909."
     ),
     look_at=(
-        "**Grafik** — τ̂'lerin dağılımı; gerçek τ = 1 (dikey çizgi).",
+        "**Grafik** — θ̂'lerin dağılımı; gerçek θ = 1 (dikey çizgi).",
         "**Ölçüler** — Monte Carlo yanlılığı ve kuramsal yaklaşığı, standart sapma, ortalama SH ve %95 aralığının "
         "kapsama oranı.",
     ),
@@ -375,7 +375,7 @@ def _build_fuzzy(p: Parameters) -> tuple:
             "mc",
             "Monte Carlo: her tekrarda yeni örneklem; sonuç ve tedavi sıçramaları aynı h ile, Wald oranı ve naif OLS",
         ),
-        Histogram("mc", (("wald", "Yerel Wald oranı θ̂ = τ̂_Y / τ̂_D"),), -3.0, 5.0, ((TAU, "Gerçek θ = 1"),),
+        Histogram("mc", (("wald", "Yerel Wald oranı θ̂ = θ̂_Y / θ̂_D"),), -3.0, 5.0, ((TAU, "Gerçek θ = 1"),),
                   "Tedavi etkisi tahmini θ̂", f"{REPS} örneklemde yerel Wald oranının dağılımı", bins=80),
     )
 
@@ -396,7 +396,7 @@ def _fuzzy_metrics(state: LabState, p: Parameters) -> tuple[SimMetric, ...]:
     values = _fuzzy_numbers(state)
     return (
         SimMetric("İlk aşama sıçraması", plain(values["first"], 3), f"Tekrarların ortalaması; gerçek Δ = {plain(p['delta'], 2)}."),
-        SimMetric("Medyan ilk aşama F", plain(values["f"], 1), "(τ̂_D / SH)²: zayıf araç ölçüsü (Konu 4)."),
+        SimMetric("Medyan ilk aşama F", plain(values["f"], 1), "(θ̂_D / SH)²: zayıf araç ölçüsü (Konu 4)."),
         SimMetric("θ̂: medyan", plain(values["median"], 3), "Gerçek θ = 1; oranın ortalaması tanımsız olabilir."),
         SimMetric("θ̂: %10 yüzdelik", plain(values["q10"], 2), "Tekrarların yüzde 10'u bu değerin altında."),
         SimMetric("θ̂: %90 yüzdelik", plain(values["q90"], 2), "Tekrarların yüzde 10'u bu değerin üstünde."),
@@ -441,11 +441,11 @@ FUZZY = SimExperiment(
         r"X\sim U[-1,1],\quad V\sim U[0,1],\quad e\sim N(0,\,0{,}5^2),\quad Z=\mathbf 1\{X\ge0\}",
         rf"D=\mathbf 1\{{V<0{{,}}3+\Delta Z\}},\qquad \Delta={number(p['delta'], 2)}",
         r"Y=0{,}5X+\theta D+1{,}5\,(0{,}5-V)+e,\qquad \theta=1,\qquad "
-        r"\hat\theta=\hat\tau_Y/\hat\tau_D\ (h=0{,}2)",
+        r"\hat\theta_{FRD}=\widehat\Delta_Y/\widehat\Delta_D\ (h=0{,}2)",
     ),
     dgp_note=(
-        f"{REPS} tekrarın her birinde yeni örneklem çekilir. Sonuç sıçraması τ̂_Y ve tedavi sıçraması τ̂_D aynı "
-        "yerel doğrusal tahminle (h = 0,2, pencere ±0,49) bulunur; yerel Wald oranı τ̂_Y/τ̂_D'dir. Tedavi etkisi "
+        f"{REPS} tekrarın her birinde yeni örneklem çekilir. Sonuç sıçraması θ̂_Y ve tedavi sıçraması θ̂_D aynı "
+        "yerel doğrusal tahminle (h = 0,2, pencere ±0,49) bulunur; yerel Wald oranı θ̂_Y/θ̂_D'dir. Tedavi etkisi "
         "herkeste aynı (θ = 1) olduğu için oran θ'yı hedefler. Tohum 909."
     ),
     look_at=(

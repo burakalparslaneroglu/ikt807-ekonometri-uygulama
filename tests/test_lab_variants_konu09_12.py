@@ -562,7 +562,7 @@ def test_konu09_cutoff_rules_and_the_treated_side() -> None:
     assert default.bandwidths == (1.4, 2.1, 2.8, 3.5, 4.2)
     left = _case(K9, frame, CustomChoices(roles=KONU09.roles, numbers={"esik": "70", "h": ""}, options={"sol": True}))
     spec = K9.CUSTOM.build(left)
-    assert "etkisi $-\\widehat\\tau$" in spec.steps[0].explanation
+    assert "etkisi $-\\widehat\\theta$" in spec.steps[0].explanation
     notes = _notes(spec)
     effects = re.search(r"tahmini etkisi (−?[0-9,]+) ile (−?[0-9,]+)", notes[2])
     assert effects and effects.group(1).startswith("−")

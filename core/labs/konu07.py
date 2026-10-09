@@ -98,13 +98,13 @@ STEPS = (
         note=NoteRef(SECTION, 1, ("Tablo 7.2", "Şekil 7.6", "Tablo 7.1")),
         explanation=(
             "Konu 1'deki 50.742 gözlemlik CPS örnekleminde aynı spesifikasyonu beş kantilde tahmin ediyoruz:\n\n"
-            "$$Q_\\tau[\\log(wage_i)\\mid X_i]=\\beta_{0\\tau}+\\beta_{1\\tau}education_i+\\beta_{2\\tau}female_i"
-            "+\\beta_{3\\tau}experience_i+\\beta_{4\\tau}experience_i^2/100,$$\n\n"
+            "$$Q_\\tau[\\log(wage_i)\\mid X_i]=\\beta_{0,\\tau}+\\beta_{1,\\tau}education_i+\\beta_{2,\\tau}experience_i"
+            "+\\beta_{3,\\tau}experience_i^2/100+\\beta_{4,\\tau}female_i,$$\n\n"
             "$\\tau\\in\\{0{,}10;\\,0{,}25;\\,0{,}50;\\,0{,}75;\\,0{,}90\\}$. Karşılaştırma için aynı spesifikasyonun OLS "
             "tahmini (HC1) de verilir. Kantil tahmini $\\sum_i\\rho_\\tau(Y_i-X_i'b)$ kontrol kaybını en küçük yapan "
             "$b$'dir; bu bir doğrusal programlama problemidir ve kesin çözümü hesaplanır.\n\n"
-            "Standart hatalar **Hendricks–Koenker** sandviçidir: $\\hat V_\\tau=\\tau(1-\\tau)H^{-1}X'XH^{-1}$, "
-            "$H=\\sum_i\\hat f_iX_iX_i'$. Her gözlemin koşullu yoğunluğu $\\hat f_i$, aynı modelin $\\tau\\pm h$ "
+            "Standart hatalar **Hendricks–Koenker** sandviçidir: $\\widehat{\\boldsymbol V}_{\\hat\\beta_\\tau}=\\tau(1-\\tau)\\boldsymbol H_\\tau^{-1}\\boldsymbol X'\\boldsymbol X\\boldsymbol H_\\tau^{-1}$, "
+            "$\\boldsymbol H_\\tau=\\sum_i\\hat f_iX_iX_i'$. Her gözlemin koşullu yoğunluğu $\\hat f_i$, aynı modelin $\\tau\\pm h$ "
             "kantillerindeki tahmin farkından bulunur: iki kantil doğrusu $X_i$'de birbirine yakınsa, o noktada "
             "yoğunluk yüksektir."
         ),
@@ -152,13 +152,13 @@ STEPS = (
         title="\"Katsayılar farklı\" ile \"fark istatistiksel olarak kanıtlandı\" ayrımı",
         note=NoteRef(SECTION, 2),
         explanation=(
-            "İki kantilde katsayıların ayrı ayrı anlamlı olması, aralarındaki farkın anlamlı olduğunu göstermez. "
-            "$H_0:\\beta_{0{,}10}=\\beta_{0{,}90}$ için farkın örnekleme dağılımı gerekir. İki tahmin **aynı veriden** "
+            "Aynı regresörün katsayısı için $j$ indeksini sabit tutuyoruz (eğitimde $j=1$). İki kantilde katsayıların ayrı ayrı anlamlı olması, aralarındaki farkın anlamlı olduğunu göstermez. "
+            "$H_0:\\beta_{j,0{,}10}=\\beta_{j,0{,}90}$ için farkın örnekleme dağılımı gerekir. İki tahmin **aynı veriden** "
             "geldiği için bağımsız değildir; ortak asimptotik kovaryansları\n\n"
-            "$$\\mathrm{Cov}(\\hat\\beta_{\\tau_1},\\hat\\beta_{\\tau_2})=\\{\\min(\\tau_1,\\tau_2)-\\tau_1\\tau_2\\}"
-            "\\,H_{\\tau_1}^{-1}X'XH_{\\tau_2}^{-1}$$\n\n"
+            "$$\\widehat{\\operatorname{Cov}}(\\hat\\beta_{\\tau_1},\\hat\\beta_{\\tau_2})=\\{\\min(\\tau_1,\\tau_2)-\\tau_1\\tau_2\\}"
+            "\\,\\boldsymbol H_{\\tau_1}^{-1}\\boldsymbol X'\\boldsymbol X\\boldsymbol H_{\\tau_2}^{-1}$$\n\n"
             "ile verilir (Hendricks–Koenker yoğunluklarıyla). Farkın varyansı iki varyansın toplamından bu kovaryansın "
-            "iki katı çıkarılarak bulunur ve $z=(\\hat\\beta_{0{,}90}-\\hat\\beta_{0{,}10})/SH$ normal dağılımla "
+            "iki katı çıkarılarak bulunur ve $z=(\\hat\\beta_{j,0{,}90}-\\hat\\beta_{j,0{,}10})/SH$ normal dağılımla "
             "değerlendirilir. Aynı test ortak bootstrap ile de yapılabilir (Konu 10)."
         ),
         operations=(
@@ -184,14 +184,14 @@ STEPS = (
             "raporlayın."
         ),
         code_note=(
-            "Ortak kovaryans için her modelin $H^{-1}$ ve $X'X$ matrisleri saklanır: R'de `summary(m, se = \"nid\", "
+            "Ortak kovaryans için her modelin $\\boldsymbol H_\\tau^{-1}$ ve $\\boldsymbol X'\\boldsymbol X$ matrisleri saklanır: R'de `summary(m, se = \"nid\", "
             "covariance = TRUE)` sonucunun `$Hinv` ve `$J` öğeleri, Python'da `KantilSonucu` nesnesinin `Hinv` ve `J` "
             "alanları, Stata'da `hk_sh` programının oluşturduğu `Hinv_model` ve `J_model` matrisleri."
         ),
     ),
     LabStep(
         number=3,
-        title="Koşullu kantil heterojenliğini bireysel etki heterojenliğiyle karıştırmamak",
+        title="Koşullu kantil heterojenliğini bireysel tedavi heterojenliğiyle karıştırmamak",
         note=NoteRef(SECTION, 3),
         explanation=(
             "Kantil regresyon katsayısı $\\beta_\\tau$, koşullu sonuç dağılımının $\\tau$ kantilindeki ilişkiyi özetler. "

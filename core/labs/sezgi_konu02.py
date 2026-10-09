@@ -192,9 +192,9 @@ FWL = SimExperiment(
         SimParameter("beta2", "x2'nin Y'ye etkisi β2", -1.0, 1.0, 0.8, 0.1, "β2 = 0 iken x2 Y'yi etkilemez.", decimals=1),
     ),
     dgp=lambda p: (
-        r"x_{2i}\sim N(0,1), \qquad v_i\sim N(0,1), \qquad e_i\sim N(0,1)",
-        rf"x_{{1i}}=\rho\,x_{{2i}}+\sqrt{{1-\rho^2}}\,v_i, \qquad \rho={number(p['rho'], 1)}",
-        rf"Y_i=1+0{{,}}5\,x_{{1i}}+\beta_2\,x_{{2i}}+e_i, \qquad \beta_2={number(p['beta2'], 1)}",
+        r"X_{i2}\sim N(0,1), \qquad v_i\sim N(0,1), \qquad e_i\sim N(0,1)",
+        rf"X_{{i1}}=\rho\,X_{{i2}}+\sqrt{{1-\rho^2}}\,v_i, \qquad \rho={number(p['rho'], 1)}",
+        rf"Y_i=1+0{{,}}5\,X_{{i1}}+\beta_2\,X_{{i2}}+e_i, \qquad \beta_2={number(p['beta2'], 1)}",
     ),
     dgp_note=(
         "x1'in Y'ye etkisi 0,5'tir. x1 ile x2 ilişkili (korelasyon ρ) ve x2 de Y'yi etkiliyorsa (β2 ≠ 0), "
@@ -280,7 +280,7 @@ CLUSTER = SimExperiment(
     ),
     dgp=lambda p: (
         rf"g=1,\dots,G, \quad G={int(p['groups'])}, \quad m={CLUSTER_SIZE}\ \text{{gözlem/küme}}",
-        r"X_{ig}=x_g,\quad x_g\sim N(0,1), \qquad e_{ig}=\sqrt{\rho}\,u_g+\sqrt{1-\rho}\,\varepsilon_{ig}",
+        r"X_{ig}=X_g,\quad X_g\sim N(0,1), \qquad e_{ig}=\sqrt{\rho}\,u_g+\sqrt{1-\rho}\,\varepsilon_{ig}",
         rf"Y_{{ig}}=1+0{{,}}3\,X_{{ig}}+e_{{ig}}, \qquad \rho={number(p['rho'], 1)}",
     ),
     dgp_note=(

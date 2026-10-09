@@ -233,7 +233,7 @@ STEPS = (
             "değerlendirilir."
         ),
         code_note=(
-            "Kübik polinom ve spline OLS'tir; baz terimleri açıkça türetilir, tahminler 10., 50. ve 90. yüzdelikte "
+            "Kübik polinom ve spline OLS'dir; baz terimleri açıkça türetilir, tahminler 10., 50. ve 90. yüzdelikte "
             "x'β olarak hesaplanır. Standart hatalar okul düzeyinde kümelenmiştir (tahminleri etkilemez)."
         ),
     ),

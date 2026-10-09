@@ -148,7 +148,7 @@ HETERO = SimExperiment(
     dgp=lambda p: (
         r"X_i,\ \varepsilon_i\sim N(0,1),\qquad u_i=(0{,}45+\gamma|X_i|)\,\varepsilon_i",
         rf"Y_i=1+1{{,}}8X_i+u_i,\qquad \gamma={number(p['gamma'], 2)},\ n={int(p['n'])},\ B={int(p['reps'])}",
-        r"\text{wild: }Y_i^*=X_i'\hat\beta+\hat e_i\xi_i^*,\quad P(\xi_i^*=\pm1)=1/2;\qquad "
+        r"\text{wild: }Y_i^*=\hat\beta_0+\hat\beta_1X_i+\hat e_i\xi_i^*,\quad P(\xi_i^*=\pm1)=1/2;\qquad "
         r"\text{percentile-}t\text{: }[\hat\beta-q^*_{0{,}975}s,\ \hat\beta-q^*_{0{,}025}s]",
     ),
     dgp_note=(
@@ -383,7 +383,7 @@ CLUSTER = SimExperiment(
     ),
     dgp=lambda p: (
         rf"g=1,\dots,G,\quad G={int(p['groups'])},\quad m={CLUSTER_SIZE}\ \text{{gözlem/küme}}",
-        r"X_{ig}=x_g,\quad x_g\sim N(0,1),\qquad e_{ig}=\sqrt{\rho}\,u_g+\sqrt{1-\rho}\,\varepsilon_{ig}",
+        r"X_{ig}=X_g,\quad X_g\sim N(0,1),\qquad e_{ig}=\sqrt{\rho}\,u_g+\sqrt{1-\rho}\,\varepsilon_{ig}",
         rf"Y_{{ig}}=1+0{{,}}5\,X_{{ig}}+e_{{ig}},\qquad \rho={number(p['rho'], 1)}",
     ),
     dgp_note=(

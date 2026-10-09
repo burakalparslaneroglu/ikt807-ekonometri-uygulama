@@ -245,16 +245,16 @@ TUNING_TEXT = (
     "içinde yapılmasıdır: her katta ölçek ve kategori düzeyleri yalnız o katın eğitim verisinden öğrenilir."
 )
 CODE_NOTE = (
-    "Ceza ölçekleri: Ridge SSE ölçeğinde, $(Y-X\\beta)'(Y-X\\beta)+\\lambda\\beta'\\beta$ (scikit-learn `Ridge`, Hansen); "
-    "Lasso yazılım ölçeğinde, $\\frac{1}{2n}\\|Y-X\\beta\\|^2+\\lambda\\|\\beta\\|_1$ (scikit-learn, R `glmnet`, Stata "
-    "`lasso`; Hansen'in SSE ölçeğinde ceza $2n\\lambda$). Ridge kapalı biçimle, Lasso koordinat inişiyle çözülür; tolerans "
+    "Ceza ölçekleri: Ridge SSE ölçeğinde, $(\\boldsymbol Y-\\boldsymbol X\\beta)'(\\boldsymbol Y-\\boldsymbol X\\beta)+\\lambda\\beta'\\beta$ (scikit-learn `Ridge`, Hansen); "
+    "Lasso yazılım ölçeğinde, $\\frac{1}{2n}\\|\\boldsymbol Y-\\boldsymbol X\\beta\\|^2+\\lambda_y\\|\\beta\\|_1$ (scikit-learn, R `glmnet`, Stata "
+    "`lasso`; Hansen'in SSE ölçeğinde ceza $2n\\lambda_y$). Ridge kapalı biçimle, Lasso koordinat inişiyle çözülür; tolerans "
     "çok küçük tutulduğu için diller aynı optimuma yakınsar. Izgara, ölçekleme ve katlar kodda açıkça verilir."
 )
 
 
-def _grid_text(grid: tuple[float, float, int]) -> str:
+def _grid_text(grid: tuple[float, float, int], symbol: str = r"\lambda") -> str:
     high, low, count = grid
-    return (f"$\\lambda\\in[10^{{{_sayi(low, 1 if low % 1 else 0).replace(',', '{,}')}}},"
+    return (f"${symbol}\\in[10^{{{_sayi(low, 1 if low % 1 else 0).replace(',', '{,}')}}},"
             f"10^{{{_sayi(high, 1 if high % 1 else 0).replace(',', '{,}')}}}]$ aralığında {count} noktalı logaritmik ızgara")
 
 
@@ -323,7 +323,7 @@ ALT_TEXTS = {
         "açıklanır.",
     ),
     2: (
-        TUNING_TEXT + " Ridge için " + _grid_text(ALT_RIDGE_GRID) + ", Lasso için " + _grid_text(ALT_LASSO_GRID)
+        TUNING_TEXT + " Ridge için " + _grid_text(ALT_RIDGE_GRID) + ", Lasso için " + _grid_text(ALT_LASSO_GRID, r"\lambda_y")
         + " kullanılır. Ridge ızgarası notlardakinden bir on yıl yukarıdadır (132 terimde iyi Ridge cezası daha "
         "büyüktür); Lasso ızgarası notlardakiyle aynıdır.",
         "Notlardaki düz CV eğrilerinin aksine burada eğriler belirgin bir çukur oluşturur: çok küçük cezalar (OLS'e yakın) "
@@ -333,7 +333,7 @@ ALT_TEXTS = {
     3: (
         REPORTING,
         "Bu laboratuvarın cevapları: eğitim/test bölmesi açık kuralla (1.524/510); kayıp MSE; 5-katlı CV, aynı katlar; "
-        "ölçekleme kat içinde; Ridge λ = 1.193,78 (SSE ölçeği), Lasso λ = 0,01 (yazılım ölçeği). 510 gözlemlik test "
+        "ölçekleme kat içinde; Ridge λ = 1.193,78 (SSE ölçeği), Lasso λ_y = 0,01 (yazılım ölçeği). 510 gözlemlik test "
         "örnekleminde Ridge ile Lasso arasındaki fark (yaklaşık 0,00004) bir sıralama kanıtı değildir.",
     ),
     4: (
@@ -661,7 +661,7 @@ def _own_texts(case: Case, plan: Plan, design: OwnDesign) -> dict:
         return (f"Bu analizin cevapları: eğitim/test bölmesi açık kuralla ({sayim(train)}/{sayim(len(frame) - train)}); kayıp "
                 "MSE; 5-katlı CV, aynı katlar; ölçekleme kat içinde; Ridge λ = "
                 f"{_value(round(float(s[penalized_key('ridge', 'lambda')]), plan.lambda_decimals[0]))} (SSE ölçeği), "
-                f"Lasso λ = {_value(round(float(s[penalized_key('lasso', 'lambda')]), plan.lambda_decimals[1]))} "
+                f"Lasso λ_y = {_value(round(float(s[penalized_key('lasso', 'lambda')]), plan.lambda_decimals[1]))} "
                 "(yazılım ölçeği).")
 
     return {
@@ -673,7 +673,7 @@ def _own_texts(case: Case, plan: Plan, design: OwnDesign) -> dict:
             "zengin OLS aşırı uyar ve düzenlileştirme test hatasını düşürür; bol veride kazanç küçüktür."),
         (1, "not"): step1,
         2: (TUNING_TEXT + " Izgaralar veriden kurulur: Ridge için " + _grid_text(plan.ridge_grid) + " (eğitim gözlemi "
-            "sayısına göre), Lasso için " + _grid_text(plan.lasso_grid) + " (bütün katsayıları sıfır yapan en küçük "
+            "sayısına göre), Lasso için " + _grid_text(plan.lasso_grid, r"\lambda_y") + " (bütün katsayıları sıfır yapan en küçük "
             "cezadan dört on yıl aşağı).",
             "Test örneklemi CV eğrilerinin hiçbir noktasında kullanılmaz."),
         (2, "not"): step2,

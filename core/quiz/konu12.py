@@ -96,16 +96,18 @@ QUESTIONS = (
     ),
     Question(
         key="k05", concept="urun-hizi", note=_note("12.8"),
-        prompt="DML teorisindeki ürün-hızı (product-rate) koşulu ne söyler?",
+        prompt="Bu kısmen doğrusal modelin artıklaştırma skoru için, diğer düzenlilik koşulları altında yeterli ikinci derece hız koşulu hangisidir?",
         answer=MultipleChoice((
             "Her yardımcı tahmin hatası ayrı ayrı $n^{-1/2}$'den hızlı küçülmelidir",
-            "İki yardımcı tahmin hatasının çarpımı $n^{-1/2}$'den hızlı küçülmelidir",
+            "Tedavi yardımcı hatası ile sonuç ve tedavi yardımcı hatalarının toplamının çarpımı $o_p(n^{-1/2})$ olmalıdır",
             "Yardımcı modellerin $R^2$'si 0,9'u aşmalıdır",
             "Kat sayısı örneklemle birlikte büyümelidir",
         ), correct=1),
         explanation=(
-            "$\\|\\hat m_Y-m_Y\\|_2\\|\\hat m_D-m_D\\|_2=o_p(n^{-1/2})$: ortogonal momentte yardımcı hatalar ikinci "
-            "dereceden, çarpım olarak girer. Her yardımcı model tek başına daha yavaş yakınsayabilir (§12.8)."
+            "$\\|\\hat m_D-m_D\\|_{P,2}(\\|\\hat m_Y-m_Y\\|_{P,2}+\\|\\hat m_D-m_D\\|_{P,2})=o_p(n^{-1/2})$. "
+            "Burada $\\|f\\|_{P,2}=(\\mathbb E[f(X)^2])^{1/2}$. Artıklaştırma skorunda iki hatanın çarpımına ek olarak "
+            "tedavi yardımcı hatasının karesi de vardır; yalnız çarpımın küçük olması yeterli değildir. Her iki hata "
+            "$o_p(n^{-1/4})$ ise bu yeterli koşul sağlanır (§12.8)."
         ),
     ),
     Question(
@@ -319,6 +321,7 @@ QUESTIONS = (
     Question(
         key="f03", concept="dml-varyans-toplamlar", note=_note("12.9"),
         prompt=(
+            "$\\hat\\psi_i=\\hat V_i(\\hat U_i-\\hat\\theta_{DML}\\hat V_i)$ gözlem skorudur; "
             "$A=\\sum_i\\hat\\psi_i^2$ ve $B=\\sum_i\\hat V_i^2$ olsun. Serbestlik düzeltmesi olmadan "
             "$\\widehat{\\operatorname{Var}}(\\hat\\theta_{DML})$'yi $A$ ve $B$ cinsinden yazın."
         ),
@@ -340,22 +343,24 @@ QUESTIONS = (
         key="f04", concept="medyan-birlestirme-terimi", note=_note("12.14"),
         prompt=(
             "Chernozhukov vd. (2018) medyan birleştirmesinde bir bölmenin tahmini $\\hat\\theta_s$, standart hatası "
-            "$\\hat\\sigma_s$ ve bölmelerin medyan tahmini $\\hat\\theta_{med}$ olsun. Bölmenin "
-            "$\\hat\\sigma^2_{med}$ medyanına giren terimini yazın."
+            "$SH_s$ ve bölmelerin medyan tahmini $\\hat\\theta_{med}$ olsun. Bölmenin "
+            "$\\widehat V_{\\hat\\theta,med}$ varyans medyanına giren $C_s$ terimini yazın."
         ),
         answer=Equation(
-            lhs=r"\hat\sigma^2_{(s)}",
+            lhs=r"C_s",
             symbols=(
-                Symbol("s", r"\hat\sigma_s", "bölmenin standart hatası", 0.1, 2.0, aliases=("σs", "σ_s", "sigma_s")),
+                Symbol("s", r"SH_s", "bölmenin standart hatası", 0.1, 2.0,
+                       aliases=("SH_s", "SHs", "σs", "σ_s", "sigma_s")),
                 Symbol("t", r"\hat\theta_s", "bölmenin tahmini", -2.0, 2.0, aliases=("θs", "θ_s", "theta_s")),
                 Symbol("m", r"\hat\theta_{med}", "medyan tahmin", -2.0, 2.0,
                        aliases=("θmed", "θ_med", "theta_med")),
             ),
             answer="s^2 + (t - m)^2",
-            shown=r"\hat\sigma_s^2+(\hat\theta_s-\hat\theta_{med})^2",
+            shown=r"SH_s^2+(\hat\theta_s-\hat\theta_{med})^2",
         ),
         explanation=(
-            "İkinci terim bölmeler arası değişkenliği standart hataya ekler; tek bir \"en iyi\" bölmeyi seçmek yerine "
+            "İkinci terim bölmeler arası değişkenliği varyansa ekler; medyan varyansın karekökü standart hatadır. "
+            "Tek bir \"en iyi\" bölmeyi seçmek yerine "
             "bölme belirsizliği raporlanır (§12.14)."
         ),
     ),

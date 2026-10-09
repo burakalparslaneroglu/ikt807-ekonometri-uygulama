@@ -296,7 +296,7 @@ CODE_NOTE_2 = (
     "işlemleri, Stata'da Mata ile yazılmıştır. Eşit CV değerlerinde küçük h seçilir."
 )
 CODE_NOTE_3 = (
-    "Kübik polinom ve spline OLS'tir; baz terimleri açıkça türetilir, tahminler seçilmiş noktalarda x'β olarak "
+    "Kübik polinom ve spline OLS'dir; baz terimleri açıkça türetilir, tahminler seçilmiş noktalarda x'β olarak "
     "hesaplanır. Standart hatalar küme düzeyinde kümelenmiştir (tahminleri etkilemez)."
 )
 
@@ -436,7 +436,7 @@ ALT_CODE_NOTES = {
         "Mata ile yazılmıştır. Eşit CV değerlerinde küçük h seçilir."
     ),
     "kod3": (
-        "Kübik polinom ve spline OLS'tir; baz terimleri açıkça türetilir, tahminler %2, %9 ve %35'te x'β olarak "
+        "Kübik polinom ve spline OLS'dir; baz terimleri açıkça türetilir, tahminler %2, %9 ve %35'te x'β olarak "
         "hesaplanır. Standart hatalar okul düzeyinde kümelenmiştir (tahminleri etkilemez)."
     ),
 }

@@ -35,9 +35,12 @@ PENALTY_LABELS = {"ols": "Cezasız EKK", "ridge": "Ridge", "lasso": "Lasso", "en
                   "postlasso": "Post-Lasso"}
 SCALE_LABELS = {"ridge": "SSE ölçeği", "lasso": "yazılım ölçeği", "enet": "yazılım ölçeği"}
 SCALE_NOTE = (
-    "Ceza ölçekleri: Ridge λ SSE ölçeğindedir, (Y − Xβ)'(Y − Xβ) + λβ'β (Hansen; scikit-learn Ridge alpha). Lasso ve "
-    "Elastic Net λ yazılım ölçeğindedir, (1/(2n))‖Y − Xβ‖² + λ[r‖β‖₁ + (1 − r)/2·‖β‖²] (scikit-learn, glmnet, Stata "
-    "lasso); Hansen'in SSE ölçeğinde Lasso cezası 2nλ'dır."
+    r"Ceza ölçekleri: Ridge $\lambda$ SSE ölçeğindedir, "
+    r"$(\boldsymbol Y-\boldsymbol X\beta)'(\boldsymbol Y-\boldsymbol X\beta)+\lambda\beta'\beta$ "
+    r"(Hansen; scikit-learn Ridge alpha). Lasso ve Elastic Net $\lambda_y$ yazılım ölçeğindedir, "
+    r"$\frac1{2n}\|\boldsymbol Y-\boldsymbol X\beta\|^2+\lambda_y[r\|\beta\|_1+(1-r)\|\beta\|^2/2]$ "
+    r"(scikit-learn, glmnet, Stata lasso); Hansen'in SSE ölçeğinde Lasso cezası $2n\lambda_y$'dir. "
+    r"Burada $r$ yazılımın L1 oranıdır; Hansen'in L2 ağırlığı $\alpha=1-r$."
 )
 _BAND = "rgba(16, 124, 137, 0.18)"
 
@@ -99,6 +102,7 @@ def dot_figure(op: DotPlot, data: pd.DataFrame) -> go.Figure:
 
 
 def cv_figure(op: CVCurve, data: pd.DataFrame, fit) -> go.Figure:
+    symbol = "λ" if fit.penalty == "ridge" else "λ_y"
     grid = data["lambda"].to_numpy(dtype=float)
     mean, se = data["cv_ort"].to_numpy(dtype=float), data["cv_sh"].to_numpy(dtype=float)
     figure = go.Figure()
@@ -109,15 +113,17 @@ def cv_figure(op: CVCurve, data: pd.DataFrame, fit) -> go.Figure:
     figure.add_trace(
         go.Scatter(x=grid, y=mean, mode="lines", name="CV ortalama karesel hatası",
                    line={"color": SERIES_COLORS[0][0], "width": 3},
-                   hovertemplate="λ = %{x:.4g}<br>CV = %{y:.5f}<extra></extra>")
+                   hovertemplate=symbol + " = %{x:.4g}<br>CV = %{y:.5f}<extra></extra>")
     )
-    _vertical(figure, fit.lam, f"Seçilen λ = {significant(fit.lam)}", DARK[0])
+    _vertical(figure, fit.lam, f"Seçilen {symbol} = {significant(fit.lam)}", DARK[0])
     figure.update_xaxes(type="log", exponentformat="power")
-    style_figure(figure, title=op.title, x_title=op.x_label, y_title="CV ortalama karesel hatası", legend_title="")
+    x_label = op.x_label if symbol == "λ" else op.x_label.replace("λ", "λ_y")
+    style_figure(figure, title=op.title, x_title=x_label, y_title="CV ortalama karesel hatası", legend_title="")
     return figure
 
 
 def path_figure(op: CoefPath, path: pd.DataFrame, fit) -> go.Figure:
+    symbol = "λ" if fit.penalty == "ridge" else "λ_y"
     grid = path["lambda"].to_numpy(dtype=float)
     names = [name for name in path.columns if name != "lambda"]
     others = [name for name in names if name not in op.highlight]
@@ -126,17 +132,18 @@ def path_figure(op: CoefPath, path: pd.DataFrame, fit) -> go.Figure:
         figure.add_trace(
             go.Scatter(x=grid, y=path[name], mode="lines", name=op.other_label, legendgroup="diger",
                        showlegend=index == 0, line={"color": GRAY[0], "width": 1},
-                       hovertemplate=f"{name}<br>λ = %{{x:.4g}}<br>katsayı = %{{y:.4f}}<extra></extra>")
+                       hovertemplate=f"{name}<br>{symbol} = %{{x:.4g}}<br>katsayı = %{{y:.4f}}<extra></extra>")
         )
     for index, name in enumerate(op.highlight):
         figure.add_trace(
             go.Scatter(x=grid, y=path[name], mode="lines", name=op.highlight_label, legendgroup="vurgu",
                        showlegend=index == 0, line={"color": SERIES_COLORS[0][0], "width": 2.5},
-                       hovertemplate=f"{name}<br>λ = %{{x:.4g}}<br>katsayı = %{{y:.4f}}<extra></extra>")
+                       hovertemplate=f"{name}<br>{symbol} = %{{x:.4g}}<br>katsayı = %{{y:.4f}}<extra></extra>")
         )
-    _vertical(figure, fit.lam, f"CV ile seçilen λ = {significant(fit.lam, 3)}", DARK[0])
+    _vertical(figure, fit.lam, f"CV ile seçilen {symbol} = {significant(fit.lam, 3)}", DARK[0])
     figure.update_xaxes(type="log", autorange="reversed", exponentformat="power")
-    style_figure(figure, title=op.title, x_title=op.x_label, y_title="Katsayı", legend_title="")
+    x_label = op.x_label if symbol == "λ" else op.x_label.replace("λ", "λ_y")
+    style_figure(figure, title=op.title, x_title=x_label, y_title="Katsayı", legend_title="")
     return figure
 
 
@@ -223,7 +230,8 @@ def metrics_table(op: ModelMetrics, table: pd.DataFrame, ops: dict | None = None
             "Test MSE": number(row["test_mse"]),
             "‖β̂‖₂": number(row["norm"], 3),
             "Sıfırdan farklı katsayı": count(row["sifirdan"]),
-            "Seçilen λ": "—" if not np.isfinite(lam) else significant(lam) + scale,
+            "Seçilen ceza": ("—" if not np.isfinite(lam) else
+                            ("λ = " if penalty == "ridge" else "λ_y = ") + significant(lam) + scale),
         })
     return pd.DataFrame(rows)
 
@@ -252,9 +260,9 @@ def folds_table(fit) -> pd.DataFrame:
     folds = fit.folds
     return pd.DataFrame({
         "Dış kat": folds["kat"].astype(int),
-        "λ (Y denklemi)": [significant(value) for value in folds["lambda_y"]],
+        "λ_y (Y denklemi)": [significant(value) for value in folds["lambda_y"]],
         "Y: sıfırdan farklı": folds["sifirdan_y"].astype(int),
-        "λ (D denklemi)": [significant(value) for value in folds["lambda_d"]],
+        "λ_y (D denklemi)": [significant(value) for value in folds["lambda_d"]],
         "D: sıfırdan farklı": folds["sifirdan_d"].astype(int),
     })
 
@@ -284,7 +292,8 @@ def experiment_table(op, state: LabState, ops: dict | None = None) -> pd.DataFra
 def _penalized_line(label: str, penalty: str, fit) -> str:
     parts = [f"**{label}**"]
     if penalty in SCALE_LABELS:
-        parts.append(f"λ̂ = {significant(fit.lam)} ({SCALE_LABELS[penalty]})")
+        symbol = "λ̂" if penalty == "ridge" else "λ̂_y"
+        parts.append(f"{symbol} = {significant(fit.lam)} ({SCALE_LABELS[penalty]})")
         if penalty == "enet":
             parts.append(f"L1 ağırlığı r = {number(fit.l1_ratio, 1)}")
     parts.append(f"{count(fit.nonzero)} katsayı sıfırdan farklı")
@@ -323,7 +332,7 @@ def render_lab_op(spec, op, state: LabState, operations) -> bool:
             f"n = {count(fit.nobs)}"
         )
         if op.outer and op.learner == "lasso":
-            st.markdown("**Katlara göre yardımcı Lasso modelleri** (λ yazılım ölçeğinde)")
+            st.markdown("**Katlara göre yardımcı Lasso modelleri** (λ_y yazılım ölçeğinde)")
             st.dataframe(folds_table(fit), hide_index=True, width="stretch")
     elif isinstance(op, DMLSplits):
         fit = state.models[op.name]

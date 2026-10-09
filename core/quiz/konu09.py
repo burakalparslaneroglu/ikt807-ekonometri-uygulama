@@ -164,8 +164,8 @@ QUESTIONS = (
         ),
         answer=TrueFalse(True),
         explanation=(
-            "Hansen ölçeğinde $h=8$: üçgende pencere $\\pm19{,}6$, dikdörtgende $\\pm13{,}86$. Yakınlık, çekirdek seçiminin "
-            "bant genişliğine göre ikinci derecede kaldığını gösterir (§9.7)."
+            "Hansen ölçeğinde $h=8$: üçgende pencere $\\pm19{,}6$, dikdörtgende $\\pm13{,}86$. Yakınlık, bu uygulamada "
+            "çekirdek seçiminin bant genişliğine göre ikinci derecede kaldığıyla uyumludur (§9.7)."
         ),
     ),
     Question(
@@ -324,11 +324,11 @@ QUESTIONS = (
     Question(
         key="f04", concept="rdd-sh-mertebesi", note=_note("9.6"),
         prompt=(
-            "Yerel doğrusal sıçrama tahmininde $\\operatorname{Var}(\\hat\\tau)=O(1/(nh))$ ise standart hatanın mertebesini "
+            "Yerel doğrusal sıçrama tahmininde $\\operatorname{Var}(\\hat\\theta)=O(1/(nh))$ ise standart hatanın mertebesini "
             "$n$ ve $h$ cinsinden yazın (sabitler hariç)."
         ),
         answer=Equation(
-            lhs=r"se(\hat\tau)\propto",
+            lhs=r"se(\hat\theta)\propto",
             symbols=(
                 Symbol("n", "n", "örneklem büyüklüğü", 100.0, 5000.0),
                 Symbol("h", "h", "bant genişliği", 0.1, 2.0),

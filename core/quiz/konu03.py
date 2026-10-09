@@ -48,7 +48,7 @@ QUESTIONS = (
             "ATE ile örnekleme hatasına",
             "ATE ile ATT'ye",
             "LATE ile seçim farkına",
-            "ATT ile seçim farkı $\\mathbb E[Y(0)\\mid D=1]-\\mathbb E[Y(0)\\mid D=0]$'a",
+            "ATT ile seçim farkı $\\mathbb E[Y_0\\mid D=1]-\\mathbb E[Y_0\\mid D=0]$'a",
         ), correct=3),
         explanation=(
             "Bir terim ekleyip çıkarınca ham fark = ATT + seçim farkı. Seçim farkı, tedavi hiç uygulanmasaydı bile iki "
@@ -150,12 +150,12 @@ QUESTIONS = (
     Question(
         key="d02", concept="nedensel-cikarimin-temel-problemi", note=_note("3.2"),
         prompt=(
-            "Bireysel nedensel etki $Y_i(1)-Y_i(0)$ doğrudan hesaplanamaz, çünkü aynı birey için iki potansiyel sonuç "
+            "Bireysel nedensel etki $Y_{1i}-Y_{0i}$ doğrudan hesaplanamaz, çünkü aynı birey için iki potansiyel sonuç "
             "aynı anda gözlenemez."
         ),
         answer=TrueFalse(True),
         explanation=(
-            "$D_i=1$ ise $Y_i(1)$ gözlenir, $Y_i(0)$ karşı-olgusal kalır; $D_i=0$ için tersi. Nedensel etki bu yüzden "
+            "$D_i=1$ ise $Y_{1i}$ gözlenir, $Y_{0i}$ karşı-olgusal kalır; $D_i=0$ için tersi. Nedensel etki bu yüzden "
             "veri setinde bir sütun değildir; ortalama etkiler bir tanımlama argümanıyla elde edilir (§3.2)."
         ),
     ),
@@ -168,12 +168,12 @@ QUESTIONS = (
         answer=TrueFalse(False),
         explanation=(
             "Rassal atama sonlu örneklemde tam denge garanti etmez; çok sayıda kovaryat incelenince bazı farkların yalnız "
-            "şansla belirgin görünmesi olağandır. DDK Tablo 3.1'de beş kovaryattan dördünün p < 0,10 olduğunu görün (§3.4)."
+            "şansla belirgin görünmesi mümkündür. DDK Tablo 3.1'de beş kovaryattan dördünün p < 0,10 olduğunu görün (§3.4)."
         ),
     ),
     Question(
         key="d04", concept="kosullu-bagimsizlik-test-edilemez", note=_note("3.5"),
-        prompt="Koşullu bağımsızlık varsayımı $\\{Y(0),Y(1)\\}\\perp D\\mid X$ gözlenen veriyle doğrudan test edilebilir.",
+        prompt="Koşullu bağımsızlık varsayımı $\\{Y_0,Y_1\\}\\perp D\\mid X$ gözlenen veriyle doğrudan test edilebilir.",
         answer=TrueFalse(False),
         explanation=(
             "Varsayım gözlenemeyen karşı-olgusal sonuçlar hakkındadır; veri doğrudan test edemez. İkna ediciliği alan "
@@ -233,11 +233,12 @@ QUESTIONS = (
         key="b02", concept="ate-tanimi", note=_note("3.2"),
         prompt="Ortalama nedensel etki $ATE=\\mathbb E[\\,$**(1)** ______$\\,]$ olarak tanımlanır.",
         answer=FillBlanks((TextBlank(
-            ("Y(1)-Y(0)", "Y1-Y0", "Y_1-Y_0", "Y_i(1)-Y_i(0)", "Yi(1)-Yi(0)", "Y(1) - Y(0)", "tau", "τ"),
-            "Y(1) − Y(0)",
+            ("Y_1-Y_0", "Y1-Y0", "Y_{1i}-Y_{0i}", "Y_1 - Y_0", "theta", "θ",
+             "Y(1)-Y(0)", "Y_i(1)-Y_i(0)", "Yi(1)-Yi(0)", "Y(1) - Y(0)", "tau", "τ"),
+            "Y_1 − Y_0",
         ),)),
         explanation=(
-            "ATE, bireysel etkilerin $\\tau_i=Y_i(1)-Y_i(0)$ anakütle ortalamasıdır. Hansen aynı nesneyi ortalama "
+            "ATE, bireysel etkilerin $\\theta_i=Y_{1i}-Y_{0i}$ anakütle ortalamasıdır. Hansen aynı nesneyi ortalama "
             "nedensel etki (ACE) olarak adlandırır (§3.2)."
         ),
     ),
@@ -282,20 +283,20 @@ QUESTIONS = (
     # --- Denklem yazma -----------------------------------------------------------
     Question(
         key="f01", concept="gozlenen-sonuc-denklemi", note=_note("3.2"),
-        prompt="Gözlenen sonucu $Y$'yi tedavi göstergesi $D$ ve potansiyel sonuçlar $Y(1)$, $Y(0)$ cinsinden yazın.",
+        prompt="Gözlenen sonucu $Y$'yi tedavi göstergesi $D$ ve potansiyel sonuçlar $Y_1$, $Y_0$ cinsinden yazın.",
         answer=Equation(
             lhs="Y",
             symbols=(
                 Symbol("d", "D", "tedavi göstergesi (0 veya 1)", 0.0, 1.0, aliases=("D",)),
-                Symbol("y1", "Y(1)", "tedavi altında sonuç", 0.0, 10.0, aliases=("Y(1)", "Y_1", "Y1", "y(1)")),
-                Symbol("y0", "Y(0)", "tedavisiz sonuç", 0.0, 10.0, aliases=("Y(0)", "Y_0", "Y0", "y(0)")),
+                Symbol("y1", "Y_1", "tedavi altında sonuç", 0.0, 10.0, aliases=("Y_1", "Y(1)", "Y1", "y(1)")),
+                Symbol("y0", "Y_0", "tedavisiz sonuç", 0.0, 10.0, aliases=("Y_0", "Y(0)", "Y0", "y(0)")),
             ),
             answer="d*y1 + (1 - d)*y0",
-            shown=r"Y=D\,Y(1)+(1-D)\,Y(0)",
+            shown=r"Y=D\,Y_1+(1-D)\,Y_0",
         ),
         explanation=(
-            "Her birey için yalnız bir potansiyel sonuç gözlenir: $D=1$ ise $Y(1)$, $D=0$ ise $Y(0)$. Eşdeğer yazım: "
-            "$Y=Y(0)+D\\{Y(1)-Y(0)\\}$ (§3.2)."
+            "Her birey için yalnız bir potansiyel sonuç gözlenir: $D=1$ ise $Y_1$, $D=0$ ise $Y_0$. Eşdeğer yazım: "
+            "$Y=Y_0+D\\{Y_1-Y_0\\}$ (§3.2)."
         ),
     ),
     Question(
@@ -323,7 +324,7 @@ QUESTIONS = (
     Question(
         key="f03", concept="zayiflama-olasilik-limiti", note=_note("3.8.4"),
         prompt=(
-            "Klasik ölçüm hatasında ($X=Z+u$) basit regresyon eğiminin olasılık limitini $\\beta$, "
+            "Klasik ölçüm hatasında ($X=Z+u$, $Y=\\beta Z+\\varepsilon$, $\\operatorname{Cov}(Z,\\varepsilon)=0$) basit regresyon eğiminin olasılık limitini $\\beta$, "
             "$\\operatorname{Var}(Z)$ ve $\\operatorname{Var}(u)$ cinsinden yazın."
         ),
         answer=Equation(
@@ -346,7 +347,7 @@ QUESTIONS = (
     Question(
         key="f04", concept="olcum-hatasi-kovaryansi", note=_note("3.8.4"),
         prompt=(
-            "$X=Z+u$ ve $Y=\\beta X+v$, $v=\\varepsilon-\\beta u$ olsun ($u$; $Z$ ve $\\varepsilon$'dan bağımsız). "
+            "$X=Z+u$ ve $Y=\\beta X+v$, $v=\\varepsilon-\\beta u$ olsun ($u$, $Z$'den ve $\\varepsilon$'dan bağımsız; $\\operatorname{Cov}(Z,\\varepsilon)=0$). "
             "$\\operatorname{Cov}(X,v)$'yi $\\beta$ ve $\\operatorname{Var}(u)$ cinsinden yazın."
         ),
         answer=Equation(
@@ -360,7 +361,7 @@ QUESTIONS = (
             shown=r"\operatorname{Cov}(X,v)=-\beta\operatorname{Var}(u)",
         ),
         explanation=(
-            "$\\operatorname{Cov}(Z+u,\\varepsilon-\\beta u)=-\\beta\\operatorname{Var}(u)\\neq0$: gözlenen $X$ yeni hata "
+            "$\\operatorname{Cov}(Z+u,\\varepsilon-\\beta u)=-\\beta\\operatorname{Var}(u)$; $\\beta\\neq0$ ve $\\operatorname{Var}(u)>0$ ise sıfırdan farklıdır: gözlenen $X$ yeni hata "
             "terimiyle ilişkilidir, yani ölçüm hatası $X$'i endojen yapar (§3.8.4)."
         ),
     ),

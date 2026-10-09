@@ -121,7 +121,7 @@ LOCATION_SCALE = SimExperiment(
     dgp=lambda p: (
         r"X\sim U[0,4], \qquad e\sim N(0,1)\ \text{bağımsız}",
         rf"Y=1+X+(1+\gamma X)\,e, \qquad \gamma={number(p['gamma'], 2)}",
-        r"Q_\tau(Y\mid X)=1+z_\tau+(1+\gamma z_\tau)X, \qquad z_\tau=\Phi^{-1}(\tau)",
+        r"Q_\tau[Y\mid X]=1+z_\tau+(1+\gamma z_\tau)X, \qquad z_\tau=\Phi^{-1}(\tau)",
     ),
     dgp_note=(
         "Gerçek koşullu kantiller X'te doğrusaldır; eğimleri 1 + γz_τ. γ = 0 iken bütün kantil eğimleri 1'dir (konum "
@@ -307,8 +307,8 @@ TAIL = SimExperiment(
     ),
     dgp=lambda p: (
         r"X\sim U[0,1], \qquad e\sim N(0,1)\ \text{bağımsız}, \qquad Y=1+2X+e",
-        rf"Q_\tau(Y\mid X)=1+z_\tau+2X \ \text{{her }}\tau\text{{ için}}, \qquad \tau={number(p['tau'], 2)}",
-        r"\operatorname{Var}(\hat\beta_\tau)\ \propto\ \tau(1-\tau)\,/\,f_e(z_\tau)^2",
+        rf"Q_\tau[Y\mid X]=1+z_\tau+2X \ \text{{her }}\tau\text{{ için}}, \qquad \tau={number(p['tau'], 2)}",
+        r"\operatorname{Var}(\hat\beta_{1,\tau})\ \propto\ \tau(1-\tau)\,/\,f_e(z_\tau)^2",
     ),
     dgp_note=(
         f"{REPS} tekrarın her birinde yeni örneklem çekilir; aynı veride τ = 0,5 ve seçilen üst kantil tahmin edilir. "

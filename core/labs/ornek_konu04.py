@@ -224,7 +224,7 @@ PROJECTION = (
 )
 SECOND_STAGE = (
     "Elle ikinci aşamanın standart hatası 2SLS standart hatası değildir: uyum değerleri aynı örneklemden tahmin "
-    "edilmiştir ve ikinci aşama artığı yapısal hata için doğru artık değildir; doğru artık $Y-X'\\hat\\beta_{2SLS}$'dir "
+    "edilmiştir ve ikinci aşama artığı yapısal hata için doğru artık değildir; doğru artık $\\boldsymbol Y-\\boldsymbol X\\hat\\beta_{2SLS}$'dir "
     "(§4.8). Çıkarım için 2SLS rutininin IV-robust kovaryansı kullanılır. Elle ikinci aşamanın p-değeri indirgenmiş "
     "biçiminkiyle aynıdır, çünkü tam tanımlı modelde tahmin edilen endojen değişken araç ve kontrollerin doğrusal bir "
     "fonksiyonudur."

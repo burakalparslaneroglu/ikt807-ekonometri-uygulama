@@ -117,13 +117,13 @@ STEPS = (
         note=NoteRef(SECTION, 2, ("Tablo 9.2", "Tablo 9.1")),
         explanation=(
             "Yerel doğrusal RDD, pencere içindeki ilçelerde\n\n"
-            "$$Y_i=\\alpha+\\tau D_i+\\beta_1R_i+\\beta_2D_iR_i+u_i,\\qquad R_i=X_i-c,$$\n\n"
-            "regresyonunu çekirdek ağırlıklarıyla tahmin eder; $\\widehat\\tau$ eşikteki sıçramadır. Hansen "
+            "$$Y_i=\\alpha+\\theta D_i+\\beta_1R_i+\\beta_2D_iR_i+u_i,\\qquad R_i=X_i-c,$$\n\n"
+            "regresyonunu çekirdek ağırlıklarıyla tahmin eder; $\\widehat\\theta$ eşikteki sıçramadır. Hansen "
             "çekirdekleri birim varyansa ölçekler: $h$ çekirdeğin standart sapmasıdır. Birim varyanslı üçgen çekirdek\n\n"
             "$$K(u)=\\frac{1}{\\sqrt6}\\Bigl(1-\\frac{|u|}{\\sqrt6}\\Bigr)\\mathbf 1\\{|u|\\le\\sqrt6\\}$$\n\n"
             "olup ilçe $i$'nin ağırlığı $K(R_i/h)$'dir: ağırlık eşikten $h\\sqrt6$ uzaklıkta sıfıra iner. $n_h$ pozitif "
             "ağırlık alan ilçe sayısıdır. Standart hata ağırlıklı regresyonun HC1 standart hatası, güven aralığı "
-            "$\\widehat\\tau\\pm1{,}96\\cdot\\text{SH}$'dir. Aynı tahmin $h\\in\\{4,6,8,10,12\\}$ için tekrarlanır."
+            "$\\widehat\\theta\\pm1{,}96\\cdot\\text{SH}$'dir. Aynı tahmin $h\\in\\{4,6,8,10,12\\}$ için tekrarlanır."
         ),
         operations=(
             *(RDD(_model(h), FRAME, X, Y, CUTOFF, h) for h in TABLE_91),
@@ -157,9 +157,10 @@ STEPS = (
         explanation=(
             "Hansen'in kitap uygulamasında tercih edilen yerel tahmin $-1{,}51$ (SH 0,71) değeridir; Adım 2'deki "
             "$h=8$ satırı bu sayıyı yeniden üretir. Eşikteki iki limit tahmini aynı regresyondan okunur: solda "
-            "$\\widehat\\alpha$, sağda $\\widehat\\alpha+\\widehat\\tau$. Aynı bant genişliğinin dikdörtgen çekirdek "
+            "$\\widehat\\alpha$, sağda $\\widehat\\alpha+\\widehat\\theta$. Aynı bant genişliğinin dikdörtgen çekirdek "
             "karşılığı $\\pm8\\sqrt3$ puanlık penceredir; bu pencerede $D$, $R$ ve $D\\cdot R$ üzerine basit EKK "
-            "Hansen'in raporladığı ikinci tahmini verir.\n\n"
+            "$-1{,}55$ (SH 0,74; 757 ilçe) verir. Hansen'in metni (Bölüm 21.8) bu pencere için 482 ilçe ve $-2{,}20$ "
+            "(SH 1,06) raporlar; bu sayılar aynı regresyonun $\\pm8$ penceresindeki tahminiyle birebir örtüşür.\n\n"
             "Aynı \"$h=8$\" pencerenin yarı genişliği olarak okunursa (ölçeklenmemiş üçgen çekirdek) pencere $\\pm8$'e "
             "daralır. Bu bir yöntem farkı değil ölçek farkıdır: yazılımlar ve makaleler bant genişliğini farklı "
             "ölçeklerde raporlayabilir."
@@ -197,7 +198,7 @@ STEPS = (
         takeaway=(
             "Birim varyanslı üçgen çekirdekle $h=8$ eşiğe 19,6 puandan yakın 1.041 ilçeye pozitif ağırlık verir; sıçrama "
             "−1,51 (0,71), eşiğin solunda 3,31, sağında 1,80. Dikdörtgen çekirdek aynı yerellikte (±13,86; 757 ilçe) "
-            "−1,55 (0,74) verir: bant genişliği aynı ölçekte tanımlandığında çekirdek seçimi ikinci derecededir. Pencere "
+            "−1,55 (0,74) verir: bant genişliği aynı ölçekte tanımlandığında bu uygulamada çekirdek seçimi ikinci derecede kalır. Pencere "
             "±8'e daraltılırsa 482 ilçe kalır ve tahmin −2,25 (1,08) olur. Replikasyonda sayılar tutmadığında önce "
             "tanım farkları aranır: analiz örneklemi, eşik değişkeninin merkezlenmesi, eşik, çekirdek, bant genişliğinin "
             "ölçeği, yerel polinom derecesi, kovaryatlar ve standart hata/yanlılık düzeltmesi prosedürü."
