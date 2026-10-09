@@ -196,6 +196,13 @@ Her veri setinin kaynağı, gözlem birimi, örneklem kısıtı, değişken biri
 
 Hedef ortam Streamlit Community Cloud ve Python 3.12'dir. Uygulama çalışma zamanında LLM, dış AI API veya gizli anahtar kullanmaz. Açık dağıtım kontrollü simülasyonları ve oturum içi veri yükleme kapılarını kullanır; lisanslı gerçek veri dosyalarını içermez.
 
+## Sunumdan doğrudan geçiş
+
+Sunum bağlantıları konu, sekme ve deney/laboratuvar adımını doğrudan açabilir: örneğin
+`?konu=07&sekme=sezgi&deney=2` veya `?konu=04&sekme=uygulama&adim=4`.
+Başlangıç parametreleri ve geçerli değer kuralları [sunum bağlantıları rehberinde](docs/SUNUM_BAGLANTILARI.md) açıklanır.
+Sekme yönlendirmesi için Streamlit 1.64+ gerekir. Konu 02 ve 03'te birer ek Sezgi 4 deneyi bulunur.
+
 ## Ekonometrik yorumlama ilkeleri
 
 Dayanıklı standart hata nokta tahminini veya içselliği düzeltmez. Model uyumu tanımlama değildir. Logit/Probit ve Tobit katsayıları doğrudan gözlenen sonuç marjinal etkisi değildir. Yeniden örnekleme tanımlama sorununu çözmez. Düzenlileştirme ve DML, araştırma tasarımının yerine geçmez.

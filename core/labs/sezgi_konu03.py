@@ -3,6 +3,7 @@
 Deney 1  Ham grup farkı = tedavi etkisi + seçim farkı            (Notlar §3.3, §3.4)
 Deney 2  Ölçüm hatası: eğim neden sıfıra çekilir?                 (Notlar §3.8.4)
 Deney 3  Örneklem büyüdükçe içsellik kaybolur mu? (Monte Carlo)   (Notlar §3.9, §3.12)
+Deney 4  Yanlış kontrol: rassal atamada bile yanlılık            (Notlar §3.10)
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import numpy as np
 from core.labs import expr as E
 from core.labs.runner import LabState, coverage_key
 from core.labs.sezgi import Parameters, SimExperiment, SimMetric, SimParameter, number, plain
+from core.labs.sezgi_ek_ders import COLLIDER
 from core.labs.spec import (
     OLS,
     Curve,
@@ -321,4 +323,4 @@ LARGE_SAMPLE = SimExperiment(
 )
 
 
-KONU03_EXPERIMENTS = (SELECTION, MEASUREMENT, LARGE_SAMPLE)
+KONU03_EXPERIMENTS = (SELECTION, MEASUREMENT, LARGE_SAMPLE, COLLIDER)

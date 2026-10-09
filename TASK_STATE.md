@@ -1,5 +1,20 @@
 # Streamlit Hansen notasyon uyumu — 9 Ekim 2026
 
+## Sonraki çalışma: sunum bağlantıları ve ek deneyler — 9 Ekim 2026
+
+- Önceki notasyon denetimi kullanıcı tarafından commit/push edildi; bu çalışma temiz main...origin/main üzerinde başladı. Bu görevde commit/push yapılmadı.
+- `core/navigation.py`: doğrulanmış konu/sekme/deney-adım URL'leri; bağlantı yalnız yeni URL'de uygulanır; geçersiz değer uyarısı; Sezgi varsayılan/preset parametreleri; notlardaki laboratuvar veri kaynağı ve gölge anahtarları.
+- `app.py` ve 12 konu sarmalayıcısı: widget'lardan önce hedefi uygular; ortak `topic_tabs()` ile gerçek seçili sekmeyi yönetir. Üç sekmenin mevcut hesap/çizim davranışı korunur. Streamlit alt sınırı 1.64.
+- `core/labs/sezgi_ek_ders.py`: Konu 02 Sezgi 4 (çoklu doğrusal bağlantı, koşullu SH) ve Konu 03 Sezgi 4 (çarpışan kontrol, 1−b/2 projeksiyon hedefi); mevcut OLS/ScalarTable/Plot DSL'si, sabit bağımsız çekiliş tohumları 820/830. Python/R/Stata tek tanımdan üretilir.
+- Kaynak ders notlarına DGP/ek semboller eklendi (§2.1.1/§3.10); 13 Beamer sunumu 51 bağlantıyla derlendi. Özel materyaller public depoya kopyalanmadı. Yerel kaynak projesinin state/rehber/denetim kayıtları yetkili çalışma alanında tutuluyor.
+- Yeni testler bağımsız ters tasarım kovaryansını, anakütle kovaryans sistemiyle çarpışan hedefini, üretilen Python hesabını, bütün URL hedeflerini, bozuk parametreleri, eski veri kaynağı/gölge anahtarını ve gerçek AppTest etkileşimini sınar.
+- Tam pytest: 907 test, 805 geçti / 101 atlandı / yeni çarpışan deneyinin üretilen tablo nesnesinde 1 hata. Tablo mevcut ScalarTable biçimine geçirildi. Sonrasında ilgili 68 test geçti, 7 R testi atlandı; tam taramadaki tek başarısız test `pytest --lf -q` ile yeniden geçti. Etkin sonuç 806 doğrulanan / 101 atlanan, açık başarısız test yok. Tam 907 test bu düzeltmeden sonra yeniden çalıştırılmadı.
+- 101 atlama: R/R readxl çalışma ortamı (77) ve verilmemiş Hansen LM2007/DS2004/AK1991/CK1994/AL1999 dosyaları (24). Stata betikleri üretildi; Stata çalışma zamanı yürütülmedi.
+- `compileall` ve `git diff --check` geçti. Python kodu gerçek yürütmeyle arayüz hesaplarıyla eşleştirildi; mevcut not laboratuvarları/numerik hedefleri değiştirilmedi.
+- Gerçek tarayıcı: Sezgi bağlantısı doğru sekme, deney ve p_b=2 ile açıldı; Card uygulaması doğru not veri kaynağı ve Adım 4'ü açtı. Yerel sunucu 8509 test için çalıştırıldı.
+- Son tarayıcı denetimi de geçti: Konu 02/Sezgi4/rho=0.95 doğru açıldı; Uygulama↔Sezgi elle geçişi korundu. Yeni iki deneyin rho=0.95/b=2 uç ayarlarındaki Python betikleri model ve sayısal tablolarla 1e-12 toleransında eşleşti. Son belge/diff kontrolü tamamlandı; yerel iş bitti.
+- Yayımlanmış sürüm yeni yönlendirme/deney koduna henüz geçirilmedi; kullanıcı commit/push sonrasında dağıtımın güncellenmesini beklemelidir. Agent dağıtım yapmadı. QA için başlatılan 8509 sunucusu denetim sonunda durduruldu.
+
 ## Amaç ve sınırlar
 
 - IKT 807 uygulamasının bütün konu sayfalarını güncel Hansen uyumlu ders notlarına göre incelemek ve notasyon uyumsuzluklarını düzeltmek.

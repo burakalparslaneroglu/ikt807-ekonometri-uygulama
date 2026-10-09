@@ -66,6 +66,11 @@ def main() -> None:
         initial_sidebar_state="auto",
     )
 
+    from core.navigation import apply_query
+
+    for message in apply_query(st.session_state, st.query_params.to_dict()):
+        st.warning(message)
+
     scale_label = st.session_state.get(
         "text_scale_label", DEFAULT_TEXT_SCALE_LABEL
     )

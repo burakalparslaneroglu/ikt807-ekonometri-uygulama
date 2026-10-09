@@ -33,6 +33,7 @@ from core.labs.spec import (
 from core.labs.sezgi import plain
 from topics.lab_ui import CODE_LANGUAGE_KEY, render_bandwidth_cv
 from topics.regression_ui import show_figure, style_figure
+from topics.kendi_veri_ui import remember, restore
 from topics.selection_ui import experiment_table, render_plot
 
 
@@ -52,6 +53,7 @@ def _current_parameters(experiment: SimExperiment) -> dict[str, float]:
     values = {}
     for item in experiment.parameters:
         key = _parameter_key(experiment, item.key)
+        restore(key)
         if key not in st.session_state:
             st.session_state[key] = int(item.default) if item.integer else float(item.default)
         values[item.key] = st.session_state[key]
@@ -72,6 +74,7 @@ def _render_sliders(experiment: SimExperiment) -> None:
                 step=float(item.step), key=_parameter_key(experiment, item.key), help=item.help,
                 format=f"%.{item.decimals}f",
             )
+        remember(_parameter_key(experiment, item.key))
 
 
 def _rgba(rgb: str, alpha: float) -> str:
@@ -257,6 +260,7 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
         "tahminlerle yan yana görebiliriz. Gerçek veri uygulaması **Uygulama** sekmesindedir."
     )
     selector = f"{topic_key}_sezgi_deney"
+    restore(selector)
     numbers = [item.number for item in experiments]
     if st.session_state.get(selector) not in numbers:
         st.session_state[selector] = numbers[0]
@@ -264,7 +268,9 @@ def render_experiments(experiments: tuple[SimExperiment, ...]) -> None:
     st.segmented_control(
         "Deney", options=numbers, format_func=lambda n: f"Deney {n}: {titles[n]}",
         key=selector, label_visibility="collapsed",
+        required=True,
     )
+    remember(selector)
     experiment = next(item for item in experiments if item.number == st.session_state[selector])
 
     st.subheader(f"Deney {experiment.number}: {experiment.title}")

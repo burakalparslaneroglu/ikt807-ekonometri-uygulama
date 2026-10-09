@@ -3,6 +3,7 @@
 Deney 1  Heteroskedastisite: katsayı aynı, belirsizlik farklı    (Notlar §2.6)
 Deney 2  FWL ve eksik değişken: çoklu regresyon katsayısı neyi ölçer? (Notlar §2.1.1, §2.4)
 Deney 3  Kümelenmiş veri: gözlem sayısı neden yanıltabilir?        (Notlar §2.7)
+Deney 4  Çoklu doğrusal bağlantı: yanlılık mı, belirsizlik mi?     (Notlar §2.1.1)
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import numpy as np
 from core.labs import expr as E
 from core.labs.runner import LabState
 from core.labs.sezgi import Parameters, SimExperiment, SimMetric, SimParameter, number, plain
+from core.labs.sezgi_ek_ders import COLLINEARITY
 from core.labs.spec import (
     OLS,
     ClusterDraw,
@@ -297,4 +299,4 @@ CLUSTER = SimExperiment(
 )
 
 
-KONU02_EXPERIMENTS = (HETERO, FWL, CLUSTER)
+KONU02_EXPERIMENTS = (HETERO, FWL, CLUSTER, COLLINEARITY)

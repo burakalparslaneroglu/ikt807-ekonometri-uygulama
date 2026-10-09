@@ -19,6 +19,13 @@ from core.topic_registry import get_topic
 from core.notation import COMMON_NOTATION, TOPIC_NOTATION
 
 
+def topic_tabs(topic_key: str):
+    """Sunumun seçtiği sekmeyi açar ve kullanıcı sekme değişimini korur."""
+    from core.navigation import TABS, tab_key
+
+    return st.tabs(tuple(TABS.values()), key=tab_key(topic_key), on_change="rerun")
+
+
 def render_topic_header(topic_key: str) -> None:
     topic = get_topic(topic_key)
     st.markdown(

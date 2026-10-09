@@ -1,7 +1,7 @@
 """Konu 02: güvenilir çıkarım — dayanıklı ve küme standart hataları, FWL, delta yöntemi.
 
 Uygulama sekmesi ders notları §2.13'ü gerçek Hansen verisiyle adım adım yeniden
-üretir. Sezgi sekmesi bilinen bir veri üretim süreciyle üç kontrollü deney sunar.
+üretir. Sezgi sekmesi bilinen bir veri üretim süreciyle dört kontrollü deney sunar.
 Kendini sına sekmesi haftanın kavramlarını dört soru türüyle sınar.
 """
 
@@ -14,7 +14,7 @@ from core.labs.sezgi_konu02 import KONU02_EXPERIMENTS
 from core.quiz.registry import get_quiz
 from topics.lab_ui import render_lab
 from topics.quiz_ui import render_quiz
-from topics.shared import render_topic_header
+from topics.shared import render_topic_header, topic_tabs
 from topics.sim_ui import render_experiments
 
 TOPIC_KEY = "konu02"
@@ -22,7 +22,7 @@ TOPIC_KEY = "konu02"
 
 def render() -> None:
     render_topic_header(TOPIC_KEY)
-    application, intuition, self_test = st.tabs(("Uygulama", "Sezgi", "Kendini sına"))
+    application, intuition, self_test = topic_tabs(TOPIC_KEY)
     with application:
         render_lab(get_lab(TOPIC_KEY))
     with intuition:
