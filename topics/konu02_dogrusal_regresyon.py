@@ -14,6 +14,7 @@ import streamlit as st
 from core.labs.registry import get_lab
 from core.labs.sezgi_konu02 import KONU02_EXPERIMENTS
 from core.quiz.registry import get_quiz
+from topics.konu02_inference_ui import render_inference_refresher
 from topics.lab_ui import render_lab
 from topics.quiz_ui import render_quiz
 from topics.shared import render_topic_header, topic_tabs
@@ -103,6 +104,7 @@ def _render_ols_properties() -> None:
 def render() -> None:
     render_topic_header(TOPIC_KEY)
     _render_ols_properties()
+    render_inference_refresher()
     application, intuition, self_test = topic_tabs(TOPIC_KEY)
     with application:
         render_lab(get_lab(TOPIC_KEY))

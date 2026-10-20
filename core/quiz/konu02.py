@@ -163,12 +163,12 @@ QUESTIONS = (
         ),
     ),
     Question(
-        key="d07", concept="vif-nedeniyle-cikarma", note=_note("2.11.3"),
+        key="d07", concept="vif-nedeniyle-cikarma", note=_note("2.12.3"),
         prompt="Yüksek VIF gördüğümüz bir kontrol değişkenini yalnız bu nedenle modelden çıkarmak doğru bir uygulamadır.",
         answer=TrueFalse(False),
         explanation=(
             "Yüksek VIF, katsayının az bir kısmi değişkenlikten tanımlandığını gösterir; kontrolü çıkarmak tahmin "
-            "hedefini değiştirir ve eksik değişken yanlılığı yaratabilir (§2.11.3)."
+            "hedefini değiştirir ve eksik değişken yanlılığı yaratabilir (§2.12.3)."
         ),
     ),
     # --- Boşluk doldurma ---------------------------------------------------------
@@ -293,6 +293,58 @@ QUESTIONS = (
 )
 
 
+QUESTIONS += (
+    Question(
+        key="k12", concept="koenker-yardimci-r2", note=_note("2.11.1"),
+        prompt="Öğrencilendirilmiş Koenker–Breusch–Pagan testinde nR² istatistiğindeki R² hangi regresyondan gelir?",
+        answer=MultipleChoice(("Asıl Y regresyonundan", "Artık karelerinin seçilen varyans değişkenleri ve sabit üzerindeki regresyonundan", "Her regresörün diğer regresörler üzerindeki regresyonundan", "Sıfır hipotezindeki parametre sayısından"), correct=1),
+        explanation="R²_aux, artık kareleri için kurulan yardımcı regresyonun uyumudur. Asıl modelin R²'si veya VIF için kullanılan yardımcı regresyonla karıştırılmaz (§2.11.1).",
+    ),
+    Question(
+        key="k08", concept="tek-tarafli-ters-isaret", note=_note("2.9.1"),
+        prompt="Önceden seçilmiş sağ taraflı testte gözlenen t = −2 ise normal referansla p-değeri hangi aralıktadır?",
+        answer=MultipleChoice(("0 ile 0,05 arasında", "0,05 ile 0,50 arasında", "0,50'den büyük", "İşaret bilinmeden hesaplanamaz"), correct=2),
+        explanation="Sağ kuyruk olasılığı 1−Φ(−2) yaklaşık 0,977'dir. Ters yöndeki tahmin sağ alternatife kanıt olmaz; çift taraflı p'yi ikiye bölmek burada yanlıştır (§2.9.1).",
+    ),
+    Question(
+        key="k09", concept="lm-kisitli-skor", note=_note("2.9.4"),
+        prompt="LM/skor testi için tam modelin skoru hangi tahminde değerlendirilir?",
+        answer=MultipleChoice(("Yalnız kısıtsız optimumda", "Kısıtlı tahminde", "İki tahminin ortalamasında", "Parametre tahmini gerektirmez"), correct=1),
+        explanation="Yalnız kısıtlı model tahmin edilir, fakat tam modelin serbest bırakılacak yönler dahil skoru ve bilgisi burada değerlendirilir. Kısıtsız optimumda skor sıfırdır (§2.9.4).",
+    ),
+    Question(
+        key="k10", concept="lr-iki-model", note=_note("2.9.4"),
+        prompt="İç içe modeller arasında standart olabilirlik oranı (LR) testi hangi model tahminlerini gerektirir?",
+        answer=MultipleChoice(("Yalnız kısıtlı", "Yalnız kısıtsız", "Aynı olabilirlikle kısıtlı ve kısıtsız", "Yalnız artık karelerinin yardımcı regresyonu"), correct=2),
+        explanation="LR, aynı örneklemdeki iki maksimum log-olabilirliğin farkının iki katıdır; her iki tahmin gerekir (§2.9.4).",
+    ),
+    Question(
+        key="k11", concept="f-payda-serbestlik", note=_note("2.9.3"),
+        prompt="n = 100 ve sabit dahil kısıtsız katsayı sayısı k = 4 iken, iki doğrusal kısıtın klasik F testinde payda serbestlik derecesi kaçtır?",
+        answer=MultipleChoice(("98", "96", "2", "100"), correct=1),
+        explanation="Paydanın serbestlik derecesi kısıtsız modelden gelir: n−k = 96; kısıtlı modelin katsayı sayısı kullanılmaz (§2.9.3).",
+    ),
+    Question(
+        key="d08", concept="p-marjinal-anlamlilik", note=_note("2.9.1"),
+        prompt="Önceden tanımlanmış aynı sürekli testte p = 0,04 ise, p < α kuralıyla yüzde 1'de reddedilemezken yüzde 5'te reddedilir.",
+        answer=TrueFalse(True),
+        explanation="p reddetmeye geçilen anlamlılık eşiğidir: 0,04 > 0,01 fakat 0,04 < 0,05. Bu yorum sonucu gördükten sonra α seçmek için gerekçe değildir (§2.9.1).",
+    ),
+    Question(
+        key="d09", concept="vif-esigi-test-degildir", note=_note("2.12.3"),
+        prompt="VIF = 5 eşiği, yüzde 5 anlamlılık düzeyinde tanımlanmış bir hipotez testinin kritik değeridir.",
+        answer=TrueFalse(False),
+        explanation="5 ve 10 pratik uyarı eşikleridir; VIF'in bu şekilde tanımlanmış bir sıfır dağılımı veya α düzeyi yoktur (§2.12.3).",
+    ),
+    Question(
+        key="d10", concept="hetero-on-test-secimi", note=_note("2.11.2"),
+        prompt="White testinde homoskedastisite reddedilemediyse, ana çıkarımda HC standart hata kullanmak mutlaka gereksizdir.",
+        answer=TrueFalse(False),
+        explanation="Reddedememek homoskedastisitenin kanıtı değildir. Düşük güç ve ön-test seçimi sorunları nedeniyle kovaryans yapısı yalnız bu karara bağlanmaz (§2.11.2).",
+    ),
+)
+
+
 KONU02_QUIZ = QuestionSet(
     topic_key="konu02",
     title="Konu 2: Kendini sına",
@@ -303,5 +355,6 @@ KONU02_QUIZ = QuestionSet(
         "egzersizlerinin türetmelerini tekrar etmez, onları tamamlar."
     ),
     sections=("2.1.1", "2.2.3", "2.2.4", "2.3.1", "2.3.2", "2.4", "2.6", "2.6.1", "2.7.1", "2.7.3",
-              "2.7.4", "2.8.1", "2.9", "2.9.1", "2.9.2", "2.10", "2.11.3", "2.13"),
+              "2.7.4", "2.8.1", "2.9", "2.9.1", "2.9.2", "2.9.3", "2.9.4", "2.10",
+              "2.11.1", "2.11.2", "2.12.3", "2.13"),
 )
