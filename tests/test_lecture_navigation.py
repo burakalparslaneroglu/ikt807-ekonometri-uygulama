@@ -67,3 +67,21 @@ def test_real_app_deep_link_and_manual_interaction():
     app.run()
     assert not app.exception and app.segmented_control(key="konu04_lab_step").value == 4
     assert app.session_state["konu04_sekme"] == "Uygulama"
+
+
+@pytest.mark.parametrize("tab,number", [("sezgi", 4), ("uygulama", 7)])
+def test_konu02_properties_panel_preserves_deep_link_and_three_tabs(tab, number):
+    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py", default_timeout=60)
+    selector = "deney" if tab == "sezgi" else "adim"
+    app.query_params.update({"konu": "02", "sekme": tab, selector: str(number)})
+    app.run()
+    assert not app.exception
+    assert [t.label for t in app.tabs] == ["Uygulama", "Sezgi", "Kendini sına"]
+    panel = next(e for e in app.expander if "örnekleme özellikleri" in e.label)
+    assert len(panel.latex) == 3
+    assert not panel.code  # Indented prose must not become Markdown code blocks.
+    assert app.session_state["konu02_sekme"] == ("Sezgi" if tab == "sezgi" else "Uygulama")
+    widget = "konu02_sezgi_deney" if tab == "sezgi" else "konu02_lab_step"
+    assert app.segmented_control(key=widget).value == number
+    app.run()
+    assert not app.exception and app.segmented_control(key=widget).value == number
