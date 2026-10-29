@@ -85,3 +85,19 @@ def test_konu02_properties_panel_preserves_deep_link_and_three_tabs(tab, number)
     assert app.segmented_control(key=widget).value == number
     app.run()
     assert not app.exception and app.segmented_control(key=widget).value == number
+
+
+def test_konu02_gauss_markov_panel_and_existing_navigation():
+    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py", default_timeout=60)
+    app.query_params.update(konu="02", sekme="sezgi", deney="4")
+    app.run()
+    assert not app.exception
+    panel = next(e for e in app.expander if "Gauss–Markov" in e.label)
+    assert len(panel.latex) == 2
+    assert not panel.code
+    prose = "\n".join(m.value for m in panel.markdown)
+    assert "Normallik gerekmez" in prose
+    assert "yeniden BLUE yapmaz" in prose
+    assert "koşullu sapmasız" in prose
+    assert [t.label for t in app.tabs] == ["Uygulama", "Sezgi", "Kendini sına"]
+    assert app.segmented_control(key="konu02_sezgi_deney").value == 4
